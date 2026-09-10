@@ -1,0 +1,12 @@
+.DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/
+*.log
+.env
+preferences.json
+confirmed/
+jobs/
+outputs/
+artifacts/
+
