@@ -7,8 +7,14 @@ def main() -> None:
     versions = {}
     try:
         import PIL
+        from PIL import ImageCms
 
         versions["Pillow"] = PIL.__version__
+        try:
+            ImageCms.createProfile("sRGB")
+            versions["Pillow-ImageCms"] = "available"
+        except Exception:
+            missing.append("Pillow with LittleCMS/ImageCms support")
     except ImportError:
         missing.append("Pillow")
     try:

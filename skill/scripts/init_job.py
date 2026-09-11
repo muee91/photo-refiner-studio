@@ -20,7 +20,7 @@ def normalize_source_path(value: Path) -> Path:
     if candidate.exists():
         return candidate.resolve()
     raw = str(candidate)
-    # Markdown/JSON escaping can turn an underscore into a literal ``\\_``.
+    # Markdown/JSON escaping can turn an underscore into a literal ``\_``.
     # Only use the unescaped candidate when it actually exists.
     if "\\_" in raw:
         unescaped = Path(raw.replace("\\_", "_"))
@@ -159,6 +159,9 @@ def main() -> None:
             "summary": confirmation["resolvedPrompt"]["summary"],
             "prompt": confirmation["resolvedPrompt"]["prompt"],
             "avoid": confirmation["resolvedPrompt"]["avoid"],
+            "default_strength": confirmation["resolvedPrompt"].get(
+                "defaultStrength", confirmation["config"]["styleStrength"]
+            ),
             "preset_version": confirmation["resolvedPrompt"]["presetVersion"],
             "prompt_hash": confirmation["promptHash"],
         }
@@ -202,7 +205,7 @@ def main() -> None:
         {"path": str(item), "size": item.stat().st_size, "sha256": sha256_file(item)} for item in sources
     ]
     manifest = {
-        "version": 1,
+        "version": 2,
         "created_at": now.isoformat(),
         "confirmed_at": now.isoformat(),
         "confirmation": None
@@ -214,6 +217,12 @@ def main() -> None:
             "confirmed_by": confirmation["confirmedBy"],
         },
         "status": "initialized",
+        "working_color_space": "sRGB",
+        "authority_model": {
+            "source_master": ["identity", "anatomy", "factual_geometry", "construction", "authentic_material_reference"],
+            "look_master": ["approved_color", "lighting", "tone", "atmosphere", "visual_style"],
+            "detail_patch": ["registered_mid_frequency_detail", "registered_high_frequency_detail"],
+        },
         "workflow": workflow,
         "ui_mode": ui_mode,
         "sources": [str(item) for item in sources],
@@ -240,8 +249,21 @@ def main() -> None:
             "regions": detail_regions,
             "patch_scope": "head-and-face" if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face"),
             "head_patch": True if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face") == "head-and-face",
+            "pixel_budget_thresholds": {
+                "face": 0.85,
+                "hand": 0.75,
+                "head": 0.65,
+                "costume": 0.50,
+                "prop": 0.50,
+                "architecture": 0.50,
+                "background": 0.30,
+                "generic": 0.50,
+            },
         },
-        "retouch": {}
+        "retouch": {
+            "style_strength": resolved_prompt.get("default_strength", 50),
+            "detail_strength": 60,
+        }
         if confirmation is None
         else {
             "style_strength": confirmation["config"]["styleStrength"],
@@ -255,6 +277,17 @@ def main() -> None:
         "quality_gate": {
             "registration_min_ratio": 0.75,
             "registration_min_inliers": 40,
+            "registration_model_by_region": {
+                "face": "similarity",
+                "head": "affine",
+                "hand": "affine",
+                "costume": "homography",
+                "prop": "homography",
+                "architecture": "homography",
+                "background": "homography",
+                "generic": "homography",
+            },
+            "identity_structure_review_required": True,
             "max_retries": 2,
         },
         "output": {

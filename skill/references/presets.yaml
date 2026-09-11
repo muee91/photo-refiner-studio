@@ -1,8 +1,9 @@
-version: 1
+version: 2
 presets:
   eastern-twilight:
     label: "Eastern Twilight"
     summary_zh: "柔和暮光、青绿色暗部、低饱和暖金天光与湿润薄雾"
+    default_strength: 78
     prompt: >-
       Create a visibly transformed cinematic twilight grade, never a near-identical conservative retouch:
       soft twilight side rim backlighting, cyan-green shadows, muted low-saturation
@@ -26,6 +27,7 @@ presets:
   warm-gold-ancient:
     label: "Warm Gold Ancient"
     summary_zh: "克制的琥珀夕阳与灯笼暖光，适合古风人物和建筑"
+    default_strength: 68
     prompt: >-
       Muted amber sunset and lantern light, soft brown-green shadows, restrained
       saturation, delicate halation, lifted blacks, natural skin, shallow depth of
@@ -34,6 +36,7 @@ presets:
   moonlit-cyan:
     label: "Moonlit Cyan"
     summary_zh: "柔和月夜青色环境光、冷雾和少量暖色实景光"
+    default_strength: 65
     prompt: >-
       Soft moonlit cyan ambience, cool mist, restrained warm practical lights,
       low contrast, subtle bloom, lifted shadows, soft environmental edges,
@@ -42,6 +45,7 @@ presets:
   surreal-eastern:
     label: "Surreal Eastern"
     summary_zh: "古风人物的轻度超现实氛围：时间凝滞、非现实光线与可控梦境感"
+    default_strength: 78
     prompt: >-
       Photorealistic classical Chinese portrait with a restrained surreal dream layer:
       preserve the subject's real identity, face, anatomy, hands, hair ornaments, costume
@@ -68,6 +72,7 @@ presets:
   natural-cinematic:
     label: "Natural Cinematic"
     summary_zh: "自然光与平衡肤色，轻柔对比和细腻写实质感"
+    default_strength: 45
     prompt: >-
       Natural motivated light, balanced skin tones, gently softened contrast,
       controlled highlights, subtle depth separation, realistic texture and fine
@@ -76,6 +81,7 @@ presets:
   natural-landscape:
     label: "Natural Landscape"
     summary_zh: "忠实自然色彩、清晰空间层次和克制的风景细节增强"
+    default_strength: 35
     prompt: >-
       Photorealistic natural landscape refinement, faithful daylight and atmospheric
       perspective, balanced greens and sky tones, controlled highlights, open shadow
@@ -88,6 +94,7 @@ presets:
   golden-hour-landscape:
     label: "Golden Hour Landscape"
     summary_zh: "低饱和金色侧光、柔和长阴影与真实大气透视"
+    default_strength: 50
     prompt: >-
       Photorealistic golden-hour landscape, muted warm side light, softly extended
       shadows, restrained amber highlights, believable atmospheric perspective,
@@ -99,6 +106,7 @@ presets:
   misty-mountains:
     label: "Misty Mountains"
     summary_zh: "保留山体轮廓的轻雾层次、冷暖空气透视与东方山水氛围"
+    default_strength: 48
     prompt: >-
       Photorealistic mountain landscape with layered natural mist, preserved ridge and
       terrain geometry, soft cool atmospheric perspective, restrained warm light where
@@ -110,6 +118,7 @@ presets:
   clean-architecture:
     label: "Clean Architecture"
     summary_zh: "校正透视感、控制高光并保留真实建筑材质与线条"
+    default_strength: 30
     prompt: >-
       Photorealistic architectural refinement, preserved geometry and structural lines,
       neutral-to-natural color balance, controlled window and sky highlights, readable

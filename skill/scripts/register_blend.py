@@ -7,28 +7,93 @@ import cv2
 import numpy as np
 
 
+AUTO_MODELS = {
+    "face": "similarity",
+    "head": "affine",
+    "hand": "affine",
+    "costume": "homography",
+    "prop": "homography",
+    "architecture": "homography",
+    "background": "homography",
+    "generic": "homography",
+}
+
+
 def smoothstep(value: np.ndarray) -> np.ndarray:
     value = np.clip(value, 0.0, 1.0)
     return value * value * (3.0 - 2.0 * value)
 
 
+def estimate_transform(model: str, src: np.ndarray, dst: np.ndarray) -> tuple[np.ndarray | None, np.ndarray | None]:
+    if model == "homography":
+        return cv2.findHomography(src, dst, cv2.RANSAC, 4.0)
+    if model == "affine":
+        matrix, mask = cv2.estimateAffine2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=4.0)
+    elif model == "similarity":
+        matrix, mask = cv2.estimateAffinePartial2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=4.0)
+    else:
+        raise ValueError(f"Unknown registration model: {model}")
+    if matrix is None:
+        return None, mask
+    transform = np.vstack([matrix, [0.0, 0.0, 1.0]]).astype(np.float64)
+    return transform, mask
+
+
+def warp_image(image: np.ndarray, transform: np.ndarray, width: int, height: int, interpolation: int) -> np.ndarray:
+    if np.allclose(transform[2], [0.0, 0.0, 1.0]):
+        return cv2.warpAffine(
+            image,
+            transform[:2],
+            (width, height),
+            flags=interpolation,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+    return cv2.warpPerspective(
+        image,
+        transform,
+        (width, height),
+        flags=interpolation,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0,
+    )
+
+
+def normalized_low_frequency(image: np.ndarray, valid_mask: np.ndarray, sigma: float) -> np.ndarray:
+    """Blur only valid warped pixels so black warp borders do not contaminate color matching."""
+    weight = valid_mask.astype(np.float32) / 255.0
+    weighted = image.astype(np.float32) * weight[..., None]
+    blurred_weighted = cv2.GaussianBlur(weighted, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    blurred_weight = cv2.GaussianBlur(weight, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    return blurred_weighted / np.maximum(blurred_weight[..., None], 1e-4)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Register a generated detail patch and feather-blend it into a base image.")
+    parser = argparse.ArgumentParser(
+        description="Register a generated detail patch and frequency-blend it into the approved LOOK MASTER canvas."
+    )
     parser.add_argument("--base", type=Path, required=True)
-    parser.add_argument("--target", type=Path, required=True, help="Exact crop from the base image")
+    parser.add_argument("--target", type=Path, required=True, help="Exact crop from the approved base/LOOK MASTER canvas")
     parser.add_argument("--patch", type=Path, required=True, help="Generated high-detail patch")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--x", type=int, required=True)
     parser.add_argument("--y", type=int, required=True)
+    parser.add_argument("--region-type", choices=sorted(AUTO_MODELS), default="generic")
+    parser.add_argument("--model", choices=["auto", "similarity", "affine", "homography"], default="auto")
     parser.add_argument("--min-ratio", type=float, default=0.75)
     parser.add_argument("--min-inliers", type=int, default=40)
     parser.add_argument("--feather", type=float, default=80.0)
+    parser.add_argument("--detail-gain", type=float, default=1.0, help="Gain for patch mid/high-frequency detail after LOOK MASTER low-frequency restoration")
     parser.add_argument("--ratio-test", type=float, default=0.70)
     parser.add_argument("--target-tolerance", type=float, default=1.0)
     parser.add_argument("--min-coverage", type=float, default=0.90)
     parser.add_argument("--max-median-error", type=float, default=3.0)
     parser.add_argument("--max-p95-error", type=float, default=8.0)
     args = parser.parse_args()
+
+    if not 0.0 <= args.detail_gain <= 2.0:
+        raise SystemExit("--detail-gain must be between 0 and 2")
+    model = AUTO_MODELS[args.region_type] if args.model == "auto" else args.model
 
     base_path = args.base.expanduser().resolve()
     target_path = args.target.expanduser().resolve()
@@ -61,14 +126,17 @@ def main() -> None:
         raise SystemExit("Not enough image features for registration")
     pairs = cv2.BFMatcher().knnMatch(desc_patch, desc_target, k=2)
     good = [pair[0] for pair in pairs if len(pair) == 2 and pair[0].distance < args.ratio_test * pair[1].distance]
-    if len(good) < 4:
-        raise SystemExit(f"Registration rejected: only {len(good)} matches")
+    minimum_points = 4 if model == "homography" else 3
+    if len(good) < minimum_points:
+        raise SystemExit(f"Registration rejected: only {len(good)} matches for {model}")
     src = np.float32([kp_patch[item.queryIdx].pt for item in good])
     dst = np.float32([kp_target[item.trainIdx].pt for item in good])
-    transform, inlier_mask = cv2.findHomography(src, dst, cv2.RANSAC, 4.0)
+    transform, inlier_mask = estimate_transform(model, src, dst)
     inliers = int(inlier_mask.sum()) if inlier_mask is not None else 0
     ratio = inliers / len(good)
     report = {
+        "region_type": args.region_type,
+        "registration_model": model,
         "matches": len(good),
         "inliers": inliers,
         "inlier_ratio": ratio,
@@ -92,42 +160,36 @@ def main() -> None:
     projected_area = float(abs(cv2.contourArea(projected_corners)))
     target_area = float(width * height)
     area_ratio = projected_area / target_area
-    if (
+    linear = transform[:2, :2]
+    determinant = float(np.linalg.det(linear))
+    condition = float(np.linalg.cond(linear)) if np.isfinite(linear).all() else float("inf")
+    implausible = (
         not np.isfinite(projected_corners).all()
         or not cv2.isContourConvex(projected_corners.astype(np.float32))
         or area_ratio < 0.25
         or area_ratio > 4.0
+        or determinant <= 0
+        or condition > 6.0
         or median_error > args.max_median_error
         or p95_error > args.max_p95_error
-    ):
+    )
+    if implausible:
         report.update(
             {
                 "median_reprojection_error": median_error,
                 "p95_reprojection_error": p95_error,
                 "projected_area_ratio": area_ratio,
-                "reason": "implausible homography",
+                "linear_determinant": determinant,
+                "linear_condition": condition,
+                "reason": f"implausible {model} transform",
             }
         )
         print(json.dumps(report, indent=2))
         raise SystemExit(2)
 
-    aligned = cv2.warpPerspective(
-        patch,
-        transform,
-        (width, height),
-        flags=cv2.INTER_LANCZOS4,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0,
-    ).astype(np.float32)
+    aligned = warp_image(patch, transform, width, height, cv2.INTER_LANCZOS4).astype(np.float32)
     patch_mask = np.full(patch.shape[:2], 255, dtype=np.uint8)
-    valid_mask = cv2.warpPerspective(
-        patch_mask,
-        transform,
-        (width, height),
-        flags=cv2.INTER_NEAREST,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0,
-    )
+    valid_mask = warp_image(patch_mask, transform, width, height, cv2.INTER_NEAREST)
     coverage = float(np.count_nonzero(valid_mask) / valid_mask.size)
     if coverage < args.min_coverage:
         report.update(
@@ -141,11 +203,15 @@ def main() -> None:
         )
         print(json.dumps(report, indent=2))
         raise SystemExit(2)
+
+    # LOOK MASTER remains authoritative for low-frequency color/light/tone.
+    # The patch contributes registered mid/high-frequency detail only.
     target_float = target.astype(np.float32)
     sigma = max(min(width, height) / 30.0, 12.0)
-    aligned_low = cv2.GaussianBlur(aligned, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    aligned_low = normalized_low_frequency(aligned, valid_mask, sigma)
     target_low = cv2.GaussianBlur(target_float, (0, 0), sigmaX=sigma, sigmaY=sigma)
-    corrected = np.clip(aligned + target_low - aligned_low, 0, 255)
+    aligned_detail = aligned - aligned_low
+    corrected = np.clip(target_low + aligned_detail * args.detail_gain, 0, 255)
 
     yy, xx = np.mgrid[0:height, 0:width]
     distance = np.minimum.reduce([xx, yy, width - 1 - xx, height - 1 - yy]).astype(np.float32)
@@ -168,7 +234,11 @@ def main() -> None:
             "median_reprojection_error": median_error,
             "p95_reprojection_error": p95_error,
             "projected_area_ratio": area_ratio,
+            "linear_determinant": determinant,
+            "linear_condition": condition,
             "coverage": coverage,
+            "fusion_mode": "look-master-low-frequency-plus-patch-detail",
+            "detail_gain": args.detail_gain,
         }
     )
     print(json.dumps(report, indent=2))

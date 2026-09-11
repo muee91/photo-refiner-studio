@@ -33,7 +33,7 @@ and atmosphere. Prefer concrete visual ideas over abstract labels such as “高
 Always keep an identity-preserving constraint in the draft unless the user explicitly asks for a
 full redesign.
 
-Do not claim certainty about cultural identity or historical accuracy. Say “看起来像” or “按画面特征判断” when appropriate. Do not silently change the user's confirmed preset; pass the recommendation as `suggestedPreset` and let the user change it in the panel.
+Do not claim certainty about cultural identity or historical accuracy. Say “看起来像” or “按画面特征判断” when appropriate. Do not silently change the user's confirmed preset; pass the recommendation as `suggestedPreset` and let the user change it in the panel. The recommended preset's `default_strength` is the preferred starting strength. If no reliable subject/light recommendation can be made, use `natural-cinematic` as the neutral fallback rather than defaulting to `eastern-twilight`.
 
 ## Surreal boundary
 

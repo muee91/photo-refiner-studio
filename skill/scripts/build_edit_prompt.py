@@ -65,23 +65,34 @@ def positive_instruction(label: str, value: float, maximum: int = 100) -> str:
     return f"{label} at strength {value:g}/{maximum}"
 
 
-def style_execution_intent(value: float) -> str:
+def style_execution_level(value: float) -> str:
     if value < 25:
-        return "Apply only minimal polish; keep the image visually close to the source."
+        return "minimal"
     if value < 50:
-        return "Apply a subtle but perceptible grade; source fidelity remains the dominant visual outcome."
+        return "subtle"
     if value < 75:
-        return "Apply a clearly visible cinematic grade; do not return a near-identical source image."
+        return "visible"
     if value < 90:
-        return (
+        return "strong"
+    return "transformative"
+
+
+def style_execution_intent(value: float) -> str:
+    level = style_execution_level(value)
+    return {
+        "minimal": "Apply only minimal polish; keep the image visually close to the source.",
+        "subtle": "Apply a subtle but perceptible grade; source fidelity remains the dominant visual outcome.",
+        "visible": "Apply a clearly visible cinematic grade; do not return a near-identical source image.",
+        "strong": (
             "Make the requested cinematic grade unmistakably visible in the delivered image. "
             "Prioritize the requested light, palette, atmosphere, tonal separation, and film response over a "
             "conservative near-identical retouch while preserving identity and scene geometry."
-        )
-    return (
-        "Apply a bold, highly visible stylistic transformation. Preserve identity and core geometry, "
-        "but allow stronger lighting, palette, atmosphere, and tonal redesign."
-    )
+        ),
+        "transformative": (
+            "Apply a bold, highly visible stylistic transformation. Preserve identity and core geometry, "
+            "but allow stronger lighting, palette, atmosphere, and tonal redesign."
+        ),
+    }[level]
 
 
 def main() -> None:
@@ -100,9 +111,12 @@ def main() -> None:
     instructions = []
     style_strength = retouch.get("style_strength")
     style_intent = None
+    style_level = None
     if isinstance(style_strength, (int, float)):
+        style_level = style_execution_level(style_strength)
         style_intent = style_execution_intent(style_strength)
-        instructions.append(f"apply the frozen style at strength {style_strength:g}/100: {style_intent}")
+        # Keep the 0–100 value as UI/audit metadata, but do not imply linear model control in the actual generation instruction.
+        instructions.append(f"apply the frozen style using the {style_level} execution level: {style_intent}")
 
     for group, labels in LABELS.items():
         values = retouch.get(group) or {}
@@ -123,6 +137,12 @@ def main() -> None:
     if isinstance(detail_strength, (int, float)):
         region_text = ", ".join(detail.get("regions") or []) or "visible subject and scene regions"
         instructions.append(f"{detail.get('mode', 'adaptive')} detail recovery at strength {detail_strength:g}/100 for {region_text}")
+    instructions.append(
+        "treat the approved base as LOOK MASTER: preserve its approved low-frequency color, lighting, tone, atmosphere, and style; detail patches may add registered spatial detail but must not redefine the approved look"
+    )
+    instructions.append(
+        "treat the original photograph as SOURCE MASTER for identity, anatomy, garment/object construction, factual scene geometry, and authentic material reference"
+    )
     face_requested = detail.get("mode") == "face" or any(
         token in region.lower() for region in detail.get("regions") or [] for token in ("face", "人脸", "脸部", "五官")
     )
@@ -148,11 +168,14 @@ def main() -> None:
     brief = {
         "preset": resolved.get("preset"),
         "style_strength": style_strength,
+        "style_execution_level": style_level,
         "style_execution_intent": style_intent,
         "base_prompt": resolved["prompt"],
         "avoid": resolved.get("avoid", ""),
         "requested_adjustments": instructions,
         "invariants": invariants,
+        "authority_model": data.get("authority_model"),
+        "working_color_space": data.get("working_color_space", "sRGB"),
         "framing": data.get("framing", "preserve"),
         "aspect_ratio": data.get("aspect_ratio", "original"),
         "resolution": data.get("resolution", "source-width"),

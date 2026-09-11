@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import argparse
+import sys
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageCms, ImageOps
 
 
 def parse_size(value: str) -> tuple[int, int]:
@@ -15,8 +16,12 @@ def parse_size(value: str) -> tuple[int, int]:
     return width, height
 
 
+def srgb_profile_bytes() -> bytes:
+    return ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Resize an accepted composite to exact delivery dimensions.")
+    parser = argparse.ArgumentParser(description="Resize an accepted sRGB composite to exact delivery dimensions.")
     parser.add_argument("input", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--size", type=parse_size, required=True)
@@ -28,7 +33,11 @@ def main() -> None:
         help="How to handle an input/output aspect-ratio mismatch",
     )
     parser.add_argument("--background", default="#000000", help="Letterbox color for --fit contain")
-    parser.add_argument("--icc-source", type=Path, help="Optional source image whose ICC profile should be attached")
+    parser.add_argument(
+        "--icc-source",
+        type=Path,
+        help="Deprecated compatibility flag. The v2.1 working/output space is sRGB; source ICC is never blindly reattached.",
+    )
     args = parser.parse_args()
     source = args.input.expanduser().resolve()
     output = args.output.expanduser().resolve()
@@ -40,9 +49,14 @@ def main() -> None:
         raise SystemExit("JPEG quality must be between 1 and 100")
     if output.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
         raise SystemExit("Output extension must be .png, .jpg, or .jpeg")
-    icc_source = args.icc_source.expanduser().resolve() if args.icc_source else None
-    if icc_source is not None and not icc_source.is_file():
-        raise SystemExit(f"Missing ICC source: {icc_source}")
+    if args.icc_source:
+        legacy = args.icc_source.expanduser().resolve()
+        if not legacy.is_file():
+            raise SystemExit(f"Missing ICC source: {legacy}")
+        print(
+            "warning: --icc-source is deprecated; Photo Refiner v2.1 keeps the accepted composite in sRGB and will not reattach the source profile",
+            file=sys.stderr,
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(source) as image:
         source_rgb = image.convert("RGB")
@@ -67,16 +81,12 @@ def main() -> None:
             offset = ((args.size[0] - contained.width) // 2, (args.size[1] - contained.height) // 2)
             background.paste(contained, offset)
             resized = background
-        icc_profile = image.info.get("icc_profile")
-        if icc_source is not None:
-            with Image.open(icc_source) as profile_image:
-                icc_profile = profile_image.info.get("icc_profile")
-        save_options = {"icc_profile": icc_profile} if icc_profile else {}
+        save_options = {"icc_profile": srgb_profile_bytes()}
         if output.suffix.lower() in {".jpg", ".jpeg"}:
             resized.save(output, quality=args.jpeg_quality, subsampling=0, optimize=True, **save_options)
         else:
             resized.save(output, format="PNG", compress_level=4, **save_options)
-        print(f"{output} {resized.width}x{resized.height}")
+        print(f"{output} {resized.width}x{resized.height} colorspace=sRGB")
 
 
 if __name__ == "__main__":
