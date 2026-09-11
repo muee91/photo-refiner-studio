@@ -20,7 +20,7 @@ def normalize_source_path(value: Path) -> Path:
     if candidate.exists():
         return candidate.resolve()
     raw = str(candidate)
-    # Markdown/JSON escaping can turn an underscore into a literal ``\_``.
+    # Markdown/JSON escaping can turn an underscore into a literal ``\\_``.
     # Only use the unescaped candidate when it actually exists.
     if "\\_" in raw:
         unescaped = Path(raw.replace("\\_", "_"))
@@ -130,11 +130,13 @@ def main() -> None:
     parser.add_argument("--consistency", choices=["strict", "balanced", "creative"], default="balanced")
     parser.add_argument("--master-frame", default="auto")
     parser.add_argument("--detail-mode", choices=["base-only", "face", "adaptive", "explicit"], default="adaptive")
+    parser.add_argument("--detail-budget", choices=["fast", "balanced", "max"], help="Generation ceiling: fast=1, balanced=3, max=5. Explicit CLI value overrides Studio default.")
     parser.add_argument("--detail-regions", default="", help="Comma-separated regions required for explicit detail mode")
     parser.add_argument("--keep-intermediates", action="store_true")
     parser.add_argument("--confirmed", action="store_true", help="Assert that the displayed settings were confirmed by the user")
     args = parser.parse_args()
 
+    cli_detail_budget = args.detail_budget
     confirmation = None
     if args.confirmation_file:
         confirmation = load_confirmation(args.confirmation_file)
@@ -152,6 +154,7 @@ def main() -> None:
         args.keep_intermediates = ui_config["keepIntermediates"]
         args.consistency = ui_config["batch"]["consistency"]
         args.detail_mode = ui_config["detail"]["mode"]
+        args.detail_budget = cli_detail_budget or ui_config["detail"].get("generationBudget", "balanced")
         args.detail_regions = ui_config["detail"].get("regions", "")
         resolved_prompt = {
             "preset": confirmation["resolvedPrompt"]["preset"],
@@ -176,6 +179,7 @@ def main() -> None:
             raise SystemExit(str(exc)) from exc
         delivery_mode = "preview-first"
         ui_mode = "simple"
+        args.detail_budget = args.detail_budget or "balanced"
 
     sources = validate_source_files(args.sources)
     workflow = args.workflow
@@ -204,8 +208,11 @@ def main() -> None:
     source_records = [
         {"path": str(item), "size": item.stat().st_size, "sha256": sha256_file(item)} for item in sources
     ]
+    budget_limits = {"fast": 1, "balanced": 3, "max": 5}
+
     manifest = {
         "version": 2,
+        "release_version": "2.2",
         "created_at": now.isoformat(),
         "confirmed_at": now.isoformat(),
         "confirmation": None
@@ -246,6 +253,10 @@ def main() -> None:
         },
         "detail": {
             "mode": args.detail_mode,
+            "generation_budget": args.detail_budget,
+            "max_generated_patches": budget_limits[args.detail_budget],
+            "planner": "adaptive-value-merge-v2",
+            "mask_mode": "lightweight",
             "regions": detail_regions,
             "patch_scope": "head-and-face" if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face"),
             "head_patch": True if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face") == "head-and-face",
@@ -288,6 +299,11 @@ def main() -> None:
                 "generic": "homography",
             },
             "identity_structure_review_required": True,
+            "landmark_identity_gate": {
+                "mode": "optional-when-landmarks-available",
+                "max_normalized_rmse": 0.055,
+                "max_point_error": 0.10,
+            },
             "max_retries": 2,
         },
         "output": {
