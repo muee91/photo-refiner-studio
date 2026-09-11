@@ -1,9 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "presets": {
     "eastern-twilight": {
       "label": "Eastern Twilight",
       "summary": "柔和暮光、青绿色暗部、低饱和暖金天光与湿润薄雾",
+      "defaultStrength": 78,
       "prompt": "Create a visibly transformed cinematic twilight grade, never a near-identical conservative retouch: soft twilight side rim backlighting, cyan-green shadows, muted low-saturation warm golden skylight, humid cyan-green haze, sparse scattered light particles, low-contrast soft focus, subtle highlight bloom and halation, slightly lifted blacks, restrained warm accents, shallow depth of field, fine 35mm film grain, photorealistic, ethereal and mysterious Eastern fantasy atmosphere. Make the cyan-green shadow separation, warm sky-light layering, humid haze, lifted blacks, and gentle halation clearly visible in the delivered image.",
       "avoid": "hard flash, crushed blacks, clipped highlights, oversaturated teal-orange, heavy fog hiding the subject, excessive particles, CGI, painterly rendering, plastic skin, text, logo, border, watermark",
       "promptZh": "将照片明确调成电影感暮光成片，不要只是接近原图的保守精修：柔和暮光侧逆光，青绿色暗部， 低饱和暖金天光，潮湿的青绿色薄雾，空气中少量散射光粒子，低反差柔焦，高光轻微晕染扩散， 黑位轻抬，克制的暖色层次，柔和浅景深，细腻的 35mm 胶片颗粒，照片级写实，空灵神秘的东方幻想氛围。 成片中必须清楚呈现青绿色暗部层次、暖金天光、湿润雾感、轻抬黑位与柔和晕光。",
@@ -12,6 +13,7 @@
     "warm-gold-ancient": {
       "label": "Warm Gold Ancient",
       "summary": "克制的琥珀夕阳与灯笼暖光，适合古风人物和建筑",
+      "defaultStrength": 68,
       "prompt": "Muted amber sunset and lantern light, soft brown-green shadows, restrained saturation, delicate halation, lifted blacks, natural skin, shallow depth of field, fine 35mm grain, photorealistic classical Chinese cinematic atmosphere.",
       "avoid": "orange skin, harsh HDR, clipped lamps, excessive glow, CGI, text, logo, watermark",
       "promptZh": "",
@@ -20,6 +22,7 @@
     "moonlit-cyan": {
       "label": "Moonlit Cyan",
       "summary": "柔和月夜青色环境光、冷雾和少量暖色实景光",
+      "defaultStrength": 65,
       "prompt": "Soft moonlit cyan ambience, cool mist, restrained warm practical lights, low contrast, subtle bloom, lifted shadows, soft environmental edges, fine film grain, photorealistic quiet nocturnal atmosphere.",
       "avoid": "neon blue skin, crushed blacks, excessive fog, hard sharpening, CGI, text, watermark",
       "promptZh": "",
@@ -28,6 +31,7 @@
     "surreal-eastern": {
       "label": "Surreal Eastern",
       "summary": "古风人物的轻度超现实氛围：时间凝滞、非现实光线与可控梦境感",
+      "defaultStrength": 78,
       "prompt": "Photorealistic classical Chinese portrait with a restrained surreal dream layer: preserve the subject's real identity, face, anatomy, hands, hair ornaments, costume construction and scene geometry; introduce a believable sense of suspended time, slightly impossible but physically coherent twilight light, delicate floating dust and silk-like atmospheric trails, subtle depth layering, quiet dreamlike scale, poetic negative space, muted jade-cyan shadows and restrained antique-gold accents. The result must remain a real photograph with tactile skin, hair, embroidery and fabric texture, not an illustration or fantasy character redesign.",
       "avoid": "cartoon, anime, painterly rendering, fantasy character redesign, plastic skin, altered identity, changed face, extra limbs, duplicated ornaments, impossible anatomy, excessive particles, giant props, surreal distortion, neon colors, heavy fog, crushed blacks, text, logo, border, watermark",
       "promptZh": "将古风人物照片处理为带有克制超现实层次的电影感梦境：保留真实身份、五官、人体结构、 手部、头发与发饰、服装结构和场景几何；加入仿佛时间凝滞的氛围、略带非现实但物理可信的 暮光光线、少量漂浮尘粒与丝绸般的空气轨迹、细腻空间分层、安静的梦境尺度和诗意留白； 使用低饱和玉青色暗部与克制的古金色高光。最终必须仍然像真实摄影，保留皮肤、头发、 刺绣和织物的触感，不要变成插画或重新设计成幻想角色。",
@@ -36,6 +40,7 @@
     "natural-cinematic": {
       "label": "Natural Cinematic",
       "summary": "自然光与平衡肤色，轻柔对比和细腻写实质感",
+      "defaultStrength": 45,
       "prompt": "Natural motivated light, balanced skin tones, gently softened contrast, controlled highlights, subtle depth separation, realistic texture and fine 35mm grain, premium photorealistic editorial color grade.",
       "avoid": "beauty-filter skin, HDR halos, oversaturation, excessive blur, CGI, text, watermark",
       "promptZh": "",
@@ -44,6 +49,7 @@
     "natural-landscape": {
       "label": "Natural Landscape",
       "summary": "忠实自然色彩、清晰空间层次和克制的风景细节增强",
+      "defaultStrength": 35,
       "prompt": "Photorealistic natural landscape refinement, faithful daylight and atmospheric perspective, balanced greens and sky tones, controlled highlights, open shadow detail, realistic foliage, rock, soil, water, and cloud textures, restrained local contrast, natural depth, clean fine detail without an artificial HDR appearance.",
       "avoid": "oversaturated foliage, neon sky, HDR halos, crunchy sharpening, repeated leaves, invented buildings, changed terrain, fake reflections, CGI, painterly rendering, text, logo, border, watermark",
       "promptZh": "",
@@ -52,6 +58,7 @@
     "golden-hour-landscape": {
       "label": "Golden Hour Landscape",
       "summary": "低饱和金色侧光、柔和长阴影与真实大气透视",
+      "defaultStrength": 50,
       "prompt": "Photorealistic golden-hour landscape, muted warm side light, softly extended shadows, restrained amber highlights, believable atmospheric perspective, preserved terrain and vegetation structure, controlled sky gradients, subtle highlight bloom, natural fine detail and gentle filmic contrast.",
       "avoid": "orange color cast, clipped sun, fake god rays, HDR halos, oversaturation, invented terrain, repeated vegetation, CGI, text, logo, border, watermark",
       "promptZh": "",
@@ -60,6 +67,7 @@
     "misty-mountains": {
       "label": "Misty Mountains",
       "summary": "保留山体轮廓的轻雾层次、冷暖空气透视与东方山水氛围",
+      "defaultStrength": 48,
       "prompt": "Photorealistic mountain landscape with layered natural mist, preserved ridge and terrain geometry, soft cool atmospheric perspective, restrained warm light where present, delicate cloud separation, lifted distant values, realistic vegetation and rock textures, quiet Eastern landscape atmosphere without painterly conversion.",
       "avoid": "fog hiding all terrain, invented peaks, warped ridgelines, fantasy buildings, oversaturated cyan, hard clarity, HDR halos, CGI, ink painting, text, watermark",
       "promptZh": "",
@@ -68,6 +76,7 @@
     "clean-architecture": {
       "label": "Clean Architecture",
       "summary": "校正透视感、控制高光并保留真实建筑材质与线条",
+      "defaultStrength": 30,
       "prompt": "Photorealistic architectural refinement, preserved geometry and structural lines, neutral-to-natural color balance, controlled window and sky highlights, readable shadow detail, realistic stone, wood, glass, and metal textures, clean depth and restrained micro-contrast.",
       "avoid": "bent walls, shifted windows, invented structures, extreme wide-angle distortion, HDR halos, oversharpening, plastic materials, CGI, text, logo, watermark",
       "promptZh": "",

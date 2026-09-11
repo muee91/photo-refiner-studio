@@ -1,28 +1,17 @@
 {
   "name": "photo-refiner-studio",
-  "version": "0.1.0+codex.20260910201516",
+  "version": "0.2.0+codex.20260912",
   "description": "Interactive photo-refinement settings and confirmation for Codex",
-  "author": {
-    "name": "muee"
-  },
+  "author": {"name": "muee"},
   "license": "Proprietary",
-  "keywords": [
-    "photo",
-    "retouching",
-    "portrait",
-    "landscape",
-    "image-editing"
-  ],
+  "keywords": ["photo", "retouching", "portrait", "landscape", "image-editing"],
   "interface": {
     "displayName": "Photo Refiner Studio",
     "shortDescription": "Interactive photo retouching controls and safe confirmation",
     "longDescription": "Configure photo refinement through an interactive panel before generation. Choose cinematic or natural presets, custom prompts, output dimensions, portrait beauty, body shaping, clothing wrinkle reduction, background cleanup, landscape enhancement, detail recovery, and batch consistency. Identity and geometry-changing controls default to off.",
     "developerName": "muee",
     "category": "Creative",
-    "capabilities": [
-      "Interactive",
-      "Write"
-    ],
+    "capabilities": ["Interactive", "Write"],
     "defaultPrompt": [
       "Open the Photo Refiner settings for these photos",
       "Retouch this portrait after I confirm the settings",
@@ -31,9 +20,7 @@
     "brandColor": "#1D8A7A",
     "composerIcon": "./assets/photo-refiner.svg",
     "logo": "./assets/photo-refiner.svg",
-    "screenshots": [
-      "./assets/settings-preview.png"
-    ]
+    "screenshots": ["./assets/settings-preview.png"]
   },
   "mcpServers": "./.mcp.json"
 }

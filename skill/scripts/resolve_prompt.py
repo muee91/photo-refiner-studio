@@ -8,6 +8,7 @@ import yaml
 
 
 PRESETS_PATH = Path(__file__).resolve().parent.parent / "references" / "presets.yaml"
+CUSTOM_DEFAULT_STRENGTH = 50
 
 
 def resolve_prompt(
@@ -30,6 +31,7 @@ def resolve_prompt(
             "summary": "User-provided photo refinement prompt",
             "prompt": prompt,
             "avoid": custom_avoid.strip(),
+            "default_strength": CUSTOM_DEFAULT_STRENGTH,
             "preset_version": version,
         }
     else:
@@ -37,12 +39,16 @@ def resolve_prompt(
             available = ", ".join(sorted(presets))
             raise ValueError(f"Unknown preset '{preset}'. Available presets: {available}, custom")
         item = presets[preset]
+        strength = item.get("default_strength", CUSTOM_DEFAULT_STRENGTH)
+        if not isinstance(strength, (int, float)) or not 0 <= strength <= 100:
+            raise ValueError(f"Preset '{preset}' has invalid default_strength: {strength!r}")
         resolved = {
             "preset": preset,
             "label": item["label"],
             "summary": item.get("summary_zh") or item.get("summary") or item["label"],
             "prompt": item["prompt"].strip(),
             "avoid": item.get("avoid", "").strip(),
+            "default_strength": strength,
             "preset_version": version,
         }
 

@@ -18,7 +18,8 @@ const PREFERENCES_PATH = path.join(os.homedir(), ".codex", "photo-refiner", "pre
 const DEFAULTS = {
   uiMode: "simple",
   workflow: "auto",
-  preset: "eastern-twilight",
+  // Neutral fallback only; normal jobs pass a subject-aware suggestedPreset.
+  preset: "natural-cinematic",
   customPrompt: "",
   customAvoid: "",
   promptFavorite: false,
@@ -30,9 +31,8 @@ const DEFAULTS = {
   deliveryMode: "preview-first",
   outputFormat: "jpg",
   keepIntermediates: false,
-  // 80 is the visible, strong-but-controlled cinematic default. 100 remains
-  // an opt-in extreme where identity, texture, and scene drift become likelier.
-  styleStrength: 80,
+  // Neutral fallback. Subject-aware recommendations use each preset's defaultStrength.
+  styleStrength: 45,
   global: {
     exposure: 0,
     contrast: 0,
@@ -326,16 +326,22 @@ function callTool(name, args) {
       throw new Error("At least one source photograph is required before opening Photo Refiner settings");
     }
     const preferences = loadPreferences();
-    const defaults = mergeDefaults(preferences.lastConfig || {});
+    const savedConfig = isObject(preferences.lastConfig) ? preferences.lastConfig : {};
+    const defaults = mergeDefaults(savedConfig);
     defaults.workflow = args.sourceCount > 1 ? "batch" : "single";
-    if (typeof args.suggestedPreset === "string" && PRESETS.presets[args.suggestedPreset]) defaults.preset = args.suggestedPreset;
+    if (typeof args.suggestedPreset === "string" && PRESETS.presets[args.suggestedPreset]) {
+      defaults.preset = args.suggestedPreset;
+      const presetDefault = PRESETS.presets[args.suggestedPreset].defaultStrength;
+      const preserveSavedStrength = savedConfig.preset === args.suggestedPreset && typeof savedConfig.styleStrength === "number";
+      if (!preserveSavedStrength && typeof presetDefault === "number") defaults.styleStrength = presetDefault;
+    }
     const creativeDirections = Array.isArray(args.creativeDirections) ? args.creativeDirections.slice(0, 3).map((item) => ({
       label: cleanText(String(item?.label || "灵感方向"), 80, "creativeDirections.label"),
       summary: cleanText(String(item?.summary || ""), 240, "creativeDirections.summary"),
       prompt: cleanText(String(item?.prompt || ""), 1800, "creativeDirections.prompt"),
       avoid: cleanText(String(item?.avoid || ""), 600, "creativeDirections.avoid"),
     })).filter((item) => item.prompt) : [];
-    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 1, presets: PRESETS, defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
+    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 2, presets: PRESETS, defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
   }
   if (name === "submit_photo_refiner_settings") {
     if (args.userConfirmed !== true) throw new Error("Explicit user confirmation is required");
@@ -344,7 +350,7 @@ function callTool(name, args) {
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
     const record = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       confirmationId: id,
       confirmedAt: now,
       confirmedBy: "photo-refiner-studio",
@@ -355,6 +361,7 @@ function callTool(name, args) {
         summary: prompt.summary,
         prompt: prompt.prompt,
         avoid: prompt.avoid,
+        defaultStrength: typeof prompt.defaultStrength === "number" ? prompt.defaultStrength : config.styleStrength,
         presetVersion: PRESETS.version,
       },
     };
