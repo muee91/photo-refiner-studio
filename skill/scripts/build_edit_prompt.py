@@ -137,6 +137,15 @@ def main() -> None:
     if isinstance(detail_strength, (int, float)):
         region_text = ", ".join(detail.get("regions") or []) or "visible subject and scene regions"
         instructions.append(f"{detail.get('mode', 'adaptive')} detail recovery at strength {detail_strength:g}/100 for {region_text}")
+    generation_budget = detail.get("generation_budget")
+    max_generated_patches = detail.get("max_generated_patches")
+    if generation_budget and max_generated_patches:
+        instructions.append(
+            f"follow the {generation_budget} generation budget and prefer the fewest patches that can recover the needed detail; do not exceed {max_generated_patches} generated detail patches unless the user explicitly overrides the limit"
+        )
+    planner = detail.get("planner")
+    if planner:
+        instructions.append(f"use the {planner} planner principle: treat the generation budget as a ceiling, merge regions before splitting them, skip low-value regions, and avoid micro-patches for facial parts, hair strands, sleeves, or ornaments")
     instructions.append(
         "treat the approved base as LOOK MASTER: preserve its approved low-frequency color, lighting, tone, atmosphere, and style; detail patches may add registered spatial detail but must not redefine the approved look"
     )
