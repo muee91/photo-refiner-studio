@@ -1,12 +1,13 @@
 # Configuration schema
 
-Persist resolved values in `job.json`. Version 2 formalizes the SOURCE/LOOK/DETAIL authority model, the sRGB working space, effective-detail budgets, and region-aware registration.
+Persist resolved values in `job.json`. Version 2.2 formalizes the SOURCE/LOOK/DETAIL authority model, the sRGB working space, effective-detail budgets, region-aware registration, adaptive tile planning, and lightweight blend masks.
 
 ```yaml
 version: 2
+release_version: "2.2"
 workflow: single                 # single | batch
 ui_mode: simple                  # simple | pro; UI presentation only
-working_color_space: sRGB        # v2.1 working/delivery space
+working_color_space: sRGB        # v2.2 working/delivery space
 authority_model:
   source_master:                 # original high-resolution photograph
     - identity
@@ -58,6 +59,10 @@ batch:
   master_frame_approved: false  # null for single; must become true before continuing a batch
 detail:
   mode: adaptive                # base-only | face | adaptive | explicit
+  generation_budget: balanced   # fast | balanced | max
+  max_generated_patches: 3      # derived from generation_budget
+  planner: adaptive-value-merge-v2    # coarse planner that prefers merging over splitting
+  mask_mode: lightweight        # coarse blend mask; not fine semantic segmentation
   regions: []                   # required when mode is explicit
   patch_scope: head-and-face    # head-and-face | face-only | custom
   head_patch: true
@@ -83,6 +88,10 @@ quality_gate:
     background: homography
     generic: homography
   identity_structure_review_required: true
+  landmark_identity_gate:
+    mode: optional-when-landmarks-available
+    max_normalized_rmse: 0.055
+    max_point_error: 0.10
   max_retries: 2
 output:
   separate_job_folder: true
@@ -106,3 +115,12 @@ Pass `--confirmed` only after confirmation. Named presets must exist in `presets
 `source-width` preserves the original source width while calculating height from the selected aspect ratio. It does not mean stretching a low-resolution preview without detail passes. Every planned detail tile must satisfy its effective pixel budget before generation.
 
 For `master_frame: auto`, choose a source with a sharp face, usable exposure, clear key props and minimal occlusion. Other frames use the approved master look as a style reference, not as their sole edit target.
+
+## v2.2 planning rules
+
+- `fast`: at most 1 generated patch
+- `balanced`: at most 3 generated patches
+- `max`: at most 5 generated patches
+- These are ceilings, not quotas. The planner may select fewer or zero regions after value/scale filtering.
+- Portrait defaults still prefer the coarse order `costume -> head -> face`, with hand/prop tiles added only when the budget and visual value justify them.
+- `mask_mode: lightweight` means coarse mask guidance for blending only; it must not be interpreted as a requirement to generate more sub-patches.
