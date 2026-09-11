@@ -69,3 +69,17 @@ two-reference patch
 ```
 
 Maximum two generation attempts per tile unless the user explicitly asks for more. Always blend from a clean accepted state; never build on a rejected composite.
+
+## v2.2 additions
+
+- A passing registration may optionally use `--blend-mask` to reduce rectangular seams; this is a blending aid, not permission to weaken identity or geometry checks.
+- The planner must treat the generation budget as a ceiling, score candidate value/scale, and prefer broad regions over many small regions. Reject plans that create micro-patches for eyes, mouth, ears, sleeves, or single ornaments by default. A valid balanced plan may contain 0, 1, 2, or 3 patches.
+- If a broad `head` patch adequately covers hair, ears, and ornaments, do not split it into more generated patches merely to improve the mask.
+
+## Optional landmark structure gate
+
+When reliable facial landmarks are already available from the active backend/vision pass, run `landmark_identity_gate.py` before accepting a face patch. The default normalized RMSE threshold is `0.055` and the worst-point threshold is `0.10`. Failure rejects the face patch even if SIFT/similarity registration passes. Absence of landmarks does not fail the job; visual identity review remains mandatory.
+
+## Multiband fusion v2
+
+Registration geometry coverage and blend-mask coverage are separate metrics. A small lightweight mask must never weaken the registration coverage gate. LOOK MASTER owns the low band and most of the mid band; patch contribution is strongest in the high band.
