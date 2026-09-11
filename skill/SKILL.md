@@ -3,9 +3,11 @@ name: photo-refiner
 description: Refine photographs with an approved Image 2.5 look, high-resolution local detail recovery, registration, frequency-aware blending, and deterministic delivery sizing while preserving source identity and scene truth.
 ---
 
-# Photo Refiner v2.1
+# Photo Refiner v2.2
 
 Photo Refiner is a **photographic refinement workflow**, not a generic image-redesign skill. Image 2.5 establishes the approved visual look; deterministic scripts and localized generation recover useful detail without pretending that a low-resolution generation is native high resolution.
+
+Version 2.2 keeps the v2.1 SOURCE / LOOK / DETAIL authority model, but adds three execution rules: **adaptive tile planning**, **generation budgets**, and **lightweight blend masks**. The goal is to improve local recovery without exploding the number of generated patches.
 
 ## 1. Intent gate
 
@@ -60,6 +62,10 @@ delivery_mode: preview-first
 resolution: source-width
 detail.mode: adaptive
 detail.patch_scope: head-and-face
+detail.generation_budget: balanced
+detail.max_generated_patches: 3
+detail.planner: adaptive-value-merge-v2
+detail.mask_mode: lightweight
 batch.consistency: balanced
 output_format: jpg
 working_color_space: sRGB
@@ -83,7 +89,7 @@ Every job gets its own directory and immutable source hashes. Never overwrite, m
 
 ## 5. Color policy
 
-Photo Refiner v2.1 uses **sRGB as the internal working and delivery space** because Image 2.5 does not expose an ICC/P3 contract that this Skill can rely on.
+Photo Refiner v2.2 uses **sRGB as the internal working and delivery space** because Image 2.5 does not expose an ICC/P3 contract that this Skill can rely on.
 
 Normalize source pixels with:
 
@@ -171,6 +177,31 @@ For each accepted region, extract:
 
 Generate the patch under both constraints. If dual-reference generation causes structural drift, allow one geometry-locked target-only retry. Maximum two generation attempts per tile unless the user explicitly asks for more.
 
+## 7A. Adaptive tile planning and generation budgets
+
+Before local generation, v2.2 plans coarse detail regions with:
+
+```bash
+python3 scripts/plan_detail_tiles.py --image <look-master-or-source> ...
+```
+
+This planner is intentionally conservative. The generation budget is a **ceiling, never a quota**. It scores candidate regions by visual value and final-image scale, prefers one broad region over several fine ones, and may return fewer patches—or zero patches—when local generation is not worth the latency.
+
+Default generated-patch ceilings:
+
+- `fast` → at most 1 generated patch
+- `balanced` → at most 3 generated patches
+- `max` → at most 5 generated patches
+
+For portrait/classical-costume work, the preferred coarse ordering remains:
+
+1. costume/body structure
+2. head/hair/ornaments
+3. complete face
+4. hands/held objects only when genuinely large or important
+
+Do not create separate generated patches for eyes, nose, mouth, sleeves, individual ornaments, or small hair subregions unless the user explicitly asks for a more expensive workflow.
+
 ## 8. Registration and fusion
 
 Register with:
@@ -198,15 +229,31 @@ Default numeric registration gate: at least 40 inliers, inlier ratio at least `0
 
 Passing registration is **not** enough. Perform a separate visual SOURCE MASTER structure/identity review before accepting identity-sensitive regions.
 
-### Frequency fusion
+### Lightweight blend masks
 
-LOOK MASTER remains authoritative for low-frequency appearance. `register_blend.py` combines:
+v2.2 may build an optional **lightweight geometric blend mask** with:
+
+```bash
+python3 scripts/build_blend_mask.py <patch-or-target> <mask.png> --region-type <type> [--focus-box x,y,w,h]
+```
+
+This is **not semantic segmentation**. It creates a coarse, soft-edged geometric face/head/hand/object mask that reduces obvious rectangular seams. It is local OpenCV work only and **never adds Image 2.5 generation calls**.
+
+`register_blend.py` accepts `--blend-mask <mask.png>` and warps the mask together with the patch. If no mask is supplied, the legacy rectangular feather path still applies.
+
+### Multiband frequency fusion
+
+LOOK MASTER remains authoritative for low-frequency appearance and most mid-frequency structure. v2.2 uses three bands:
 
 ```text
 LOOK MASTER low frequency
 +
-registered DETAIL PATCH mid/high frequency
+mostly LOOK MASTER mid frequency + controlled PATCH mid detail
++
+registered DETAIL PATCH high frequency
 ```
+
+Default patch mid-frequency contribution is region-aware and deliberately conservative (face lowest; costume/props higher).
 
 Do not paste a generated patch wholesale over the approved look. Reject visible white-balance changes, relighting, saturation jumps, seams, halos, double features, or local sharpness discontinuities.
 
@@ -214,13 +261,25 @@ Always blend from the clean latest accepted state. Broad tiles first, specific t
 
 Read `references/quality-gates.md` for the full rejection/retry rules.
 
+### Optional landmark identity gate
+
+When a backend/vision pass can provide at least the canonical five facial landmarks for SOURCE MASTER and the candidate patch, run:
+
+```bash
+python3 scripts/landmark_identity_gate.py \
+  --source <source-landmarks.json> \
+  --candidate <candidate-landmarks.json>
+```
+
+The JSON uses named `[x,y]` points (`left_eye`, `right_eye`, `nose_tip`, `mouth_left`, `mouth_right`; optional `chin`, `jaw_left`, `jaw_right`). The script similarity-aligns candidate to SOURCE MASTER and measures normalized residual structure. Do not run a separate detector solely to satisfy this gate if doing so would materially increase latency; it is opportunistic evidence, not a mandatory dependency.
+
 ## 9. Identity and factual integrity
 
 Reject regardless of numeric score for changed identity, face shape, feature spacing, gaze/expression, hand anatomy, finger count, garment construction, broken embroidery, shifted props, invented buildings/terrain, doubled contours, or other factual scene drift.
 
 Do not invent missing anatomy or scene content merely to complete a crop. If the source itself cuts off a chin/hand/object, preserve the approved LOOK MASTER and report the limitation.
 
-Face-embedding backends may be added as optional evidence later, but v2.1 must not require a heavyweight identity model to run. Visual/landmark review remains a separate gate from SIFT registration.
+Face-embedding backends may be added as optional evidence later, but v2.2 does not require a heavyweight identity model. When source/candidate landmarks are available, run `scripts/landmark_identity_gate.py` before accepting an identity-sensitive face patch. It similarity-aligns the landmark sets and rejects proportion/structure drift. This gate is supplementary; visual identity review remains required.
 
 ## 10. Batch consistency
 
