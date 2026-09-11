@@ -83,8 +83,10 @@ def main() -> None:
     parser.add_argument("--min-ratio", type=float, default=0.75)
     parser.add_argument("--min-inliers", type=int, default=40)
     parser.add_argument("--feather", type=float, default=80.0)
-    parser.add_argument("--detail-gain", type=float, default=1.0, help="Gain for patch mid/high-frequency detail after LOOK MASTER low-frequency restoration")
+    parser.add_argument("--detail-gain", type=float, default=1.0, help="Gain for patch high-frequency detail after LOOK MASTER restoration")
+    parser.add_argument("--mid-detail-gain", type=float, help="Optional mid-frequency patch contribution. Defaults are region-aware and deliberately conservative.")
     parser.add_argument("--ratio-test", type=float, default=0.70)
+    parser.add_argument("--blend-mask", type=Path, help="Optional grayscale mask matching the patch dimensions; used to reduce rectangular seams without adding new patch generations")
     parser.add_argument("--target-tolerance", type=float, default=1.0)
     parser.add_argument("--min-coverage", type=float, default=0.90)
     parser.add_argument("--max-median-error", type=float, default=3.0)
@@ -93,19 +95,35 @@ def main() -> None:
 
     if not 0.0 <= args.detail_gain <= 2.0:
         raise SystemExit("--detail-gain must be between 0 and 2")
+    default_mid = {"face": 0.20, "head": 0.30, "hand": 0.30, "costume": 0.40, "prop": 0.40, "architecture": 0.35, "background": 0.30, "generic": 0.35}
+    mid_detail_gain = default_mid[args.region_type] if args.mid_detail_gain is None else args.mid_detail_gain
+    if not 0.0 <= mid_detail_gain <= 1.0:
+        raise SystemExit("--mid-detail-gain must be between 0 and 1")
     model = AUTO_MODELS[args.region_type] if args.model == "auto" else args.model
 
     base_path = args.base.expanduser().resolve()
     target_path = args.target.expanduser().resolve()
     patch_path = args.patch.expanduser().resolve()
     output = args.output.expanduser().resolve()
-    if output in {base_path, target_path, patch_path}:
-        raise SystemExit("Refusing to overwrite a base, target, or patch image")
+    blend_mask_path = args.blend_mask.expanduser().resolve() if args.blend_mask else None
+    protected_paths = {base_path, target_path, patch_path}
+    if blend_mask_path is not None:
+        protected_paths.add(blend_mask_path)
+    if output in protected_paths:
+        raise SystemExit("Refusing to overwrite a base, target, patch, or mask image")
     base = cv2.imread(str(base_path), cv2.IMREAD_COLOR)
     target = cv2.imread(str(target_path), cv2.IMREAD_COLOR)
     patch = cv2.imread(str(patch_path), cv2.IMREAD_COLOR)
     if base is None or target is None or patch is None:
         raise SystemExit("Could not read base, target, or patch")
+    if blend_mask_path is not None:
+        blend_mask = cv2.imread(str(blend_mask_path), cv2.IMREAD_GRAYSCALE)
+        if blend_mask is None:
+            raise SystemExit("Could not read blend mask")
+        if blend_mask.shape[:2] != patch.shape[:2]:
+            raise SystemExit("Blend mask must match the patch dimensions")
+    else:
+        blend_mask = None
     height, width = target.shape[:2]
     if args.x < 0 or args.y < 0 or args.x + width > base.shape[1] or args.y + height > base.shape[0]:
         raise SystemExit("Target placement is outside base bounds")
@@ -188,35 +206,60 @@ def main() -> None:
         raise SystemExit(2)
 
     aligned = warp_image(patch, transform, width, height, cv2.INTER_LANCZOS4).astype(np.float32)
-    patch_mask = np.full(patch.shape[:2], 255, dtype=np.uint8)
-    valid_mask = warp_image(patch_mask, transform, width, height, cv2.INTER_NEAREST)
-    coverage = float(np.count_nonzero(valid_mask) / valid_mask.size)
-    if coverage < args.min_coverage:
+    # Geometry coverage is independent of the optional blend mask. A lightweight mask
+    # may intentionally cover only the center/subject and must not weaken the warp gate.
+    geometry_source_mask = np.full(patch.shape[:2], 255, dtype=np.uint8)
+    geometry_mask = warp_image(geometry_source_mask, transform, width, height, cv2.INTER_NEAREST)
+    geometry_coverage = float(np.count_nonzero(geometry_mask) / geometry_mask.size)
+    if geometry_coverage < args.min_coverage:
         report.update(
             {
                 "median_reprojection_error": median_error,
                 "p95_reprojection_error": p95_error,
                 "projected_area_ratio": area_ratio,
-                "coverage": coverage,
-                "reason": "insufficient warped-patch coverage",
+                "coverage": geometry_coverage,
+                "reason": "insufficient warped-patch geometry coverage",
             }
         )
         print(json.dumps(report, indent=2))
         raise SystemExit(2)
 
-    # LOOK MASTER remains authoritative for low-frequency color/light/tone.
-    # The patch contributes registered mid/high-frequency detail only.
+    if blend_mask is not None:
+        warped_blend_mask = warp_image(blend_mask, transform, width, height, cv2.INTER_LINEAR).astype(np.float32)
+    else:
+        warped_blend_mask = geometry_mask.astype(np.float32)
+    mask_coverage = float(np.mean(warped_blend_mask / 255.0))
+    if blend_mask is not None and mask_coverage < 0.05:
+        report.update({"coverage": geometry_coverage, "mask_coverage": mask_coverage, "reason": "blend mask is effectively empty"})
+        print(json.dumps(report, indent=2))
+        raise SystemExit(2)
+
+    # v2.2 multiband fusion: LOOK MASTER owns low frequency and most mid-frequency
+    # appearance; the patch contributes a controlled amount of mid detail and the high
+    # frequency texture. This reduces local re-grading and sharpness discontinuities.
     target_float = target.astype(np.float32)
-    sigma = max(min(width, height) / 30.0, 12.0)
-    aligned_low = normalized_low_frequency(aligned, valid_mask, sigma)
-    target_low = cv2.GaussianBlur(target_float, (0, 0), sigmaX=sigma, sigmaY=sigma)
-    aligned_detail = aligned - aligned_low
-    corrected = np.clip(target_low + aligned_detail * args.detail_gain, 0, 255)
+    sigma_large = max(min(width, height) / 28.0, 12.0)
+    sigma_small = max(min(width, height) / 110.0, 2.0)
+    aligned_large = normalized_low_frequency(aligned, geometry_mask, sigma_large)
+    aligned_small = normalized_low_frequency(aligned, geometry_mask, sigma_small)
+    target_large = cv2.GaussianBlur(target_float, (0, 0), sigmaX=sigma_large, sigmaY=sigma_large)
+    target_small = cv2.GaussianBlur(target_float, (0, 0), sigmaX=sigma_small, sigmaY=sigma_small)
+    target_mid = target_small - target_large
+    aligned_mid = aligned_small - aligned_large
+    aligned_high = aligned - aligned_small
+    corrected = np.clip(
+        target_large
+        + target_mid * (1.0 - mid_detail_gain)
+        + aligned_mid * mid_detail_gain
+        + aligned_high * args.detail_gain,
+        0,
+        255,
+    )
 
     yy, xx = np.mgrid[0:height, 0:width]
     distance = np.minimum.reduce([xx, yy, width - 1 - xx, height - 1 - yy]).astype(np.float32)
-    alpha = smoothstep(distance / max(args.feather, 1.0))[..., None]
-    alpha *= (valid_mask.astype(np.float32) / 255.0)[..., None]
+    edge_alpha = smoothstep(distance / max(args.feather, 1.0))[..., None]
+    alpha = edge_alpha * (warped_blend_mask / 255.0)[..., None]
     result = base.astype(np.float32)
     region = result[args.y:args.y + height, args.x:args.x + width]
     result[args.y:args.y + height, args.x:args.x + width] = region * (1.0 - alpha) + corrected * alpha
@@ -236,9 +279,14 @@ def main() -> None:
             "projected_area_ratio": area_ratio,
             "linear_determinant": determinant,
             "linear_condition": condition,
-            "coverage": coverage,
+            "coverage": geometry_coverage,
+            "mask_coverage": mask_coverage,
             "fusion_mode": "look-master-low-frequency-plus-patch-detail",
+            "fusion_version": 2,
+            "multiband": True,
+            "mid_detail_gain": mid_detail_gain,
             "detail_gain": args.detail_gain,
+            "custom_blend_mask": blend_mask_path is not None,
         }
     )
     print(json.dumps(report, indent=2))
