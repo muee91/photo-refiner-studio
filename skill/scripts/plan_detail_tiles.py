@@ -18,7 +18,12 @@ from typing import Iterable
 from PIL import Image
 
 
-BUDGET_LIMITS = {"fast": 1, "balanced": 3, "max": 5}
+BUDGET_POLICY = {
+    "fast": {"soft": 1, "hard": 1, "threshold": 0.50, "overflow_threshold": 1.01},
+    "balanced": {"soft": 3, "hard": 6, "threshold": 0.38, "overflow_threshold": 0.50},
+    "max": {"soft": 5, "hard": 8, "threshold": 0.24, "overflow_threshold": 0.36},
+}
+BUDGET_LIMITS = {name: policy["hard"] for name, policy in BUDGET_POLICY.items()}
 BASE_VALUE = {
     "face": 1.00,
     "head": 0.78,
@@ -28,7 +33,7 @@ BASE_VALUE = {
     "architecture": 0.58,
     "generic": 0.50,
 }
-BUDGET_THRESHOLDS = {"fast": 0.50, "balanced": 0.38, "max": 0.24}
+BUDGET_THRESHOLDS = {name: policy["threshold"] for name, policy in BUDGET_POLICY.items()}
 BLEND_ORDER = {"costume": 10, "architecture": 10, "generic": 10, "head": 20, "hand": 25, "prop": 25, "face": 30}
 
 
@@ -165,8 +170,11 @@ def build_plan(
     hand_boxes: Iterable[Box],
     prop_boxes: Iterable[Box],
 ) -> dict:
-    max_patches = BUDGET_LIMITS[detail_budget]
-    threshold = BUDGET_THRESHOLDS[detail_budget]
+    policy = BUDGET_POLICY[detail_budget]
+    soft_patches = policy["soft"]
+    hard_patches = policy["hard"]
+    threshold = policy["threshold"]
+    overflow_threshold = policy["overflow_threshold"]
     candidates: list[dict] = []
     skipped: list[dict] = []
     portrait_like = subject_type in {"portrait", "classical-portrait"}
@@ -233,11 +241,12 @@ def build_plan(
             elif face_box is not None:
                 skipped.append({"region_type": "face", "reason": "face_scale_below_separate_patch_threshold; head patch is preferred"})
 
-        # Auxiliary hand/prop calls are intentionally expensive. Balanced normally
-        # skips them; max considers only candidates that are visibly non-trivial.
+        # Hands/props are auxiliary candidates. Fast never spends calls on them.
+        # Balanced may exceed its soft budget only for large/high-value auxiliaries;
+        # max is more permissive but still obeys a hard ceiling.
         for box in hand_boxes:
-            if detail_budget != "max":
-                skipped.append({"region_type": "hand", "reason": "auxiliary_patch_reserved_for_max_budget"})
+            if detail_budget == "fast":
+                skipped.append({"region_type": "hand", "reason": "auxiliary_patch_disabled_in_fast_budget"})
                 continue
             expanded = box.expand(image_w, image_h, left=0.18, top=0.18, right=0.18, bottom=0.18)
             append_candidate(
@@ -247,11 +256,12 @@ def build_plan(
                 subject_box=box,
                 image_w=image_w,
                 image_h=image_h,
-                rationale="Large important hand gets one coarse patch in max mode; fingers are never split into separate generations.",
+                importance=1.20,
+                rationale="Important hand remains one coarse patch; fingers are never split into separate generations.",
             )
         for box in prop_boxes:
-            if detail_budget != "max":
-                skipped.append({"region_type": "prop", "reason": "auxiliary_patch_reserved_for_max_budget"})
+            if detail_budget == "fast":
+                skipped.append({"region_type": "prop", "reason": "auxiliary_patch_disabled_in_fast_budget"})
                 continue
             expanded = box.expand(image_w, image_h, left=0.12, top=0.12, right=0.12, bottom=0.12)
             append_candidate(
@@ -261,6 +271,7 @@ def build_plan(
                 subject_box=box,
                 image_w=image_w,
                 image_h=image_h,
+                importance=1.15,
                 rationale="Important prop remains one broad object patch; do not split object parts into separate generations.",
             )
     else:
@@ -281,8 +292,10 @@ def build_plan(
         else:
             skipped.append({"region_type": "generic", "reason": "no_high_value_region_identified; use LOOK MASTER without local generation"})
 
-    # Filter by value first, then choose the best few. The ceiling is never treated
-    # as a target count. Preserve blend order only after selection.
+    # Filter by value first. The soft budget is the normal envelope, not a quota.
+    # High-value leftovers may overflow to the hard ceiling. For portraits, core
+    # broad regions are protected from being displaced by hands/props in the first
+    # three balanced slots.
     worthy = []
     for candidate in candidates:
         if candidate["value_score"] >= threshold:
@@ -293,30 +306,67 @@ def build_plan(
                 "value_score": candidate["value_score"],
                 "reason": f"below_{detail_budget}_value_threshold_{threshold:.2f}",
             })
-    selected_by_value = sorted(worthy, key=lambda item: (-item["value_score"], item["blend_order"]))[:max_patches]
+
+    ranked = sorted(worthy, key=lambda item: (-item["value_score"], item["blend_order"]))
+    core_types = {"costume", "head", "face", "architecture", "generic"}
+    core = [item for item in ranked if item["region_type"] in core_types]
+    auxiliary = [item for item in ranked if item["region_type"] not in core_types]
+
+    selected_by_value = core[:soft_patches]
+    if len(selected_by_value) < soft_patches:
+        selected_by_value.extend(auxiliary[:soft_patches - len(selected_by_value)])
+
+    selected_keys = {(item["region_type"], tuple(item["crop"].values())) for item in selected_by_value}
+    remaining = [
+        item for item in ranked
+        if (item["region_type"], tuple(item["crop"].values())) not in selected_keys
+    ]
+    overflow_slots = max(0, hard_patches - len(selected_by_value))
+    overflow = [
+        item for item in remaining
+        if item["value_score"] >= overflow_threshold
+    ][:overflow_slots]
+    selected_by_value.extend(overflow)
+
     selected_ids = {(item["region_type"], tuple(item["crop"].values())) for item in selected_by_value}
     for candidate in worthy:
         key = (candidate["region_type"], tuple(candidate["crop"].values()))
-        if key not in selected_ids:
-            skipped.append({"region_type": candidate["region_type"], "value_score": candidate["value_score"], "reason": "generation_budget_ceiling_reached"})
+        if key in selected_ids:
+            continue
+        reason = (
+            f"below_overflow_threshold_{overflow_threshold:.2f}"
+            if candidate["value_score"] < overflow_threshold and len(selected_by_value) >= soft_patches
+            else "hard_generation_ceiling_reached"
+        )
+        skipped.append({
+            "region_type": candidate["region_type"],
+            "value_score": candidate["value_score"],
+            "reason": reason,
+        })
     regions = sorted(selected_by_value, key=lambda item: item["blend_order"])
+    overflow_count = max(0, len(regions) - soft_patches)
 
     return {
         "subject_type": subject_type,
         "detail_budget": detail_budget,
-        "max_generated_patches": max_patches,
+        "soft_generated_patch_budget": soft_patches,
+        "hard_generated_patch_ceiling": hard_patches,
+        "max_generated_patches": hard_patches,
         "estimated_generated_patches": len(regions),
+        "overflow_generated_patches": overflow_count,
+        "adaptive_overflow_used": overflow_count > 0,
         "region_count": len(regions),
         "regions": regions,
         "skipped_candidates": skipped,
-        "planner": "adaptive-value-merge-v2",
+        "planner": "adaptive-value-merge-v2.2",
         "value_threshold": threshold,
-        "principle": "generation_budget_is_a_ceiling; prefer_merging_regions_over_splitting_them",
+        "overflow_value_threshold": overflow_threshold,
+        "principle": "soft_budget_is_normal; high_value_regions_may_overflow_to_hard_ceiling; prefer_merging_over_splitting",
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Plan coarse Photo Refiner v2.2 detail tiles with a generation ceiling.")
+    parser = argparse.ArgumentParser(description="Plan coarse Photo Refiner v2.2 detail tiles with a soft generation budget and adaptive hard ceiling.")
     parser.add_argument("--image", type=Path, required=True, help="Reference image used for dimensions")
     parser.add_argument("--subject-type", choices=["portrait", "classical-portrait", "landscape", "architecture", "generic"], default="portrait")
     parser.add_argument("--detail-budget", choices=sorted(BUDGET_LIMITS), default="balanced")

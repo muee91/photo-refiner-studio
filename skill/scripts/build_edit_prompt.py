@@ -115,7 +115,6 @@ def main() -> None:
     if isinstance(style_strength, (int, float)):
         style_level = style_execution_level(style_strength)
         style_intent = style_execution_intent(style_strength)
-        # Keep the 0–100 value as UI/audit metadata, but do not imply linear model control in the actual generation instruction.
         instructions.append(f"apply the frozen style using the {style_level} execution level: {style_intent}")
 
     for group, labels in LABELS.items():
@@ -138,11 +137,17 @@ def main() -> None:
         region_text = ", ".join(detail.get("regions") or []) or "visible subject and scene regions"
         instructions.append(f"{detail.get('mode', 'adaptive')} detail recovery at strength {detail_strength:g}/100 for {region_text}")
     generation_budget = detail.get("generation_budget")
-    max_generated_patches = detail.get("max_generated_patches")
-    if generation_budget and max_generated_patches:
-        instructions.append(
-            f"follow the {generation_budget} generation budget and prefer the fewest patches that can recover the needed detail; do not exceed {max_generated_patches} generated detail patches unless the user explicitly overrides the limit"
-        )
+    soft_generated_patches = detail.get("soft_generated_patch_budget")
+    hard_generated_patches = detail.get("hard_generated_patch_ceiling") or detail.get("max_generated_patches")
+    if generation_budget and hard_generated_patches:
+        if soft_generated_patches and soft_generated_patches < hard_generated_patches:
+            instructions.append(
+                f"follow the {generation_budget} adaptive generation budget: normally stay within {soft_generated_patches} generated detail patches, but allow high-value regions that pass scale/pixel-budget gates to overflow up to the hard ceiling of {hard_generated_patches}; never treat either number as a quota"
+            )
+        else:
+            instructions.append(
+                f"follow the {generation_budget} generation budget and prefer the fewest patches that can recover the needed detail; do not exceed {hard_generated_patches} generated detail patches unless the user explicitly overrides the limit"
+            )
     planner = detail.get("planner")
     if planner:
         instructions.append(f"use the {planner} planner principle: treat the generation budget as a ceiling, merge regions before splitting them, skip low-value regions, and avoid micro-patches for facial parts, hair strands, sleeves, or ornaments")

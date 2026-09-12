@@ -73,7 +73,7 @@ Maximum two generation attempts per tile unless the user explicitly asks for mor
 ## v2.2 additions
 
 - A passing registration may optionally use `--blend-mask` to reduce rectangular seams; this is a blending aid, not permission to weaken identity or geometry checks.
-- The planner must treat the generation budget as a ceiling, score candidate value/scale, and prefer broad regions over many small regions. Reject plans that create micro-patches for eyes, mouth, ears, sleeves, or single ornaments by default. A valid balanced plan may contain 0, 1, 2, or 3 patches.
+- The planner must treat the normal generation count as a **soft budget**, score candidate value/scale, and prefer broad regions over many small regions. Reject plans that create micro-patches for eyes, mouth, ears, sleeves, or single ornaments by default. A balanced plan normally contains 0–3 patches, but may expand to 4–6 only when the remaining regions exceed the overflow-value threshold and still pass Pixel Budget. Six is the balanced hard ceiling.
 - If a broad `head` patch adequately covers hair, ears, and ornaments, do not split it into more generated patches merely to improve the mask.
 
 ## Optional landmark structure gate

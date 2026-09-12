@@ -45,8 +45,10 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         manifest = json.loads((Path(result.stdout.strip()) / "job.json").read_text())
         self.assertEqual(manifest["release_version"], "2.2")
         self.assertEqual(manifest["detail"]["generation_budget"], "fast")
+        self.assertEqual(manifest["detail"]["soft_generated_patch_budget"], 1)
+        self.assertEqual(manifest["detail"]["hard_generated_patch_ceiling"], 1)
         self.assertEqual(manifest["detail"]["max_generated_patches"], 1)
-        self.assertEqual(manifest["detail"]["planner"], "adaptive-value-merge-v2")
+        self.assertEqual(manifest["detail"]["planner"], "adaptive-value-merge-v2.2")
         self.assertEqual(manifest["detail"]["mask_mode"], "lightweight")
         self.assertEqual(manifest["quality_gate"]["landmark_identity_gate"]["mode"], "optional-when-landmarks-available")
 
@@ -57,8 +59,10 @@ class PhotoRefinerV22Tests(unittest.TestCase):
             subject_box=Box(400, 350, 700, 1300), face_box=Box(600, 500, 250, 350),
             hand_boxes=[], prop_boxes=[],
         )
-        self.assertEqual(plan["planner"], "adaptive-value-merge-v2")
-        self.assertEqual(plan["max_generated_patches"], 3)
+        self.assertEqual(plan["planner"], "adaptive-value-merge-v2.2")
+        self.assertEqual(plan["soft_generated_patch_budget"], 3)
+        self.assertEqual(plan["hard_generated_patch_ceiling"], 6)
+        self.assertEqual(plan["max_generated_patches"], 6)
         self.assertEqual(plan["estimated_generated_patches"], 3)
         self.assertEqual([item["region_type"] for item in plan["regions"]], ["costume", "head", "face"])
         self.assertTrue(all(item["requires_pixel_budget_check"] for item in plan["regions"]))
@@ -70,12 +74,45 @@ class PhotoRefinerV22Tests(unittest.TestCase):
             subject_box=Box(500, 500, 400, 900), face_box=Box(650, 550, 70, 90),
             hand_boxes=[], prop_boxes=[],
         )
-        self.assertEqual(plan["max_generated_patches"], 3)
+        self.assertEqual(plan["soft_generated_patch_budget"], 3)
+        self.assertEqual(plan["hard_generated_patch_ceiling"], 6)
+        self.assertEqual(plan["max_generated_patches"], 6)
         self.assertEqual(plan["estimated_generated_patches"], 1)
         self.assertEqual([item["region_type"] for item in plan["regions"]], ["costume"])
         skipped_types = {item["region_type"] for item in plan["skipped_candidates"]}
         self.assertIn("face", skipped_types)
         self.assertIn("head", skipped_types)
+
+    def test_balanced_complex_portrait_can_overflow_soft_budget_without_exceeding_hard_ceiling(self):
+        plan = build_plan(
+            1500, 2000,
+            subject_type="classical-portrait", detail_budget="balanced",
+            subject_box=Box(330, 260, 840, 1500), face_box=Box(590, 410, 310, 410),
+            hand_boxes=[Box(420, 1260, 230, 300), Box(780, 1240, 230, 300)],
+            prop_boxes=[Box(500, 1050, 430, 500)],
+        )
+        self.assertEqual(plan["soft_generated_patch_budget"], 3)
+        self.assertEqual(plan["hard_generated_patch_ceiling"], 6)
+        self.assertGreater(plan["estimated_generated_patches"], 3)
+        self.assertLessEqual(plan["estimated_generated_patches"], 6)
+        self.assertTrue(plan["adaptive_overflow_used"])
+        self.assertGreater(plan["overflow_generated_patches"], 0)
+        region_types = [item["region_type"] for item in plan["regions"]]
+        self.assertTrue({"costume", "head", "face"}.issubset(set(region_types)))
+        self.assertGreater(sum(item in {"hand", "prop"} for item in region_types), 0)
+        self.assertEqual(region_types[-1], "face")
+
+    def test_balanced_small_auxiliary_regions_do_not_trigger_overflow(self):
+        plan = build_plan(
+            1500, 2000,
+            subject_type="portrait", detail_budget="balanced",
+            subject_box=Box(400, 350, 700, 1300), face_box=Box(600, 500, 250, 350),
+            hand_boxes=[Box(500, 1400, 80, 90), Box(850, 1420, 75, 85)],
+            prop_boxes=[Box(650, 1300, 90, 100)],
+        )
+        self.assertEqual(plan["estimated_generated_patches"], 3)
+        self.assertFalse(plan["adaptive_overflow_used"])
+        self.assertEqual(plan["overflow_generated_patches"], 0)
 
     def test_landscape_without_high_value_region_uses_zero_local_generations(self):
         plan = build_plan(
@@ -100,7 +137,6 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         mask, mode, _ = build_mask(300, 300, "head", (60, 40, 180, 200), "auto", 0.06)
         self.assertEqual(mode, "shape-lite")
         self.assertGreater(float(mask.mean() / 255.0), 0.05)
-        # Contract assertion: this helper is deterministic local masking only.
         self.assertEqual(mask.shape, (300, 300))
 
     def test_lightweight_blend_mask_integrates_with_multiband_registration(self):

@@ -60,8 +60,11 @@ batch:
 detail:
   mode: adaptive                # base-only | face | adaptive | explicit
   generation_budget: balanced   # fast | balanced | max
-  max_generated_patches: 3      # derived from generation_budget
-  planner: adaptive-value-merge-v2    # coarse planner that prefers merging over splitting
+  soft_generated_patch_budget: 3 # normal envelope; never a quota
+  hard_generated_patch_ceiling: 6 # high-value overflow limit
+  max_generated_patches: 6       # compatibility alias of hard ceiling
+  adaptive_overflow: true
+  planner: adaptive-value-merge-v2.2  # coarse planner that prefers merging over splitting
   mask_mode: lightweight        # coarse blend mask; not fine semantic segmentation
   regions: []                   # required when mode is explicit
   patch_scope: head-and-face    # head-and-face | face-only | custom
@@ -118,9 +121,10 @@ For `master_frame: auto`, choose a source with a sharp face, usable exposure, cl
 
 ## v2.2 planning rules
 
-- `fast`: at most 1 generated patch
-- `balanced`: at most 3 generated patches
-- `max`: at most 5 generated patches
-- These are ceilings, not quotas. The planner may select fewer or zero regions after value/scale filtering.
+- `fast`: soft 1 / hard 1
+- `balanced`: soft 3 / hard 6
+- `max`: soft 5 / hard 8
+- The soft value is the normal operating envelope, not a quota. The planner may select fewer or zero regions after value/scale filtering.
+- Overflow beyond the soft value is allowed only for remaining high-value regions that still justify the latency; the hard ceiling is absolute unless the user explicitly overrides it.
 - Portrait defaults still prefer the coarse order `costume -> head -> face`, with hand/prop tiles added only when the budget and visual value justify them.
 - `mask_mode: lightweight` means coarse mask guidance for blending only; it must not be interpreted as a requirement to generate more sub-patches.

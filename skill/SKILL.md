@@ -63,8 +63,10 @@ resolution: source-width
 detail.mode: adaptive
 detail.patch_scope: head-and-face
 detail.generation_budget: balanced
-detail.max_generated_patches: 3
-detail.planner: adaptive-value-merge-v2
+detail.soft_generated_patch_budget: 3
+detail.hard_generated_patch_ceiling: 6
+detail.max_generated_patches: 6
+detail.planner: adaptive-value-merge-v2.2
 detail.mask_mode: lightweight
 batch.consistency: balanced
 output_format: jpg
@@ -187,11 +189,13 @@ python3 scripts/plan_detail_tiles.py --image <look-master-or-source> ...
 
 This planner is intentionally conservative. The generation budget is a **ceiling, never a quota**. It scores candidate regions by visual value and final-image scale, prefers one broad region over several fine ones, and may return fewer patches—or zero patches—when local generation is not worth the latency.
 
-Default generated-patch ceilings:
+Default generated-patch policy:
 
-- `fast` → at most 1 generated patch
-- `balanced` → at most 3 generated patches
-- `max` → at most 5 generated patches
+- `fast` → soft 1 / hard 1
+- `balanced` → soft 3 / hard 6
+- `max` → soft 5 / hard 8
+
+The **soft budget** is the normal operating envelope. It is not a quota. A complex scene may exceed it only when the remaining regions are still high-value, visually large enough, and able to pass Pixel Budget. The **hard ceiling** prevents runaway generation time.
 
 For portrait/classical-costume work, the preferred coarse ordering remains:
 

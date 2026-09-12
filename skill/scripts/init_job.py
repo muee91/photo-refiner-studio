@@ -20,8 +20,6 @@ def normalize_source_path(value: Path) -> Path:
     if candidate.exists():
         return candidate.resolve()
     raw = str(candidate)
-    # Markdown/JSON escaping can turn an underscore into a literal ``\\_``.
-    # Only use the unescaped candidate when it actually exists.
     if "\\_" in raw:
         unescaped = Path(raw.replace("\\_", "_"))
         if unescaped.exists():
@@ -130,7 +128,7 @@ def main() -> None:
     parser.add_argument("--consistency", choices=["strict", "balanced", "creative"], default="balanced")
     parser.add_argument("--master-frame", default="auto")
     parser.add_argument("--detail-mode", choices=["base-only", "face", "adaptive", "explicit"], default="adaptive")
-    parser.add_argument("--detail-budget", choices=["fast", "balanced", "max"], help="Generation ceiling: fast=1, balanced=3, max=5. Explicit CLI value overrides Studio default.")
+    parser.add_argument("--detail-budget", choices=["fast", "balanced", "max"], help="Generation policy: fast=1 hard, balanced=3 soft/6 hard, max=5 soft/8 hard. Explicit CLI value overrides Studio default.")
     parser.add_argument("--detail-regions", default="", help="Comma-separated regions required for explicit detail mode")
     parser.add_argument("--keep-intermediates", action="store_true")
     parser.add_argument("--confirmed", action="store_true", help="Assert that the displayed settings were confirmed by the user")
@@ -208,7 +206,11 @@ def main() -> None:
     source_records = [
         {"path": str(item), "size": item.stat().st_size, "sha256": sha256_file(item)} for item in sources
     ]
-    budget_limits = {"fast": 1, "balanced": 3, "max": 5}
+    budget_policy = {
+        "fast": {"soft": 1, "hard": 1},
+        "balanced": {"soft": 3, "hard": 6},
+        "max": {"soft": 5, "hard": 8},
+    }
 
     manifest = {
         "version": 2,
@@ -240,7 +242,6 @@ def main() -> None:
         "framing": args.framing,
         "resolution": args.resolution,
         "delivery_mode": delivery_mode,
-        # Batch jobs already use the approved master frame as their base-look review.
         "base_preview": {"required": delivery_mode == "preview-first" and workflow == "single", "approved": False},
         "output_format": args.output_format,
         "batch": {
@@ -254,8 +255,11 @@ def main() -> None:
         "detail": {
             "mode": args.detail_mode,
             "generation_budget": args.detail_budget,
-            "max_generated_patches": budget_limits[args.detail_budget],
-            "planner": "adaptive-value-merge-v2",
+            "soft_generated_patch_budget": budget_policy[args.detail_budget]["soft"],
+            "hard_generated_patch_ceiling": budget_policy[args.detail_budget]["hard"],
+            "max_generated_patches": budget_policy[args.detail_budget]["hard"],
+            "adaptive_overflow": args.detail_budget != "fast",
+            "planner": "adaptive-value-merge-v2.2",
             "mask_mode": "lightweight",
             "regions": detail_regions,
             "patch_scope": "head-and-face" if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face"),
