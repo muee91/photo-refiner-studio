@@ -12,7 +12,7 @@
       ],
       "cwd": ".",
       "command": "node",
-      "args": ["./mcp/server.cjs", "--stdio"]
+      "args": ["./mcp/server-entry.cjs", "--stdio"]
     }
   }
 }
