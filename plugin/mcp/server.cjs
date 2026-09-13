@@ -243,7 +243,10 @@ function sha256(value) {
 
 function uiMeta() {
   return {
-    ui: {resourceUri: WIDGET_URI},
+    // Make MCP Apps visibility explicit for hosts that otherwise fall back to
+    // rendering only the textual tool result. Keep the legacy aliases below
+    // for older Codex builds.
+    ui: {resourceUri: WIDGET_URI, visibility: ["model", "app"]},
     "ui/resourceUri": WIDGET_URI,
     "openai/outputTemplate": WIDGET_URI,
     "openai/widgetAccessible": true,

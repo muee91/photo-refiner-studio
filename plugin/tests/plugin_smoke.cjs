@@ -64,6 +64,7 @@ function rpc(method, params = {}) {
   );
   assert.ok(opened.structuredContent.presets.presets["natural-landscape"]);
   assert.match(opened._meta["openai/outputTemplate"], /^ui:\/\/widget\//);
+  assert.deepEqual(opened._meta.ui.visibility, ["model", "app"]);
 
   const recommended = await rpc("tools/call", {
     name: "open_photo_refiner_settings",
