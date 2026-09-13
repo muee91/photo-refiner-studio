@@ -36,6 +36,8 @@ function rpc(method, params = {}) {
   assert.deepEqual(listed.tools.map((item) => item.name), ["open_photo_refiner_settings", "submit_photo_refiner_settings", "delete_photo_refiner_prompt"]);
   assert.deepEqual(listed.tools[0].inputSchema.required, ["sourceCount"]);
   assert.equal(listed.tools[0].inputSchema.properties.sourceCount.minimum, 1);
+  assert.match(listed.tools[0].description, /native\/top-level tool call/);
+  assert.match(listed.tools[0].description, /never call it through functions\.exec/);
 
   const noSource = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 0}});
   assert.equal(noSource.isError, true);
