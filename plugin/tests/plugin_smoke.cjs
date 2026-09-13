@@ -66,6 +66,7 @@ function rpc(method, params = {}) {
   );
   assert.ok(opened.structuredContent.presets.presets["natural-landscape"]);
   assert.match(opened._meta.ui.resourceUri, /^ui:\/\/widget\//);
+  assert.match(opened._meta["openai/outputTemplate"], /^ui:\/\/widget\//);
   assert.equal(opened.content[1].type, "resource");
   assert.equal(opened.content[1].resource.mimeType, "text/html;profile=mcp-app");
 

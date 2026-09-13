@@ -256,6 +256,9 @@ function uiMeta() {
     // causes newer Codex hosts to skip mounting the returned Widget.
     ui: {resourceUri: WIDGET_URI, visibility: ["model", "app"]},
     "ui/resourceUri": WIDGET_URI,
+    // Keep the legacy Apps SDK binding for older Codex hosts. New hosts use
+    // ui.resourceUri; older hosts ignore that field and require this alias.
+    "openai/outputTemplate": WIDGET_URI,
     "openai/widgetAccessible": true,
   };
 }
