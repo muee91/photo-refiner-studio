@@ -29,27 +29,21 @@ The high-resolution stage is therefore **controlled information recovery on top 
 
 A usable job requires at least one attached photograph or an exact existing image path. A folder, workspace directory, Skill screenshot, or documentation image is not a source photograph.
 
-The commands in this document are relative to the directory that contains this
-`SKILL.md`, not to the user's photo or workspace directory. Resolve that
-directory as `SKILL_ROOT` before running any command. Use
-`$SKILL_ROOT/scripts/...` and `$SKILL_ROOT/references/...` below; do not run
-bare `scripts/...` paths from an unrelated working directory.
-
 Before the first job in an environment run:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/check_dependencies.py"
+python3 scripts/check_dependencies.py
 ```
 
 Stop if Pillow + ImageCms/LittleCMS, NumPy, PyYAML, OpenCV, or SIFT support is missing. Do not silently install packages.
 
-After a source photograph is known, look for `open_photo_refiner_settings` (including namespaced MCP variants). If available, opening the Photo Refiner Studio panel is mandatory. **Invoke the namespaced MCP tool as a native/top-level tool call, never through `functions.exec`, a shell wrapper, or another orchestration tool.** Pass a positive source count plus the subject-aware recommendation. **Make this panel call the final visible action of the turn: do not append a text acknowledgement, settings summary, or any other message after it.** The host needs the Widget metadata to mount the panel. Do not print a parallel text menu. Resume only after the user submits the panel and a `confirmationPath` is returned. Never call the submit tool on the user's behalf.
+After a source photograph is known, look for `open_photo_refiner_settings` (including namespaced MCP variants). If available, opening the Photo Refiner Studio panel is mandatory. Pass a positive source count plus the subject-aware recommendation. Do not print a parallel text menu. Resume only after the user submits the panel and a `confirmationPath` is returned. Never call the submit tool on the user's behalf.
 
 If the Studio tool is genuinely unavailable, use a compact text fallback and require explicit confirmation before calling `init_job.py --confirmed`. Never infer panel unavailability merely because it was not auto-suggested.
 
 ## 4. Subject-aware starting settings
 
-Inspect the source before opening the panel. Use `$SKILL_ROOT/references/subject-routing.md` and `$SKILL_ROOT/references/presets.yaml`.
+Inspect the source before opening the panel. Use `references/subject-routing.md` and `references/presets.yaml`.
 
 - There is **no global cinematic preset default**.
 - Use the observed subject/light recommendation as the initial preset.
@@ -84,13 +78,13 @@ When aspect ratio changes, require `crop`, `outpaint`, or `contain`; never silen
 Initialize only after confirmation:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/init_job.py" <source...> --confirmation-file <confirmationPath>
+python3 scripts/init_job.py <source...> --confirmation-file <confirmationPath>
 ```
 
 or, only for text fallback:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/init_job.py" <source...> --preset <confirmed-preset> --confirmed
+python3 scripts/init_job.py <source...> --preset <confirmed-preset> --confirmed
 ```
 
 Every job gets its own directory and immutable source hashes. Never overwrite, move, or delete source photographs.
@@ -102,7 +96,7 @@ Photo Refiner v2.2 uses **sRGB as the internal working and delivery space** beca
 Normalize source pixels with:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/prepare_source.py" <source> <normalized.png>
+python3 scripts/prepare_source.py <source> <normalized.png>
 ```
 
 If the source carries an ICC profile, convert the pixels through Pillow ImageCms/LittleCMS to sRGB. Do not merely relabel them. If the profile cannot be converted, stop rather than reinterpret the pixels incorrectly.
@@ -117,7 +111,7 @@ Do **not** blindly reattach the camera file's original ICC profile to pixels tha
 2. Build the deterministic brief from confirmed `job.json`:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/build_edit_prompt.py" <job.json>
+python3 scripts/build_edit_prompt.py <job.json>
 ```
 
 3. Use the frozen preset/custom prompt plus explicit invariants. SOURCE MASTER remains authoritative for identity/anatomy/geometry; the selected semantic style level controls how visibly the approved look should change.
@@ -126,7 +120,7 @@ python3 "$SKILL_ROOT/scripts/build_edit_prompt.py" <job.json>
 6. Record approval:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --approve-base-preview
+python3 scripts/update_job.py <job.json> --approve-base-preview
 ```
 
 The approved base is now **LOOK MASTER**.
@@ -157,7 +151,7 @@ The face tile should normally contain full forehead, temples, cheeks, jawline, c
 Before generation run:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/pixel_budget.py" \
+python3 scripts/pixel_budget.py \
   --patch-size <WxH> \
   --source-crop-size <WxH> \
   --source-subject-size <WxH> \
@@ -190,7 +184,7 @@ Generate the patch under both constraints. If dual-reference generation causes s
 Before local generation, v2.2 plans coarse detail regions with:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" --image <look-master-or-source> ...
+python3 scripts/plan_detail_tiles.py --image <look-master-or-source> ...
 ```
 
 This planner is intentionally conservative. The generation budget is a **ceiling, never a quota**. It scores candidate regions by visual value and final-image scale, prefers one broad region over several fine ones, and may return fewer patches—or zero patches—when local generation is not worth the latency.
@@ -217,7 +211,7 @@ Do not create separate generated patches for eyes, nose, mouth, sleeves, individ
 Register with:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/register_blend.py" \
+python3 scripts/register_blend.py \
   --base <look-master-canvas> \
   --target <exact-look-master-crop> \
   --patch <generated-patch> \
@@ -244,7 +238,7 @@ Passing registration is **not** enough. Perform a separate visual SOURCE MASTER 
 v2.2 may build an optional **lightweight geometric blend mask** with:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/build_blend_mask.py" <patch-or-target> <mask.png> --region-type <type> [--focus-box x,y,w,h]
+python3 scripts/build_blend_mask.py <patch-or-target> <mask.png> --region-type <type> [--focus-box x,y,w,h]
 ```
 
 This is **not semantic segmentation**. It creates a coarse, soft-edged geometric face/head/hand/object mask that reduces obvious rectangular seams. It is local OpenCV work only and **never adds Image 2.5 generation calls**.
@@ -269,14 +263,14 @@ Do not paste a generated patch wholesale over the approved look. Reject visible 
 
 Always blend from the clean latest accepted state. Broad tiles first, specific tiles last; face is normally last.
 
-Read `$SKILL_ROOT/references/quality-gates.md` for the full rejection/retry rules.
+Read `references/quality-gates.md` for the full rejection/retry rules.
 
 ### Optional landmark identity gate
 
 When a backend/vision pass can provide at least the canonical five facial landmarks for SOURCE MASTER and the candidate patch, run:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/landmark_identity_gate.py" \
+python3 scripts/landmark_identity_gate.py \
   --source <source-landmarks.json> \
   --candidate <candidate-landmarks.json>
 ```
@@ -289,7 +283,7 @@ Reject regardless of numeric score for changed identity, face shape, feature spa
 
 Do not invent missing anatomy or scene content merely to complete a crop. If the source itself cuts off a chin/hand/object, preserve the approved LOOK MASTER and report the limitation.
 
-Face-embedding backends may be added as optional evidence later, but v2.2 does not require a heavyweight identity model. When source/candidate landmarks are available, run `$SKILL_ROOT/scripts/landmark_identity_gate.py` before accepting an identity-sensitive face patch. It similarity-aligns the landmark sets and rejects proportion/structure drift. This gate is supplementary; visual identity review remains required.
+Face-embedding backends may be added as optional evidence later, but v2.2 does not require a heavyweight identity model. When source/candidate landmarks are available, run `scripts/landmark_identity_gate.py` before accepting an identity-sensitive face patch. It similarity-aligns the landmark sets and rejects proportion/structure drift. This gate is supplementary; visual identity review remains required.
 
 ## 10. Batch consistency
 
@@ -308,7 +302,7 @@ A shared prompt alone does not guarantee consistency because generation is stoch
 Use `resize_output.py` only after the accepted composite is complete:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/resize_output.py" <accepted> <final.jpg> --size <WxH>
+python3 scripts/resize_output.py <accepted> <final.jpg> --size <WxH>
 ```
 
 Aspect-ratio mismatch rejects by default. Use `--fit cover` or `contain` only when confirmed; use `stretch` only on explicit request. Generative outpainting happens before deterministic resize.

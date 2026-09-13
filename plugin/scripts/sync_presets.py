@@ -24,7 +24,6 @@ def main() -> None:
         generated["presets"][preset_id] = {
             "label": item["label"],
             "summary": item["summary_zh"],
-            "defaultStrength": int(item.get("default_strength", 50)),
             "prompt": item["prompt"].strip(),
             "avoid": item.get("avoid", "").strip(),
             "promptZh": item.get("prompt_zh", "").strip(),
