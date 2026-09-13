@@ -16,8 +16,11 @@ const WIDGET_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), 
 const WIDGET_VERSION = String(MANIFEST.version).replace(/[^A-Za-z0-9._-]+/g, "-");
 const WIDGET_URI = `ui://widget/photo-refiner-settings/${WIDGET_VERSION}.html`;
 const WIDGET_MIME = "text/html;profile=mcp-app";
-const CONFIRMATION_DIR = path.join(os.homedir(), ".codex", "photo-refiner", "confirmed");
-const PREFERENCES_PATH = path.join(os.homedir(), ".codex", "photo-refiner", "preferences.json");
+// Respect an injected HOME for isolated plugin sessions and smoke tests. macOS
+// os.homedir() resolves from the account database and can ignore HOME.
+const USER_HOME = process.env.HOME || os.homedir();
+const CONFIRMATION_DIR = path.join(USER_HOME, ".codex", "photo-refiner", "confirmed");
+const PREFERENCES_PATH = path.join(USER_HOME, ".codex", "photo-refiner", "preferences.json");
 
 const DEFAULTS = {
   uiMode: "simple",
@@ -325,7 +328,21 @@ function toolResult(payload, withWidget = false) {
     structuredContent: payload,
     isError: false,
   };
-  if (withWidget) result._meta = uiMeta();
+  if (withWidget) {
+    result._meta = uiMeta();
+    // Code Mode brokers in some Codex builds flatten result metadata. Include
+    // the MCP Apps resource as an embedded resource as a compatibility path;
+    // native MCP Apps hosts ignore this duplicate and use ui.resourceUri.
+    result.content.push({
+      type: "resource",
+      resource: {
+        uri: WIDGET_URI,
+        mimeType: WIDGET_MIME,
+        text: WIDGET_HTML,
+        _meta: widgetResourceMeta(),
+      },
+    });
+  }
   return result;
 }
 

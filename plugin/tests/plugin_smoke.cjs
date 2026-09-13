@@ -65,7 +65,9 @@ function rpc(method, params = {}) {
     /电影感暮光成片/,
   );
   assert.ok(opened.structuredContent.presets.presets["natural-landscape"]);
-  assert.match(opened._meta["openai/outputTemplate"], /^ui:\/\/widget\//);
+  assert.match(opened._meta.ui.resourceUri, /^ui:\/\/widget\//);
+  assert.equal(opened.content[1].type, "resource");
+  assert.equal(opened.content[1].resource.mimeType, "text/html;profile=mcp-app");
 
   const recommended = await rpc("tools/call", {
     name: "open_photo_refiner_settings",
