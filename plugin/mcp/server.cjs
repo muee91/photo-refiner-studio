@@ -253,6 +253,13 @@ function uiMeta() {
   };
 }
 
+function widgetResourceMeta() {
+  return {
+    ui: {prefersBorder: true},
+    "openai/widgetPrefersBorder": true,
+  };
+}
+
 function toolDefinitions() {
   return [
     {
@@ -450,7 +457,7 @@ async function handleRpc(message) {
     }
     if (message.method === "resources/read") {
       if (params.uri !== WIDGET_URI) return rpcError(id, -32602, `Unknown resource: ${params.uri}`);
-      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta: {"openai/widgetPrefersBorder": true}}]});
+      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta: widgetResourceMeta()}]});
     }
     if (message.method === "resources/templates/list") return rpcResponse(id, {resourceTemplates: []});
     if (message.method === "prompts/list") return rpcResponse(id, {prompts: []});

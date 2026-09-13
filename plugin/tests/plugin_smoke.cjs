@@ -77,6 +77,7 @@ function rpc(method, params = {}) {
   const resources = await rpc("resources/list");
   const resource = await rpc("resources/read", {uri: resources.resources[0].uri});
   assert.equal(resource.contents[0].mimeType, "text/html;profile=mcp-app");
+  assert.equal(resource.contents[0]._meta.ui.prefersBorder, true);
   assert.match(resource.contents[0].text, /去衣服褶皱/);
   assert.match(resource.contents[0].text, /中文提示词/);
   assert.match(resource.contents[0].text, /确认并开始/);
