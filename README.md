@@ -1,19 +1,10 @@
-# Photo Refiner Studio
+# Photo Refiner Studio v2.2
 
-Private source repository for the Photo Refiner Codex skill and its interactive MCP settings plugin.
+Installable Codex plugin bundle. The plugin manifest is at the archive root.
 
-## Layout
+- `.codex-plugin/plugin.json`: plugin manifest
+- `.mcp.json` + `mcp/server.cjs`: interactive Photo Refiner Studio panel
+- `skills/photo-refiner/`: Photo Refiner v2.2 skill
+- `assets/settings.html`: current Studio panel
 
-- `skill/` — reusable `photo-refiner` skill, references, scripts, and tests.
-- `plugin/` — `photo-refiner-studio` plugin, settings panel, MCP server, presets, and smoke test.
-
-## Validation
-
-```bash
-python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skill
-python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugin
-python3 -m unittest discover -s skill/tests
-HOME="$(mktemp -d)" node plugin/tests/plugin_smoke.cjs
-```
-
-The repository intentionally excludes user preferences, confirmation records, generated jobs, outputs, caches, and source photographs.
+Balanced detail recovery normally uses 1–3 generated patches and can expand to 6 for high-value complex regions.
