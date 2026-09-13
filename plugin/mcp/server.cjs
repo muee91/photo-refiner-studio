@@ -243,10 +243,19 @@ function sha256(value) {
 
 function uiMeta() {
   return {
-    ui: {resourceUri: WIDGET_URI},
+    // Some Codex builds only mount MCP Apps when visibility is explicit.
+    // Keep the legacy aliases for older hosts as well.
+    ui: {resourceUri: WIDGET_URI, visibility: ["model", "app"]},
     "ui/resourceUri": WIDGET_URI,
     "openai/outputTemplate": WIDGET_URI,
     "openai/widgetAccessible": true,
+  };
+}
+
+function widgetResourceMeta() {
+  return {
+    ui: {prefersBorder: true},
+    "openai/widgetPrefersBorder": true,
   };
 }
 
@@ -443,11 +452,11 @@ async function handleRpc(message) {
       }
     }
     if (message.method === "resources/list") {
-      return rpcResponse(id, {resources: [{uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME}]});
+      return rpcResponse(id, {resources: [{uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME, _meta: widgetResourceMeta()}]});
     }
     if (message.method === "resources/read") {
       if (params.uri !== WIDGET_URI) return rpcError(id, -32602, `Unknown resource: ${params.uri}`);
-      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta: {"openai/widgetPrefersBorder": true}}]});
+      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta: widgetResourceMeta()}]});
     }
     if (message.method === "resources/templates/list") return rpcResponse(id, {resourceTemplates: []});
     if (message.method === "prompts/list") return rpcResponse(id, {prompts: []});
