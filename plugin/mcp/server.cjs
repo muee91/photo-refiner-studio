@@ -248,10 +248,11 @@ function sha256(value) {
 function uiMeta() {
   return {
     // Some Codex builds only mount MCP Apps when visibility is explicit.
-    // Keep the legacy aliases for older hosts as well.
+    // Use the MCP Apps resource binding as the single authoritative template.
+    // Keeping the legacy openai/outputTemplate alias alongside ui.resourceUri
+    // causes newer Codex hosts to skip mounting the returned Widget.
     ui: {resourceUri: WIDGET_URI, visibility: ["model", "app"]},
     "ui/resourceUri": WIDGET_URI,
-    "openai/outputTemplate": WIDGET_URI,
     "openai/widgetAccessible": true,
   };
 }
