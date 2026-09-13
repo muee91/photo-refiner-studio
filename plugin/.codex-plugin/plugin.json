@@ -1,6 +1,6 @@
 {
   "name": "photo-refiner-studio",
-  "version": "0.3.2+codex.202609131631",
+  "version": "0.3.3+codex.202609131640",
   "description": "Interactive Photo Refiner v2.2 settings and confirmation for Codex",
   "author": {"name":"muee"},
   "license": "Proprietary",
@@ -8,7 +8,7 @@
   "interface": {
     "displayName": "Photo Refiner Studio",
     "shortDescription": "Value-aware photo refinement with a simplified creative control surface",
-    "longDescription": "Configure Photo Refiner v2.2 through a simplified creative workspace before generation. The default surface focuses on look, style strength, delivery mode, and output size while adaptive high-resolution recovery, identity protection, and value-aware patch planning stay automatic. Balanced recovery normally stays within three generated detail patches and can adaptively expand to six for high-value complex regions. Professional controls remain available for grading, portrait retouching, reshaping, clothing cleanup, background refinement, detail scope, and batch consistency.",
+    "longDescription": "Configure Photo Refiner v2.2 through a simplified creative workspace before generation. Balanced high-resolution recovery normally uses one to three generated detail patches and can adaptively expand to six for high-value complex regions. Identity protection, Pixel Budget checks, lightweight masks, and value-aware patch planning remain automatic.",
     "developerName": "muee",
     "category": "Creative",
     "capabilities": ["Interactive", "Write"],
@@ -19,8 +19,7 @@
     ],
     "brandColor": "#1C8878",
     "composerIcon": "./assets/photo-refiner.svg",
-    "logo": "./assets/photo-refiner.svg",
-    "screenshots": ["./assets/settings-preview.png"]
+    "logo": "./assets/photo-refiner.svg"
   },
   "mcpServers": "./.mcp.json"
 }
