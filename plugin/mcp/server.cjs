@@ -13,7 +13,7 @@ const WIDGET_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), 
 // Keep the resource URI URL-safe. Some Codex desktop builds do not resolve
 // percent-encoded `+` characters in ui:// resource paths consistently.
 const WIDGET_VERSION = String(MANIFEST.version).replace(/[^A-Za-z0-9._-]+/g, "-");
-const WIDGET_URI = `ui://widget/photo-refiner-settings-${WIDGET_VERSION}.html`;
+const WIDGET_URI = `ui://widget/photo-refiner-settings/${WIDGET_VERSION}.html`;
 const WIDGET_MIME = "text/html;profile=mcp-app";
 const CONFIRMATION_DIR = path.join(os.homedir(), ".codex", "photo-refiner", "confirmed");
 const PREFERENCES_PATH = path.join(os.homedir(), ".codex", "photo-refiner", "preferences.json");

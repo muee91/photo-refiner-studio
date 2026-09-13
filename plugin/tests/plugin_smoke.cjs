@@ -8,8 +8,10 @@ const path = require("node:path");
 const readline = require("node:readline");
 
 const ROOT = path.resolve(__dirname, "..");
+const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "photo-refiner-smoke-"));
 const server = childProcess.spawn(process.execPath, [path.join(ROOT, "mcp", "server.cjs"), "--stdio"], {
   stdio: ["pipe", "pipe", "inherit"],
+  env: {...process.env, HOME: testHome},
 });
 const lines = readline.createInterface({input: server.stdout});
 const pending = new Map();
@@ -78,6 +80,7 @@ function rpc(method, params = {}) {
 
   const resources = await rpc("resources/list");
   assert.equal(resources.resources[0]._meta.ui.prefersBorder, true);
+  assert.match(resources.resources[0].uri, /^ui:\/\/widget\/photo-refiner-settings\//);
   assert.doesNotMatch(resources.resources[0].uri, /%/);
   const resource = await rpc("resources/read", {uri: resources.resources[0].uri});
   assert.equal(resource.contents[0].mimeType, "text/html;profile=mcp-app");
@@ -88,6 +91,8 @@ function rpc(method, params = {}) {
   assert.match(resource.contents[0].text, /先看效果图/);
   assert.match(resource.contents[0].text, /简单模式（推荐）/);
   assert.match(resource.contents[0].text, /专业模式/);
+  assert.match(resource.contents[0].text, /ui\/initialize/);
+  assert.match(resource.contents[0].text, /ui\/notifications\/initialized/);
   assert.match(resource.contents[0].text, /提示词库/);
   assert.match(resource.contents[0].text, /内置可直接使用/);
   assert.match(resource.contents[0].text, /根据照片的建议/);
@@ -141,9 +146,11 @@ function rpc(method, params = {}) {
   assert.match(rejected.structuredContent.error, /0 to 40/);
 
   server.stdin.end();
+  fs.rmSync(testHome, {recursive: true, force: true});
   console.log(JSON.stringify({ok: true, confirmationPath: submitted.structuredContent.confirmationPath, temp: os.tmpdir()}));
 })().catch((error) => {
   server.kill();
+  fs.rmSync(testHome, {recursive: true, force: true});
   console.error(error);
   process.exitCode = 1;
 });
