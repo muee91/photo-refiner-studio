@@ -1,0 +1,20 @@
+{
+  "name": "photo-refiner-local",
+  "interface": {
+    "displayName": "Photo Refiner Local"
+  },
+  "plugins": [
+    {
+      "name": "photo-refiner-studio",
+      "source": {
+        "source": "local",
+        "path": "./plugins/photo-refiner-studio"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Creative"
+    }
+  ]
+}
