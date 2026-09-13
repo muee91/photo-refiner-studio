@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%231d8a7a'/%3E%3C/svg%3E" />
+  <style>
+    :root { color-scheme: light dark; --accent:#1d8a7a; --gold:#d6a74d; --line:color-mix(in srgb,currentColor 15%,transparent); --soft:color-mix(in srgb,currentColor 6%,transparent); }
+    * { box-sizing:border-box; }
+    body { margin:0; font:14px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:CanvasText; background:Canvas; }
+    main { max-width:920px; margin:auto; padding:18px; }
+    h1 { margin:0 0 4px; font-size:22px; }
+    .intro { margin:0 0 16px; opacity:.72; }
+    .notice { border:1px solid color-mix(in srgb,var(--gold) 55%,transparent); background:color-mix(in srgb,var(--gold) 10%,transparent); border-radius:12px; padding:10px 12px; margin-bottom:14px; }
+    .recommendation { border:1px solid color-mix(in srgb,var(--accent) 45%,transparent); background:color-mix(in srgb,var(--accent) 8%,transparent); border-radius:10px; padding:10px 12px; margin-bottom:12px; }
+    .recommendation strong { display:block; margin-bottom:3px; }
+    .direction-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:9px; }
+    .direction-card { border:1px solid var(--line); border-radius:10px; padding:9px 10px; background:Canvas; color:CanvasText; text-align:left; cursor:pointer; }
+    .direction-card:hover { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 7%,Canvas); }
+    .direction-card strong { display:block; font-size:12px; margin-bottom:3px; }
+    .direction-card small { display:block; opacity:.7; line-height:1.35; }
+    .mode-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:14px; }
+    .mode-card { text-align:left; border:1px solid var(--line); border-radius:12px; padding:11px; background:Canvas; color:CanvasText; cursor:pointer; }
+    .mode-card:hover { border-color:var(--accent); }
+    .mode-card.selected { border:2px solid var(--accent); padding:10px; background:color-mix(in srgb,var(--accent) 10%,Canvas); }
+    .mode-card strong { display:block; margin-bottom:3px; }
+    .mode-card small { display:block; opacity:.68; line-height:1.35; }
+    .preset-list { display:grid; gap:7px; }
+    .preset-row { display:flex; align-items:center; gap:10px; width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:Canvas; color:CanvasText; text-align:left; cursor:pointer; }
+    .preset-row.selected { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 8%,Canvas); }
+    .preset-row strong { display:block; }
+    .preset-row small { display:block; margin-top:2px; opacity:.68; }
+    .prompt-library { border-top:1px solid var(--line); padding-top:12px; }
+    .library-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+    .library-heading small { opacity:.6; font-weight:400; }
+    .library-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; max-height:220px; overflow:auto; }
+    .library-empty { padding:10px; border:1px dashed var(--line); border-radius:8px; opacity:.65; font-size:12px; }
+    .library-item { display:flex; flex-direction:column; gap:7px; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--soft); min-width:0; }
+    .library-item .library-main { min-width:0; cursor:pointer; }
+    .library-item .library-title { display:flex; align-items:center; gap:6px; }
+    .library-item strong { display:block; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .library-item small { display:block; margin-top:3px; opacity:.68; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .library-item .library-meta { display:flex; justify-content:space-between; gap:6px; align-items:center; }
+    .library-item .library-kind { font-size:11px; opacity:.55; }
+    .library-item .library-kind.builtin { color:var(--accent); opacity:.8; }
+    .library-item button { padding:3px 6px; background:transparent; color:var(--accent); border:1px solid var(--line); font-size:11px; }
+    .library-item button.delete { color:#c65d4b; }
+    .summary { border:1px solid color-mix(in srgb,var(--accent) 45%,transparent); background:color-mix(in srgb,var(--accent) 8%,transparent); border-radius:12px; padding:10px 12px; margin:10px 0 14px; }
+    .summary strong { display:block; margin-bottom:3px; }
+    .summary span { font-size:13px; opacity:.82; }
+    .strategy { border-left:3px solid var(--gold); padding:8px 10px; margin-top:10px; background:color-mix(in srgb,var(--gold) 8%,transparent); font-size:12px; }
+    .mode-switch { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:12px 0 14px; padding:9px 11px; border:1px solid var(--line); border-radius:11px; background:var(--soft); }
+    .mode-switch label { margin:0; }
+    .advanced-only.hidden, .simple-hidden { display:none !important; }
+    details { border:1px solid var(--line); border-radius:14px; margin:10px 0; overflow:hidden; background:var(--soft); }
+    summary { cursor:pointer; padding:13px 14px; font-weight:700; list-style:none; display:flex; justify-content:space-between; }
+    summary::after { content:"＋"; opacity:.6; }
+    details[open] summary::after { content:"−"; }
+    .section { padding:2px 14px 15px; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 14px; }
+    .wide { grid-column:1/-1; }
+    label { display:block; font-weight:600; margin-bottom:5px; }
+    select,input[type=text],textarea { width:100%; border:1px solid var(--line); border-radius:9px; background:Canvas; color:CanvasText; padding:9px 10px; font:inherit; }
+    textarea { min-height:90px; resize:vertical; }
+    .check { display:flex; gap:8px; align-items:center; font-weight:500; }
+    .check input { width:17px; height:17px; accent-color:var(--accent); }
+    .range { display:grid; grid-template-columns:1fr 42px; gap:8px; align-items:center; }
+    input[type=range] { width:100%; accent-color:var(--accent); }
+    output { text-align:right; font-variant-numeric:tabular-nums; opacity:.78; }
+    .hint { font-size:12px; opacity:.65; margin-top:4px; }
+    .prompt { white-space:pre-wrap; border-left:3px solid var(--accent); padding:8px 10px; background:var(--soft); border-radius:6px; margin:8px 0; max-height:150px; overflow:auto; }
+    .danger-label { color:#c65d4b; }
+    .actions { position:sticky; bottom:0; display:flex; align-items:center; gap:10px; margin-top:16px; padding:12px; border:1px solid var(--line); border-radius:14px; background:color-mix(in srgb,Canvas 92%,transparent); backdrop-filter:blur(12px); }
+    button { border:0; border-radius:10px; padding:10px 16px; background:var(--accent); color:white; font-weight:700; cursor:pointer; }
+    button:disabled { opacity:.5; cursor:wait; }
+    #status { flex:1; font-size:13px; opacity:.75; }
+    #customFields { display:none; }
+    @media(max-width:640px){ .grid{grid-template-columns:1fr}.wide{grid-column:auto} main{padding:12px}.actions{align-items:flex-start;flex-direction:column}button{width:100%} }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Photo Refiner 设置</h1>
+  <p class="intro">默认只需选择风格、强度、执行方式和输出尺寸；人物主体、脸部、头发、服装与环境的细节顺序会自动处理。</p>
+  <div class="notice">美颜、脸型和身材调整默认关闭。开启后仍会限制强度，并优先保持本人身份、肢体结构和服装边缘。</div>
+  <div class="recommendation" id="recommendation" hidden><strong>根据照片的建议</strong><span id="recommendationText"></span><div class="direction-list" id="directionList"></div><div class="hint">点击一个方向会填入自定义提示词，你仍可以继续修改。</div></div>
+  <div class="mode-switch"><label for="uiMode"><strong>面板模式</strong><div class="hint">简单模式适合快速出图；专业模式显示完整调整项。</div></label><select id="uiMode" data-path="uiMode"><option value="simple">简单模式（推荐）</option><option value="pro">专业模式</option></select></div>
+  <div class="mode-grid advanced-only" id="modeCards" aria-label="修图模式">
+    <button type="button" class="mode-card" data-mode="fidelity"><strong>保真精修</strong><small>保留原貌，做轻度光影、肤质和清晰度整理</small></button>
+    <button type="button" class="mode-card" data-mode="cinematic"><strong>电影成片</strong><small>明显建立色彩、氛围和胶片质感；默认推荐</small></button>
+    <button type="button" class="mode-card" data-mode="reshape"><strong>强风格重塑</strong><small>允许更大胆的光线与环境变化，身份漂移风险更高</small></button>
+  </div>
+  <div class="summary" aria-live="polite"><strong>本次执行摘要</strong><span id="summaryText">正在读取设置…</span></div>
+
+  <details open>
+    <summary>基础与风格</summary>
+    <div class="section grid">
+      <div class="simple-hidden"><label for="workflow">工作流</label><select id="workflow" data-path="workflow"><option value="auto">自动判断</option><option value="single">单张</option><option value="batch">批量同场景</option></select></div>
+      <div class="wide"><label>风格预设</label><select id="preset" data-path="preset"></select><div class="preset-list" id="presetList"></div></div>
+      <div class="simple-hidden"><label for="aspectRatio">画幅</label><select id="aspectRatio" data-path="aspectRatio"><option>original</option><option>16:9</option><option>3:2</option><option>4:5</option><option>1:1</option><option>9:16</option></select></div>
+      <div class="simple-hidden"><label for="framing">构图方式</label><select id="framing" data-path="framing"><option value="preserve">保持原构图</option><option value="crop">裁切</option><option value="outpaint">扩图</option><option value="contain">完整保留并留边</option></select></div>
+      <div><label for="resolution">输出分辨率</label><select id="resolution" data-path="resolution"><option value="source-width">原图尺寸</option><option value="4k">4K 输出</option></select></div>
+      <div><label for="deliveryMode">执行方式</label><select id="deliveryMode" data-path="deliveryMode"><option value="preview-first">先看效果图（推荐）</option><option value="one-click">一次成片</option></select><div class="hint">效果图只用于确认风格；不会直接作为高分辨率成片交付。</div></div>
+      <div class="simple-hidden"><label for="outputFormat">输出格式</label><select id="outputFormat" data-path="outputFormat"><option value="png">PNG</option><option value="jpg">高质量 JPG</option><option value="both">PNG + JPG</option></select></div>
+      <div class="wide"><label>风格强度</label><div class="range"><input type="range" min="0" max="100" data-path="styleStrength"/><output></output></div><div id="styleStrengthHint" class="hint"></div></div>
+      <div class="wide prompt-library"><div class="library-heading"><label>提示词库</label><small>内置可直接使用 · 自定义可编辑和删除</small></div><div class="library-list" id="libraryList"></div></div>
+      <div class="wide advanced-only"><details><summary>查看当前提示词</summary><div class="section"><div id="chinesePromptBlock"><strong>中文提示词（用于确认与分享）</strong><div id="promptTextZh" class="prompt"></div><strong>中文避免内容</strong><div id="avoidTextZh" class="prompt"></div></div><strong>实际生成提示词（英文）</strong><div id="promptText" class="prompt"></div><strong>实际生成避免内容（英文）</strong><div id="avoidText" class="prompt"></div></div></details></div>
+      <div id="customFields" class="wide grid"><div class="wide"><label for="customPrompt">自定义提示词</label><textarea id="customPrompt" data-path="customPrompt" placeholder="描述希望保留和改变的光线、色彩、质感、环境……"></textarea></div><div class="wide"><label for="customAvoid">不希望出现</label><textarea id="customAvoid" data-path="customAvoid" placeholder="例如：过度磨皮、HDR 光晕、改变人物身份、改变地形……"></textarea></div></div>
+    </div>
+  </details>
+
+  <details class="advanced-only">
+    <summary>基础调色与清晰度</summary>
+    <div class="section grid" id="globalControls"></div>
+  </details>
+
+  <details class="advanced-only">
+    <summary>人像美颜</summary>
+    <div class="section grid">
+      <div class="wide"><label class="check"><input type="checkbox" data-path="portrait.enabled"/>启用人像美颜</label><div class="hint">默认关闭；不会自动改变五官比例。</div></div>
+      <div id="portraitControls" class="wide grid"></div>
+    </div>
+  </details>
+
+  <details class="advanced-only">
+    <summary>脸型与身材塑形</summary>
+    <div class="section grid">
+      <div class="wide"><label class="check"><input type="checkbox" data-path="body.enabled"/>启用身材塑形</label><div class="hint danger-label">几何调整会影响真实性，范围限制为 0–40；建议 5–15。</div></div>
+      <div id="bodyControls" class="wide grid"></div>
+    </div>
+  </details>
+
+  <details class="advanced-only">
+    <summary>服装整理</summary>
+    <div class="section grid" id="clothingControls"></div>
+  </details>
+
+  <details class="advanced-only">
+    <summary>背景与风光</summary>
+    <div class="section grid" id="backgroundControls"></div>
+  </details>
+
+  <details class="advanced-only">
+    <summary>局部细节与批量一致性</summary>
+    <div class="section grid">
+      <div class="wide strategy"><strong>人物恢复策略：</strong>古风人物默认优先恢复服装结构与纹样，再恢复头发/发饰，最后精修人脸（含下巴）。服装褶皱、领口、袖口、刺绣和面料纹理会作为主体细节保留。</div>
+      <div><label for="detailMode">细节模式</label><select id="detailMode" data-path="detail.mode"><option value="adaptive">自动识别</option><option value="base-only">仅整体处理</option><option value="face">优先人脸</option><option value="explicit">指定区域</option></select></div>
+      <div><label for="patchScope">补丁范围</label><select id="patchScope" data-path="detail.patchScope"><option value="head-and-face">头部 + 人脸（推荐）</option><option value="face-only">仅人脸</option><option value="custom">自定义范围</option></select><div class="hint">默认分成头发/发饰补丁和人脸补丁，减少一半清晰、一半模糊。</div></div>
+      <div><label>细节强度</label><div class="range"><input type="range" min="0" max="100" data-path="detail.strength"/><output></output></div></div>
+      <div class="wide"><label for="detailRegions">指定区域</label><input id="detailRegions" type="text" data-path="detail.regions" placeholder="例如：脸、手、衣服刺绣、山体、云层、建筑窗格"/></div>
+      <div><label for="consistency">批量一致性</label><select id="consistency" data-path="batch.consistency"><option value="strict">严格一致</option><option value="balanced">平衡</option><option value="creative">允许环境变化</option></select></div>
+      <div><label class="check"><input type="checkbox" data-path="keepIntermediates"/>保留中间文件</label></div>
+    </div>
+  </details>
+
+  <div class="actions"><span id="status">等待确认</span><button id="submit" type="button">确认并生成效果图</button></div>
+</main>
+<script>
+  const state = { presets:{version:1,presets:{}}, config:null, library:{custom:[]}, directions:[], requestId:0, pending:new Map() };
+  const rangeGroups = {
+    global:[['exposure','曝光',-2,2,.1],['contrast','对比度',-100,100,1],['highlights','高光',-100,100,1],['shadows','阴影',-100,100,1],['temperature','色温',-100,100,1],['tint','色调',-100,100,1],['saturation','饱和度',-100,100,1],['vibrance','自然饱和度',-100,100,1],['clarity','清晰度',-100,100,1],['dehaze','去雾',-100,100,1],['denoise','降噪',0,100,1],['sharpen','锐化',0,100,1],['grain','颗粒',0,100,1]],
+    portrait:[['skinSmoothing','磨皮',0,100,1],['blemishRemoval','祛痘祛瑕',0,100,1],['skinToneEven','均匀肤色',0,100,1],['eyeEnhance','眼神光',0,100,1],['teethWhiten','牙齿美白',0,100,1],['faceSlim','瘦脸',0,40,1],['jawline','下颌线',0,40,1],['eyeSize','眼睛大小',0,40,1]],
+    body:[['waistSlim','瘦腰',0,40,1],['armSlim','瘦手臂',0,40,1],['legSlim','瘦腿',0,40,1],['legLength','腿长',0,40,1],['shoulderAdjust','肩部调整',0,40,1]],
+    clothing:[['wrinkleReduction','去衣服褶皱',0,100,1],['preserveTexture','保留面料纹理',0,100,1],['lintRemoval','去毛屑',0,100,1],['stainRemoval','去污点',0,100,1],['silhouetteCleanup','服装轮廓整理',0,100,1]],
+    background:[['cleanup','背景净化',0,100,1],['removeDistractors','去除干扰物',0,100,1],['bokeh','背景虚化',0,100,1],['skyEnhance','天空增强',0,100,1],['foliageEnhance','植被增强',0,100,1],['architectureLines','建筑线条保护',0,100,1]],
+  };
+
+  function addRanges(group, containerId){ const el=document.getElementById(containerId); for(const [key,label,min,max,step] of rangeGroups[group]){ const wrap=document.createElement('div'); wrap.innerHTML=`<label>${label}</label><div class="range"><input type="range" min="${min}" max="${max}" step="${step}" data-path="${group}.${key}"/><output></output></div>`; el.appendChild(wrap); } }
+  addRanges('global','globalControls'); addRanges('portrait','portraitControls'); addRanges('body','bodyControls'); addRanges('clothing','clothingControls'); addRanges('background','backgroundControls');
+
+  function setDeep(obj,path,value){ const parts=path.split('.'); let cur=obj; for(let i=0;i<parts.length-1;i++) cur=cur[parts[i]]; cur[parts.at(-1)]=value; }
+  function getDeep(obj,path){ return path.split('.').reduce((v,k)=>v?.[k],obj); }
+  function styleStrengthDescription(value){ if(value<25) return '保真：轻微校正，接近原图。'; if(value<50) return '轻电影：轻柔调色，风格变化较小。'; if(value<75) return '电影成片：清晰可见的电影化调整。'; if(value<90) return '电影成片：强而可控的电影化成片（默认 80）。'; return '重塑：极强风格变化，身份、服饰与场景漂移风险更高。'; }
+  function modeForStrength(value){ return value<50?'fidelity':(value<90?'cinematic':'reshape'); }
+  function updateModeCards(){ const mode=modeForStrength(Number(state.config?.styleStrength ?? 80)); document.querySelectorAll('.mode-card').forEach(card=>card.classList.toggle('selected',card.dataset.mode===mode)); }
+  function updateSummary(){ const p=state.presets.presets[document.getElementById('preset').value]; const label=p?.label||'自定义'; const strength=Number(state.config?.styleStrength??80); const mode={fidelity:'保真精修',cinematic:'电影成片',reshape:'强风格重塑'}[modeForStrength(strength)]; const delivery=state.config?.deliveryMode==='one-click'?'一次成片':'先看效果图'; const resolution={preview:'预览尺寸','4k':'4K 输出','source-width':'原图宽度'}[state.config?.resolution]||state.config?.resolution; const scope={"head-and-face":'头部+人脸分区恢复（含下巴）',"face-only":'仅人脸完整轮廓',custom:'自定义补丁范围'}[state.config?.detail?.patchScope]||'头部+人脸分区恢复（含下巴）'; const detail=state.config?.detail?.mode==='base-only'?'不做局部恢复':scope; document.getElementById('summaryText').textContent=`${label} · ${mode} ${strength} · ${delivery} · ${resolution} · ${detail}`; }
+  function renderPresetList(){ const container=document.getElementById('presetList'); container.innerHTML=''; for(const [id,p] of Object.entries(state.presets.presets)){ const row=document.createElement('button'); row.type='button'; row.className='preset-row'; row.dataset.preset=id; row.innerHTML=`<span><strong>${p.label}</strong><small>${p.summary}</small></span>`; row.addEventListener('click',()=>{ state.config.preset=id; document.getElementById('preset').value=id; updatePrompt(); syncGates(); }); container.appendChild(row); } const custom=document.createElement('button'); custom.type='button'; custom.className='preset-row'; custom.dataset.preset='custom'; custom.innerHTML='<span><strong>自定义提示词</strong><small>描述自己的光线、色彩和质感方向</small></span>'; custom.addEventListener('click',()=>{ state.config.preset='custom'; document.getElementById('preset').value='custom'; updatePrompt(); syncGates(); }); container.appendChild(custom); }
+  function updatePresetList(){ document.querySelectorAll('.preset-row').forEach(row=>row.classList.toggle('selected',row.dataset.preset===state.config?.preset)); }
+  function updatePrompt(){ const id=document.getElementById('preset').value; const custom=id==='custom'; document.getElementById('customFields').style.display=custom?'grid':'none'; const p=state.presets.presets[id]; const chineseBlock=document.getElementById('chinesePromptBlock'); const promptZh=custom?'':(p?.promptZh||''); const avoidZh=custom?'':(p?.avoidZh||''); chineseBlock.style.display=promptZh||avoidZh?'block':'none'; document.getElementById('promptTextZh').textContent=promptZh; document.getElementById('avoidTextZh').textContent=avoidZh; document.getElementById('promptText').textContent=custom?(document.getElementById('customPrompt').value||'等待输入自定义提示词'):p?.prompt||''; document.getElementById('avoidText').textContent=custom?(document.getElementById('customAvoid').value||'未设置'):p?.avoid||''; document.getElementById('styleStrengthHint').textContent=styleStrengthDescription(Number(state.config?.styleStrength ?? 80)); updatePresetList(); updateModeCards(); updateSummary(); }
+  function loadPromptEntry(entry){ if(!entry?.prompt) return; state.config.preset='custom'; state.config.customPrompt=entry.prompt; state.config.customAvoid=entry.avoid||''; document.getElementById('preset').value='custom'; document.getElementById('customPrompt').value=entry.prompt; document.getElementById('customAvoid').value=entry.avoid||''; updatePrompt(); syncGates(); }
+  function renderPromptLibrary(library){ state.library=library||{custom:[]}; const list=document.getElementById('libraryList'); list.innerHTML=''; const builtins=Object.entries(state.presets.presets).map(([id,p])=>({id,preset:id,label:p.label,prompt:p.prompt,avoid:p.avoid,summary:p.summary,kind:'builtin'})); const customs=(state.library.custom||[]).map(item=>({...item,kind:'custom'})); const items=[...builtins,...customs]; if(!items.length){ list.innerHTML='<div class="library-empty">暂无提示词</div>'; return; } items.forEach(item=>{ const row=document.createElement('div'); row.className='library-item'; const main=document.createElement('div'); main.className='library-main'; main.innerHTML=`<div class="library-title"><strong>${item.label||'自定义提示词'}</strong></div><small>${item.summary||((item.prompt||'').slice(0,90))}</small>`; main.addEventListener('click',()=>loadPromptEntry(item)); const meta=document.createElement('div'); meta.className='library-meta'; const kind=document.createElement('span'); kind.className=`library-kind ${item.kind==='builtin'?'builtin':''}`; kind.textContent=item.kind==='builtin'?'内置提示词':'自定义提示词'; meta.append(kind); if(item.kind==='custom'){ const del=document.createElement('button'); del.type='button'; del.className='delete'; del.textContent='删除'; del.addEventListener('click',async()=>{ const result=await request('tools/call',{name:'delete_photo_refiner_prompt',arguments:{collection:'custom',entryId:item.id}}); const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}'); if(payload.ok){ renderPromptLibrary(payload.promptLibrary); } }); meta.append(del); } row.append(main,meta); list.appendChild(row); }); }
+  function renderCreativeDirections(directions){ const box=document.getElementById('directionList'); box.innerHTML=''; (directions||[]).forEach(direction=>{ const card=document.createElement('button'); card.type='button'; card.className='direction-card'; card.innerHTML=`<strong>${direction.label}</strong><small>${direction.summary||'点击使用这一创作方向'}</small>`; card.addEventListener('click',()=>{ state.config.preset='custom'; state.config.customPrompt=direction.prompt||''; state.config.customAvoid=direction.avoid||''; document.getElementById('preset').value='custom'; document.getElementById('customPrompt').value=state.config.customPrompt; document.getElementById('customAvoid').value=state.config.customAvoid; updatePrompt(); syncGates(); }); box.appendChild(card); }); }
+  function syncUiMode(){ const pro=state.config?.uiMode==='pro'; document.querySelectorAll('.advanced-only').forEach(el=>el.classList.toggle('hidden',!pro)); document.querySelectorAll('.simple-hidden').forEach(el=>el.classList.toggle('hidden',!pro)); document.getElementById('uiMode').value=pro?'pro':'simple'; }
+  function syncGates(){ for(const group of ['portrait','body']){ const enabled=Boolean(state.config?.[group]?.enabled); const container=document.getElementById(`${group}Controls`); container.style.opacity=enabled?'1':'.45'; container.querySelectorAll('input').forEach(input=>input.disabled=!enabled); } const explicit=state.config?.detail?.mode==='explicit'; document.getElementById('detailRegions').disabled=!explicit; document.getElementById('submit').textContent=state.config?.deliveryMode==='one-click'?'确认并开始':'确认并生成效果图'; syncUiMode(); updateModeCards(); updateSummary(); }
+  function bind(config){ state.config=structuredClone(config); document.querySelectorAll('[data-path]').forEach(el=>{ const value=getDeep(config,el.dataset.path); if(el.type==='checkbox') el.checked=Boolean(value); else if(value!==undefined) el.value=value; const out=el.parentElement?.querySelector('output'); if(out) out.value=el.value; el.addEventListener('input',()=>{ let v=el.type==='checkbox'?el.checked:el.value; if(el.type==='range') v=Number(v); setDeep(state.config,el.dataset.path,v); if(out) out.value=el.value; if(['preset','customPrompt','customAvoid','styleStrength','uiMode'].includes(el.id)) updatePrompt(); syncGates(); }); }); document.querySelectorAll('.mode-card').forEach(card=>card.addEventListener('click',()=>{ const values={fidelity:35,cinematic:80,reshape:95}; state.config.styleStrength=values[card.dataset.mode]; const slider=document.querySelector('[data-path="styleStrength"]'); slider.value=String(values[card.dataset.mode]); slider.parentElement.querySelector('output').value=slider.value; updatePrompt(); syncGates(); })); updatePrompt(); syncGates(); }
+  function load(payload){ if(!payload?.defaults) return; state.presets=payload.presets; if(payload.recommendation||payload.creativeDirections?.length){ document.getElementById('recommendation').hidden=false; document.getElementById('recommendationText').textContent=payload.recommendation||'按照片内容生成了几种可编辑的创作方向。'; renderCreativeDirections(payload.creativeDirections); } const select=document.getElementById('preset'); select.innerHTML=''; for(const [id,p] of Object.entries(payload.presets.presets)){ const o=document.createElement('option'); o.value=id; o.textContent=`${p.label} — ${p.summary}`; select.appendChild(o); } const custom=document.createElement('option'); custom.value='custom'; custom.textContent='自定义提示词'; select.appendChild(custom); renderPresetList(); renderPromptLibrary(payload.promptLibrary); bind(payload.defaults); }
+
+  window.addEventListener('message',event=>{ const m=event.data; if(!m||m.jsonrpc!=='2.0') return; if(m.id&&state.pending.has(m.id)){ const {resolve,reject}=state.pending.get(m.id); state.pending.delete(m.id); m.error?reject(new Error(m.error.message)):resolve(m.result); return; } if(m.method==='ui/notifications/tool-result') load(m.params?.structuredContent); });
+  function request(method,params){ if(method==='tools/call'&&window.openai?.callTool) return window.openai.callTool(params.name,params.arguments); const id=++state.requestId; window.parent.postMessage({jsonrpc:'2.0',id,method,params},'*'); return new Promise((resolve,reject)=>state.pending.set(id,{resolve,reject})); }
+  async function submit(){ const button=document.getElementById('submit'); const status=document.getElementById('status'); button.disabled=true; status.textContent='正在校验并冻结设置…'; try { const result=await request('tools/call',{name:'submit_photo_refiner_settings',arguments:{userConfirmed:true,config:state.config}}); const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}'); if(!payload.ok) throw new Error(payload.error||'提交失败'); status.textContent='已确认，正在交给 Photo Refiner'; const message=`Photo Refiner 设置已确认。请使用配置文件 ${payload.confirmationPath} 继续处理，不要再次询问同一组设置。确认编号：${payload.confirmationId}`; if(window.openai?.sendFollowUpMessage) await window.openai.sendFollowUpMessage({prompt:message}); else await request('ui/message',{role:'user',content:[{type:'text',text:message}]}); button.textContent='已确认'; } catch(error){ status.textContent=`提交失败：${error.message}`; button.disabled=false; } }
+  document.getElementById('submit').addEventListener('click',submit);
+  if(window.openai?.toolOutput) load(window.openai.toolOutput);
+</script>
+</body>
+</html>
