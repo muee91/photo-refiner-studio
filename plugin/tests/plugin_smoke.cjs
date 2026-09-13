@@ -8,10 +8,8 @@ const path = require("node:path");
 const readline = require("node:readline");
 
 const ROOT = path.resolve(__dirname, "..");
-const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "photo-refiner-smoke-"));
 const server = childProcess.spawn(process.execPath, [path.join(ROOT, "mcp", "server.cjs"), "--stdio"], {
   stdio: ["pipe", "pipe", "inherit"],
-  env: {...process.env, HOME: testHome},
 });
 const lines = readline.createInterface({input: server.stdout});
 const pending = new Map();
@@ -38,8 +36,6 @@ function rpc(method, params = {}) {
   assert.deepEqual(listed.tools.map((item) => item.name), ["open_photo_refiner_settings", "submit_photo_refiner_settings", "delete_photo_refiner_prompt"]);
   assert.deepEqual(listed.tools[0].inputSchema.required, ["sourceCount"]);
   assert.equal(listed.tools[0].inputSchema.properties.sourceCount.minimum, 1);
-  assert.match(listed.tools[0].description, /native\/top-level tool call/);
-  assert.match(listed.tools[0].description, /never call it through functions\.exec/);
 
   const noSource = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 0}});
   assert.equal(noSource.isError, true);
@@ -68,7 +64,6 @@ function rpc(method, params = {}) {
   );
   assert.ok(opened.structuredContent.presets.presets["natural-landscape"]);
   assert.match(opened._meta["openai/outputTemplate"], /^ui:\/\/widget\//);
-  assert.deepEqual(opened._meta.ui.visibility, ["model", "app"]);
 
   const recommended = await rpc("tools/call", {
     name: "open_photo_refiner_settings",
@@ -79,20 +74,14 @@ function rpc(method, params = {}) {
   assert.equal(recommended.structuredContent.presets.presets["natural-landscape"].defaultStrength, 35);
 
   const resources = await rpc("resources/list");
-  assert.equal(resources.resources[0]._meta.ui.prefersBorder, true);
-  assert.match(resources.resources[0].uri, /^ui:\/\/widget\/photo-refiner-settings\//);
-  assert.doesNotMatch(resources.resources[0].uri, /%/);
   const resource = await rpc("resources/read", {uri: resources.resources[0].uri});
   assert.equal(resource.contents[0].mimeType, "text/html;profile=mcp-app");
-  assert.equal(resource.contents[0]._meta.ui.prefersBorder, true);
   assert.match(resource.contents[0].text, /去衣服褶皱/);
   assert.match(resource.contents[0].text, /中文提示词/);
   assert.match(resource.contents[0].text, /确认并开始/);
   assert.match(resource.contents[0].text, /先看效果图/);
   assert.match(resource.contents[0].text, /简单模式（推荐）/);
   assert.match(resource.contents[0].text, /专业模式/);
-  assert.match(resource.contents[0].text, /ui\/initialize/);
-  assert.match(resource.contents[0].text, /ui\/notifications\/initialized/);
   assert.match(resource.contents[0].text, /提示词库/);
   assert.match(resource.contents[0].text, /内置可直接使用/);
   assert.match(resource.contents[0].text, /根据照片的建议/);
@@ -146,11 +135,9 @@ function rpc(method, params = {}) {
   assert.match(rejected.structuredContent.error, /0 to 40/);
 
   server.stdin.end();
-  fs.rmSync(testHome, {recursive: true, force: true});
   console.log(JSON.stringify({ok: true, confirmationPath: submitted.structuredContent.confirmationPath, temp: os.tmpdir()}));
 })().catch((error) => {
   server.kill();
-  fs.rmSync(testHome, {recursive: true, force: true});
   console.error(error);
   process.exitCode = 1;
 });

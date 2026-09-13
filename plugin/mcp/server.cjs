@@ -10,10 +10,7 @@ const ROOT = path.resolve(__dirname, "..");
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
 const PRESETS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "presets.json"), "utf8"));
 const WIDGET_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), "utf8");
-// Keep the resource URI URL-safe. Some Codex desktop builds do not resolve
-// percent-encoded `+` characters in ui:// resource paths consistently.
-const WIDGET_VERSION = String(MANIFEST.version).replace(/[^A-Za-z0-9._-]+/g, "-");
-const WIDGET_URI = `ui://widget/photo-refiner-settings/${WIDGET_VERSION}.html`;
+const WIDGET_URI = `ui://widget/photo-refiner-settings-${encodeURIComponent(MANIFEST.version)}.html`;
 const WIDGET_MIME = "text/html;profile=mcp-app";
 const CONFIRMATION_DIR = path.join(os.homedir(), ".codex", "photo-refiner", "confirmed");
 const PREFERENCES_PATH = path.join(os.homedir(), ".codex", "photo-refiner", "preferences.json");
@@ -246,20 +243,10 @@ function sha256(value) {
 
 function uiMeta() {
   return {
-    // Make MCP Apps visibility explicit for hosts that otherwise fall back to
-    // rendering only the textual tool result. Keep the legacy aliases below
-    // for older Codex builds.
-    ui: {resourceUri: WIDGET_URI, visibility: ["model", "app"]},
+    ui: {resourceUri: WIDGET_URI},
     "ui/resourceUri": WIDGET_URI,
     "openai/outputTemplate": WIDGET_URI,
     "openai/widgetAccessible": true,
-  };
-}
-
-function widgetResourceMeta() {
-  return {
-    ui: {prefersBorder: true},
-    "openai/widgetPrefersBorder": true,
   };
 }
 
@@ -268,7 +255,7 @@ function toolDefinitions() {
     {
       name: "open_photo_refiner_settings",
       title: "Open Photo Refiner settings",
-      description: "MANDATORY only after at least one source photograph is attached or an existing local image path is known: open the interactive settings panel before replying with settings or starting image generation, unless this conversation already contains a submitted confirmationPath. Invoke this namespaced MCP tool as a native/top-level tool call; never call it through functions.exec, a shell wrapper, or another orchestration tool because that flattens the Widget metadata into text. Make this tool call the final visible action of the turn; do not append a text acknowledgement below the Widget. Do not open this panel when no source photograph is known. Do not print a text settings menu when this tool is available.",
+      description: "MANDATORY only after at least one source photograph is attached or an existing local image path is known: open the interactive settings panel before replying with settings or starting image generation, unless this conversation already contains a submitted confirmationPath. Do not open this panel when no source photograph is known. Do not print a text settings menu when this tool is available.",
       inputSchema: {
         type: "object",
         required: ["sourceCount"],
@@ -441,7 +428,7 @@ async function handleRpc(message) {
         protocolVersion: params.protocolVersion || "2024-11-05",
         capabilities: {tools: {listChanged: false}, resources: {subscribe: false, listChanged: false}},
         serverInfo: {name: "photo-refiner-studio", title: "Photo Refiner Studio", version: MANIFEST.version},
-        instructions: "For every Photo Refiner or $photo-refiner request with at least one attached or existing source photo, invoke the native namespaced open_photo_refiner_settings MCP tool directly (never through functions.exec, a shell wrapper, or another orchestration tool) before replying with settings or starting image generation. Wrapping the call flattens the Widget metadata into text and prevents the host from mounting the panel. Make that tool call the final visible action of the turn. Do not append text below the Widget. If no source photo is supplied, ask for one and do not open the panel. Never replace the panel with a text menu while this tool is available. Continue only from a user-submitted confirmationPath.",
+        instructions: "For every Photo Refiner or $photo-refiner request with at least one attached or existing source photo, call open_photo_refiner_settings before replying with settings or starting image generation. If no source photo is supplied, ask for one and do not open the panel. Never replace the panel with a text menu while this tool is available. Continue only from a user-submitted confirmationPath.",
       });
     }
     if (message.method === "ping") return rpcResponse(id, {});
@@ -456,11 +443,11 @@ async function handleRpc(message) {
       }
     }
     if (message.method === "resources/list") {
-      return rpcResponse(id, {resources: [{uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME, _meta: widgetResourceMeta()}]});
+      return rpcResponse(id, {resources: [{uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME}]});
     }
     if (message.method === "resources/read") {
       if (params.uri !== WIDGET_URI) return rpcError(id, -32602, `Unknown resource: ${params.uri}`);
-      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta: widgetResourceMeta()}]});
+      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta: {"openai/widgetPrefersBorder": true}}]});
     }
     if (message.method === "resources/templates/list") return rpcResponse(id, {resourceTemplates: []});
     if (message.method === "prompts/list") return rpcResponse(id, {prompts: []});
