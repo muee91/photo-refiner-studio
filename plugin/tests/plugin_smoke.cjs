@@ -8,8 +8,10 @@ const path = require("node:path");
 const readline = require("node:readline");
 
 const ROOT = path.resolve(__dirname, "..");
+const smokeHome = fs.mkdtempSync(path.join(os.tmpdir(), "photo-refiner-smoke-"));
 const server = childProcess.spawn(process.execPath, [path.join(ROOT, "mcp", "server.cjs"), "--stdio"], {
   stdio: ["pipe", "pipe", "inherit"],
+  env: {...process.env, HOME: smokeHome},
 });
 const lines = readline.createInterface({input: server.stdout});
 const pending = new Map();
@@ -135,9 +137,11 @@ function rpc(method, params = {}) {
   assert.match(rejected.structuredContent.error, /0 to 40/);
 
   server.stdin.end();
-  console.log(JSON.stringify({ok: true, confirmationPath: submitted.structuredContent.confirmationPath, temp: os.tmpdir()}));
+  fs.rmSync(smokeHome, {recursive: true, force: true});
+  console.log(JSON.stringify({ok: true, confirmationPath: submitted.structuredContent.confirmationPath}));
 })().catch((error) => {
   server.kill();
+  fs.rmSync(smokeHome, {recursive: true, force: true});
   console.error(error);
   process.exitCode = 1;
 });
