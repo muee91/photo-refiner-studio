@@ -10,7 +10,10 @@ const ROOT = path.resolve(__dirname, "..");
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
 const PRESETS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "presets.json"), "utf8"));
 const WIDGET_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), "utf8");
-const WIDGET_URI = `ui://widget/photo-refiner-settings-${encodeURIComponent(MANIFEST.version)}.html`;
+// Keep the resource URI URL-safe. Some Codex desktop builds do not resolve
+// percent-encoded `+` characters in ui:// resource paths consistently.
+const WIDGET_VERSION = String(MANIFEST.version).replace(/[^A-Za-z0-9._-]+/g, "-");
+const WIDGET_URI = `ui://widget/photo-refiner-settings-${WIDGET_VERSION}.html`;
 const WIDGET_MIME = "text/html;profile=mcp-app";
 const CONFIRMATION_DIR = path.join(os.homedir(), ".codex", "photo-refiner", "confirmed");
 const PREFERENCES_PATH = path.join(os.homedir(), ".codex", "photo-refiner", "preferences.json");
@@ -453,7 +456,7 @@ async function handleRpc(message) {
       }
     }
     if (message.method === "resources/list") {
-      return rpcResponse(id, {resources: [{uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME}]});
+      return rpcResponse(id, {resources: [{uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME, _meta: widgetResourceMeta()}]});
     }
     if (message.method === "resources/read") {
       if (params.uri !== WIDGET_URI) return rpcError(id, -32602, `Unknown resource: ${params.uri}`);

@@ -75,6 +75,8 @@ function rpc(method, params = {}) {
   assert.equal(recommended.structuredContent.presets.presets["natural-landscape"].defaultStrength, 35);
 
   const resources = await rpc("resources/list");
+  assert.equal(resources.resources[0]._meta.ui.prefersBorder, true);
+  assert.doesNotMatch(resources.resources[0].uri, /%/);
   const resource = await rpc("resources/read", {uri: resources.resources[0].uri});
   assert.equal(resource.contents[0].mimeType, "text/html;profile=mcp-app");
   assert.equal(resource.contents[0]._meta.ui.prefersBorder, true);
