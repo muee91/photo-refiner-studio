@@ -265,7 +265,7 @@ function toolDefinitions() {
     {
       name: "open_photo_refiner_settings",
       title: "Open Photo Refiner settings",
-      description: "MANDATORY only after at least one source photograph is attached or an existing local image path is known: open the interactive settings panel before replying with settings or starting image generation, unless this conversation already contains a submitted confirmationPath. Do not open this panel when no source photograph is known. Do not print a text settings menu when this tool is available.",
+      description: "MANDATORY only after at least one source photograph is attached or an existing local image path is known: open the interactive settings panel before replying with settings or starting image generation, unless this conversation already contains a submitted confirmationPath. Make this tool call the final visible action of the turn; do not append a text acknowledgement below the Widget. Do not open this panel when no source photograph is known. Do not print a text settings menu when this tool is available.",
       inputSchema: {
         type: "object",
         required: ["sourceCount"],
@@ -438,7 +438,7 @@ async function handleRpc(message) {
         protocolVersion: params.protocolVersion || "2024-11-05",
         capabilities: {tools: {listChanged: false}, resources: {subscribe: false, listChanged: false}},
         serverInfo: {name: "photo-refiner-studio", title: "Photo Refiner Studio", version: MANIFEST.version},
-        instructions: "For every Photo Refiner or $photo-refiner request with at least one attached or existing source photo, call open_photo_refiner_settings before replying with settings or starting image generation. If no source photo is supplied, ask for one and do not open the panel. Never replace the panel with a text menu while this tool is available. Continue only from a user-submitted confirmationPath.",
+        instructions: "For every Photo Refiner or $photo-refiner request with at least one attached or existing source photo, call open_photo_refiner_settings before replying with settings or starting image generation, and make that tool call the final visible action of the turn. Do not append text below the Widget. If no source photo is supplied, ask for one and do not open the panel. Never replace the panel with a text menu while this tool is available. Continue only from a user-submitted confirmationPath.",
       });
     }
     if (message.method === "ping") return rpcResponse(id, {});
