@@ -440,7 +440,14 @@ async function handleRpc(message) {
     if (message.method === "initialize") {
       return rpcResponse(id, {
         protocolVersion: params.protocolVersion || "2024-11-05",
-        capabilities: {tools: {listChanged: false}, resources: {subscribe: false, listChanged: false}},
+        capabilities: {
+          tools: {listChanged: false},
+          resources: {subscribe: false, listChanged: false},
+          // Advertise the MCP Apps UI extension explicitly. Codex hosts use
+          // this capability during initialization to decide whether a tool's
+          // ui/resourceUri should be mounted as an in-chat Widget.
+          extensions: {"io.modelcontextprotocol/ui": {}},
+        },
         serverInfo: {name: "photo-refiner-studio", title: "Photo Refiner Studio", version: MANIFEST.version},
         instructions: "For every Photo Refiner or $photo-refiner request with at least one attached or existing source photo, invoke the native top-level open_photo_refiner_settings tool before replying with settings or starting image generation. That tool call must be the final visible action of the turn; do not append any text after it, and never wrap it through functions.exec, a shell, or another orchestration tool. If no source photo is supplied, ask for one and do not open the panel. Never replace the panel with a text menu while this tool is available. Continue only from a user-submitted confirmationPath.",
       });
