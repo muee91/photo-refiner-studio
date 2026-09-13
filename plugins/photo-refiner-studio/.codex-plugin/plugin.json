@@ -1,6 +1,6 @@
 {
   "name": "photo-refiner-studio",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Interactive Photo Refiner v2.2 settings and confirmation for Codex",
   "author": {
     "name": "muee"
@@ -13,6 +13,8 @@
     "landscape",
     "image-editing"
   ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Photo Refiner Studio",
     "shortDescription": "Value-aware photo refinement with adaptive detail recovery",
@@ -31,7 +33,5 @@
     "brandColor": "#1C8878",
     "composerIcon": "./assets/photo-refiner.svg",
     "logo": "./assets/photo-refiner.svg"
-  },
-  "mcpServers": "./.mcp.json",
-  "skills": "./skills/"
+  }
 }

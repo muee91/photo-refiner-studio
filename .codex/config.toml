@@ -3,4 +3,4 @@ enabled = true
 
 [plugins."photo-refiner-studio@photo-refiner-local".mcp_servers.photoRefinerStudio]
 enabled = true
-default_tools_approval_mode = "allow"
+default_tools_approval_mode = "prompt"
