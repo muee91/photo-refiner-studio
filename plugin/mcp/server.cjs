@@ -10,15 +10,23 @@ const ROOT = path.resolve(__dirname, "..");
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
 const PRESETS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "presets.json"), "utf8"));
 const WIDGET_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), "utf8");
-const WIDGET_URI = `ui://widget/photo-refiner-settings-${encodeURIComponent(MANIFEST.version)}.html`;
+// Use the slash-scoped URI shape accepted by Codex MCP App hosts. A flat URI
+// containing an encoded `+` can return a successful tool call while failing to
+// resolve and mount the Widget resource.
+const WIDGET_VERSION = String(MANIFEST.version).replace(/[^A-Za-z0-9._-]+/g, "-");
+const WIDGET_URI = `ui://widget/photo-refiner-settings/${WIDGET_VERSION}.html`;
 const WIDGET_MIME = "text/html;profile=mcp-app";
-const CONFIRMATION_DIR = path.join(os.homedir(), ".codex", "photo-refiner", "confirmed");
-const PREFERENCES_PATH = path.join(os.homedir(), ".codex", "photo-refiner", "preferences.json");
+// Respect an injected HOME for isolated plugin sessions and smoke tests. macOS
+// os.homedir() resolves from the account database and can ignore HOME.
+const USER_HOME = process.env.HOME || os.homedir();
+const CONFIRMATION_DIR = path.join(USER_HOME, ".codex", "photo-refiner", "confirmed");
+const PREFERENCES_PATH = path.join(USER_HOME, ".codex", "photo-refiner", "preferences.json");
 
 const DEFAULTS = {
   uiMode: "simple",
   workflow: "auto",
-  preset: "eastern-twilight",
+  // Neutral fallback only; normal jobs pass a subject-aware suggestedPreset.
+  preset: "natural-cinematic",
   customPrompt: "",
   customAvoid: "",
   promptFavorite: false,
@@ -30,9 +38,8 @@ const DEFAULTS = {
   deliveryMode: "preview-first",
   outputFormat: "jpg",
   keepIntermediates: false,
-  // 80 is the visible, strong-but-controlled cinematic default. 100 remains
-  // an opt-in extreme where identity, texture, and scene drift become likelier.
-  styleStrength: 80,
+  // Neutral fallback. Subject-aware recommendations use each preset's defaultStrength.
+  styleStrength: 45,
   global: {
     exposure: 0,
     contrast: 0,
@@ -243,10 +250,23 @@ function sha256(value) {
 
 function uiMeta() {
   return {
-    ui: {resourceUri: WIDGET_URI},
+    // Some Codex builds only mount MCP Apps when visibility is explicit.
+    // Use the MCP Apps resource binding as the single authoritative template.
+    // Keeping the legacy openai/outputTemplate alias alongside ui.resourceUri
+    // causes newer Codex hosts to skip mounting the returned Widget.
+    ui: {resourceUri: WIDGET_URI, visibility: ["model", "app"]},
     "ui/resourceUri": WIDGET_URI,
+    // Keep the legacy Apps SDK binding for older Codex hosts. New hosts use
+    // ui.resourceUri; older hosts ignore that field and require this alias.
     "openai/outputTemplate": WIDGET_URI,
     "openai/widgetAccessible": true,
+  };
+}
+
+function widgetResourceMeta() {
+  return {
+    ui: {prefersBorder: true},
+    "openai/widgetPrefersBorder": true,
   };
 }
 
@@ -255,7 +275,7 @@ function toolDefinitions() {
     {
       name: "open_photo_refiner_settings",
       title: "Open Photo Refiner settings",
-      description: "MANDATORY only after at least one source photograph is attached or an existing local image path is known: open the interactive settings panel before replying with settings or starting image generation, unless this conversation already contains a submitted confirmationPath. Do not open this panel when no source photograph is known. Do not print a text settings menu when this tool is available.",
+      description: "MANDATORY only after at least one source photograph is attached or an existing local image path is known: invoke the interactive settings panel as a native top-level tool call before replying with settings or starting image generation, unless this conversation already contains a submitted confirmationPath. This tool call must be the final visible action of the turn: do not append text, a settings summary, or any acknowledgement after it, because the host needs the Widget metadata to mount the panel. Never invoke it through functions.exec, a shell wrapper, or another orchestration tool. Do not open this panel when no source photograph is known. Do not print a text settings menu when this tool is available.",
       inputSchema: {
         type: "object",
         required: ["sourceCount"],
@@ -311,7 +331,29 @@ function toolResult(payload, withWidget = false) {
     structuredContent: payload,
     isError: false,
   };
-  if (withWidget) result._meta = uiMeta();
+  if (withWidget) {
+    result._meta = uiMeta();
+    // Code Mode brokers in some Codex builds flatten result metadata. Include
+    // the MCP Apps resource as an embedded resource as a compatibility path;
+    // native MCP Apps hosts ignore this duplicate and use ui.resourceUri.
+    result.content.push({
+      type: "resource",
+      resource: {
+        uri: WIDGET_URI,
+        mimeType: WIDGET_MIME,
+        text: WIDGET_HTML,
+        _meta: widgetResourceMeta(),
+      },
+    });
+    result.content.push({
+      type: "resource_link",
+      uri: WIDGET_URI,
+      name: "Photo Refiner settings",
+      title: "Photo Refiner settings",
+      mimeType: WIDGET_MIME,
+      _meta: widgetResourceMeta(),
+    });
+  }
   return result;
 }
 
@@ -326,16 +368,22 @@ function callTool(name, args) {
       throw new Error("At least one source photograph is required before opening Photo Refiner settings");
     }
     const preferences = loadPreferences();
-    const defaults = mergeDefaults(preferences.lastConfig || {});
+    const savedConfig = isObject(preferences.lastConfig) ? preferences.lastConfig : {};
+    const defaults = mergeDefaults(savedConfig);
     defaults.workflow = args.sourceCount > 1 ? "batch" : "single";
-    if (typeof args.suggestedPreset === "string" && PRESETS.presets[args.suggestedPreset]) defaults.preset = args.suggestedPreset;
+    if (typeof args.suggestedPreset === "string" && PRESETS.presets[args.suggestedPreset]) {
+      defaults.preset = args.suggestedPreset;
+      const presetDefault = PRESETS.presets[args.suggestedPreset].defaultStrength;
+      const preserveSavedStrength = savedConfig.preset === args.suggestedPreset && typeof savedConfig.styleStrength === "number";
+      if (!preserveSavedStrength && typeof presetDefault === "number") defaults.styleStrength = presetDefault;
+    }
     const creativeDirections = Array.isArray(args.creativeDirections) ? args.creativeDirections.slice(0, 3).map((item) => ({
       label: cleanText(String(item?.label || "灵感方向"), 80, "creativeDirections.label"),
       summary: cleanText(String(item?.summary || ""), 240, "creativeDirections.summary"),
       prompt: cleanText(String(item?.prompt || ""), 1800, "creativeDirections.prompt"),
       avoid: cleanText(String(item?.avoid || ""), 600, "creativeDirections.avoid"),
     })).filter((item) => item.prompt) : [];
-    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 1, presets: PRESETS, defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
+    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 2, presets: PRESETS, defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
   }
   if (name === "submit_photo_refiner_settings") {
     if (args.userConfirmed !== true) throw new Error("Explicit user confirmation is required");
@@ -344,7 +392,7 @@ function callTool(name, args) {
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
     const record = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       confirmationId: id,
       confirmedAt: now,
       confirmedBy: "photo-refiner-studio",
@@ -355,6 +403,7 @@ function callTool(name, args) {
         summary: prompt.summary,
         prompt: prompt.prompt,
         avoid: prompt.avoid,
+        defaultStrength: typeof prompt.defaultStrength === "number" ? prompt.defaultStrength : config.styleStrength,
         presetVersion: PRESETS.version,
       },
     };
@@ -419,9 +468,16 @@ async function handleRpc(message) {
     if (message.method === "initialize") {
       return rpcResponse(id, {
         protocolVersion: params.protocolVersion || "2024-11-05",
-        capabilities: {tools: {listChanged: false}, resources: {subscribe: false, listChanged: false}},
+        capabilities: {
+          tools: {listChanged: false},
+          resources: {subscribe: false, listChanged: false},
+          // Advertise the MCP Apps UI extension explicitly. Codex hosts use
+          // this capability during initialization to decide whether a tool's
+          // ui/resourceUri should be mounted as an in-chat Widget.
+          extensions: {"io.modelcontextprotocol/ui": {}},
+        },
         serverInfo: {name: "photo-refiner-studio", title: "Photo Refiner Studio", version: MANIFEST.version},
-        instructions: "For every Photo Refiner or $photo-refiner request with at least one attached or existing source photo, call open_photo_refiner_settings before replying with settings or starting image generation. If no source photo is supplied, ask for one and do not open the panel. Never replace the panel with a text menu while this tool is available. Continue only from a user-submitted confirmationPath.",
+        instructions: "For every Photo Refiner or $photo-refiner request with at least one attached or existing source photo, invoke the native top-level open_photo_refiner_settings tool before replying with settings or starting image generation. That tool call must be the final visible action of the turn; do not append any text after it, and never wrap it through functions.exec, a shell, or another orchestration tool. If no source photo is supplied, ask for one and do not open the panel. Never replace the panel with a text menu while this tool is available. Continue only from a user-submitted confirmationPath.",
       });
     }
     if (message.method === "ping") return rpcResponse(id, {});
@@ -436,11 +492,11 @@ async function handleRpc(message) {
       }
     }
     if (message.method === "resources/list") {
-      return rpcResponse(id, {resources: [{uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME}]});
+      return rpcResponse(id, {resources: [{uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME, _meta: widgetResourceMeta()}]});
     }
     if (message.method === "resources/read") {
       if (params.uri !== WIDGET_URI) return rpcError(id, -32602, `Unknown resource: ${params.uri}`);
-      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta: {"openai/widgetPrefersBorder": true}}]});
+      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta: widgetResourceMeta()}]});
     }
     if (message.method === "resources/templates/list") return rpcResponse(id, {resourceTemplates: []});
     if (message.method === "prompts/list") return rpcResponse(id, {prompts: []});

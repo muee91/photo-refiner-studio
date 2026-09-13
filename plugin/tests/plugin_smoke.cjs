@@ -8,8 +8,10 @@ const path = require("node:path");
 const readline = require("node:readline");
 
 const ROOT = path.resolve(__dirname, "..");
+const smokeHome = fs.mkdtempSync(path.join(os.tmpdir(), "photo-refiner-smoke-"));
 const server = childProcess.spawn(process.execPath, [path.join(ROOT, "mcp", "server.cjs"), "--stdio"], {
   stdio: ["pipe", "pipe", "inherit"],
+  env: {...process.env, HOME: smokeHome},
 });
 const lines = readline.createInterface({input: server.stdout});
 const pending = new Map();
@@ -42,8 +44,11 @@ function rpc(method, params = {}) {
   assert.match(noSource.structuredContent.error, /source photograph is required/);
 
   const opened = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 2}});
+  assert.equal(opened.structuredContent.schemaVersion, 2);
   assert.equal(opened.structuredContent.defaults.workflow, "batch");
-  assert.equal(opened.structuredContent.defaults.styleStrength, 80);
+  assert.equal(opened.structuredContent.defaults.preset, "natural-cinematic");
+  assert.equal(opened.structuredContent.defaults.styleStrength, 45);
+  assert.equal(opened.structuredContent.presets.presets["natural-cinematic"].defaultStrength, 45);
   assert.ok(["simple", "pro"].includes(opened.structuredContent.defaults.uiMode));
   assert.equal(opened.structuredContent.defaults.detail.patchScope, "head-and-face");
   assert.equal(opened.structuredContent.defaults.deliveryMode, "preview-first");
@@ -60,7 +65,18 @@ function rpc(method, params = {}) {
     /电影感暮光成片/,
   );
   assert.ok(opened.structuredContent.presets.presets["natural-landscape"]);
+  assert.match(opened._meta.ui.resourceUri, /^ui:\/\/widget\//);
   assert.match(opened._meta["openai/outputTemplate"], /^ui:\/\/widget\//);
+  assert.equal(opened.content[1].type, "resource");
+  assert.equal(opened.content[1].resource.mimeType, "text/html;profile=mcp-app");
+
+  const recommended = await rpc("tools/call", {
+    name: "open_photo_refiner_settings",
+    arguments: {sourceCount: 1, suggestedPreset: "natural-landscape"},
+  });
+  assert.equal(recommended.structuredContent.defaults.preset, "natural-landscape");
+  assert.equal(recommended.structuredContent.defaults.styleStrength, 35);
+  assert.equal(recommended.structuredContent.presets.presets["natural-landscape"].defaultStrength, 35);
 
   const resources = await rpc("resources/list");
   const resource = await rpc("resources/read", {uri: resources.resources[0].uri});
@@ -78,8 +94,7 @@ function rpc(method, params = {}) {
   assert.match(resource.contents[0].text, /默认只需选择风格/);
   assert.ok(resource.contents[0].text.includes("头部 + 人脸"));
 
-  const defaults = opened.structuredContent.defaults;
-  defaults.preset = "natural-landscape";
+  const defaults = recommended.structuredContent.defaults;
   defaults.clothing.wrinkleReduction = 35;
   const submitted = await rpc("tools/call", {
     name: "submit_photo_refiner_settings",
@@ -87,17 +102,32 @@ function rpc(method, params = {}) {
   });
   assert.equal(submitted.structuredContent.ok, true);
   assert.ok(fs.existsSync(submitted.structuredContent.confirmationPath));
-  assert.ok(fs.statSync(submitted.structuredContent.confirmationPath).isFile());
   const confirmation = JSON.parse(fs.readFileSync(submitted.structuredContent.confirmationPath, "utf8"));
+  assert.equal(confirmation.schemaVersion, 2);
+  assert.equal(confirmation.config.preset, "natural-landscape");
+  assert.equal(confirmation.config.styleStrength, 35);
+  assert.equal(confirmation.resolvedPrompt.defaultStrength, 35);
   assert.equal(confirmation.config.clothing.wrinkleReduction, 35);
   assert.equal(confirmation.config.portrait.enabled, false);
   assert.equal(confirmation.config.body.enabled, false);
-  assert.equal(confirmation.config.deliveryMode, "preview-first");
-  const reopened = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 1}});
-  assert.equal(reopened.structuredContent.defaults.preset, "natural-landscape");
-  // System presets are rendered from the catalog; only user-authored prompts
-  // are persisted and deletable.
-  assert.equal(reopened.structuredContent.promptLibrary.custom.length, 0);
+
+  // Same-preset saved user tuning must win over the catalog default.
+  const tuned = JSON.parse(JSON.stringify(defaults));
+  tuned.styleStrength = 42;
+  await rpc("tools/call", {name: "submit_photo_refiner_settings", arguments: {userConfirmed: true, config: tuned}});
+  const reopened = await rpc("tools/call", {
+    name: "open_photo_refiner_settings",
+    arguments: {sourceCount: 1, suggestedPreset: "natural-landscape"},
+  });
+  assert.equal(reopened.structuredContent.defaults.styleStrength, 42);
+
+  // A different recommendation must adopt that preset's own default strength.
+  const switched = await rpc("tools/call", {
+    name: "open_photo_refiner_settings",
+    arguments: {sourceCount: 1, suggestedPreset: "clean-architecture"},
+  });
+  assert.equal(switched.structuredContent.defaults.preset, "clean-architecture");
+  assert.equal(switched.structuredContent.defaults.styleStrength, 30);
 
   const unsafe = JSON.parse(JSON.stringify(defaults));
   unsafe.body.enabled = true;
@@ -110,9 +140,11 @@ function rpc(method, params = {}) {
   assert.match(rejected.structuredContent.error, /0 to 40/);
 
   server.stdin.end();
-  console.log(JSON.stringify({ok: true, confirmationPath: submitted.structuredContent.confirmationPath, temp: os.tmpdir()}));
+  fs.rmSync(smokeHome, {recursive: true, force: true});
+  console.log(JSON.stringify({ok: true, confirmationPath: submitted.structuredContent.confirmationPath}));
 })().catch((error) => {
   server.kill();
+  fs.rmSync(smokeHome, {recursive: true, force: true});
   console.error(error);
   process.exitCode = 1;
 });
