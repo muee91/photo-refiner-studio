@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "photoRefinerStudio": {
+      "title": "Photo Refiner Studio",
+      "description": "Interactive settings and confirmation for the Photo Refiner skill.",
+      "icons": [
+        {
+          "src": "./assets/photo-refiner.svg",
+          "mimeType": "image/svg+xml",
+          "sizes": ["24x24", "any"]
+        }
+      ],
+      "cwd": ".",
+      "command": "node",
+      "args": ["./mcp/server.cjs", "--stdio"]
+    }
+  }
+}

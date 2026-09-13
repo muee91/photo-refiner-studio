@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "photoRefinerStudio": {
-      "command": "node",
-      "args": ["./mcp/server.cjs", "--stdio"],
-      "cwd": "."
-    }
-  }
-}

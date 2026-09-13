@@ -1,7 +1,10 @@
-# Photo Refiner Studio
+# Photo Refiner Studio v2.2
 
-Photo Refiner Studio v2.2 repo-local plugin for ChatGPT desktop / Codex.
+Installable Codex plugin bundle. The plugin manifest is at the archive root.
 
-The repo marketplace lives at `.agents/plugins/marketplace.json`. The installable plugin lives at `plugins/photo-refiner-studio/` and contains the MCP settings panel plus the Photo Refiner skill.
+- `.codex-plugin/plugin.json`: plugin manifest
+- `.mcp.json` + `mcp/server.cjs`: interactive Photo Refiner Studio panel
+- `skills/photo-refiner/`: Photo Refiner v2.2 skill
+- `assets/settings.html`: current Studio panel
 
-Current detail policy: Balanced normally uses 1–3 generated detail patches and may expand to 6 only for high-value complex regions that pass Pixel Budget.
+Balanced detail recovery normally uses 1–3 generated patches and can expand to 6 for high-value complex regions.

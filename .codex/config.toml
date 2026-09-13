@@ -1,6 +1,5 @@
-[plugins."photo-refiner-studio@photo-refiner-local"]
-enabled = true
-
-[plugins."photo-refiner-studio@photo-refiner-local".mcp_servers.photoRefinerStudio]
-enabled = true
-default_tools_approval_mode = "prompt"
+[mcp_servers.photoRefinerStudio]
+command = "node"
+args = ["./mcp/server.cjs", "--stdio"]
+cwd = "."
+startup_timeout_sec = 30

@@ -1,18 +1,10 @@
 {
   "name": "photo-refiner-studio",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Interactive Photo Refiner v2.2 settings and confirmation for Codex",
-  "author": {
-    "name": "muee"
-  },
+  "author": {"name":"muee"},
   "license": "Proprietary",
-  "keywords": [
-    "photo",
-    "retouching",
-    "portrait",
-    "landscape",
-    "image-editing"
-  ],
+  "keywords": ["photo","retouching","portrait","landscape","image-editing"],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
@@ -21,10 +13,7 @@
     "longDescription": "Configure Photo Refiner v2.2 through a simplified creative workspace. Balanced detail recovery normally uses one to three generated detail patches and can adaptively expand to six for high-value complex regions that pass Pixel Budget.",
     "developerName": "muee",
     "category": "Creative",
-    "capabilities": [
-      "Interactive",
-      "Write"
-    ],
+    "capabilities": ["Interactive","Write"],
     "defaultPrompt": [
       "Open the Photo Refiner settings for these photos",
       "Retouch this portrait after I confirm the settings",
