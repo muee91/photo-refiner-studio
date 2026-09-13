@@ -10,7 +10,11 @@ const ROOT = path.resolve(__dirname, "..");
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
 const PRESETS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "presets.json"), "utf8"));
 const WIDGET_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), "utf8");
-const WIDGET_URI = `ui://widget/photo-refiner-settings-${encodeURIComponent(MANIFEST.version)}.html`;
+// Use the slash-scoped URI shape accepted by Codex MCP App hosts. A flat URI
+// containing an encoded `+` can return a successful tool call while failing to
+// resolve and mount the Widget resource.
+const WIDGET_VERSION = String(MANIFEST.version).replace(/[^A-Za-z0-9._-]+/g, "-");
+const WIDGET_URI = `ui://widget/photo-refiner-settings/${WIDGET_VERSION}.html`;
 const WIDGET_MIME = "text/html;profile=mcp-app";
 const CONFIRMATION_DIR = path.join(os.homedir(), ".codex", "photo-refiner", "confirmed");
 const PREFERENCES_PATH = path.join(os.homedir(), ".codex", "photo-refiner", "preferences.json");
