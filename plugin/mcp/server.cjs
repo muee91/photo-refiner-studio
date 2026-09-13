@@ -345,6 +345,14 @@ function toolResult(payload, withWidget = false) {
         _meta: widgetResourceMeta(),
       },
     });
+    result.content.push({
+      type: "resource_link",
+      uri: WIDGET_URI,
+      name: "Photo Refiner settings",
+      title: "Photo Refiner settings",
+      mimeType: WIDGET_MIME,
+      _meta: widgetResourceMeta(),
+    });
   }
   return result;
 }
