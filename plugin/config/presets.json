@@ -3,6 +3,7 @@
   "presets": {
     "eastern-twilight": {
       "label": "Eastern Twilight",
+      "labelZh": "东方暮光",
       "summary": "柔和暮光、青绿色暗部、低饱和暖金天光与湿润薄雾",
       "defaultStrength": 78,
       "prompt": "Create a visibly transformed cinematic twilight grade, never a near-identical conservative retouch: soft twilight side rim backlighting, cyan-green shadows, muted low-saturation warm golden skylight, humid cyan-green haze, sparse scattered light particles, low-contrast soft focus, subtle highlight bloom and halation, slightly lifted blacks, restrained warm accents, shallow depth of field, fine 35mm film grain, photorealistic, ethereal and mysterious Eastern fantasy atmosphere. Make the cyan-green shadow separation, warm sky-light layering, humid haze, lifted blacks, and gentle halation clearly visible in the delivered image.",
@@ -12,6 +13,7 @@
     },
     "warm-gold-ancient": {
       "label": "Warm Gold Ancient",
+      "labelZh": "暖金古风",
       "summary": "克制的琥珀夕阳与灯笼暖光，适合古风人物和建筑",
       "defaultStrength": 68,
       "prompt": "Muted amber sunset and lantern light, soft brown-green shadows, restrained saturation, delicate halation, lifted blacks, natural skin, shallow depth of field, fine 35mm grain, photorealistic classical Chinese cinematic atmosphere.",
@@ -21,6 +23,7 @@
     },
     "moonlit-cyan": {
       "label": "Moonlit Cyan",
+      "labelZh": "月夜青调",
       "summary": "柔和月夜青色环境光、冷雾和少量暖色实景光",
       "defaultStrength": 65,
       "prompt": "Soft moonlit cyan ambience, cool mist, restrained warm practical lights, low contrast, subtle bloom, lifted shadows, soft environmental edges, fine film grain, photorealistic quiet nocturnal atmosphere.",
@@ -30,6 +33,7 @@
     },
     "surreal-eastern": {
       "label": "Surreal Eastern",
+      "labelZh": "超现实东方",
       "summary": "古风人物的轻度超现实氛围：时间凝滞、非现实光线与可控梦境感",
       "defaultStrength": 78,
       "prompt": "Photorealistic classical Chinese portrait with a restrained surreal dream layer: preserve the subject's real identity, face, anatomy, hands, hair ornaments, costume construction and scene geometry; introduce a believable sense of suspended time, slightly impossible but physically coherent twilight light, delicate floating dust and silk-like atmospheric trails, subtle depth layering, quiet dreamlike scale, poetic negative space, muted jade-cyan shadows and restrained antique-gold accents. The result must remain a real photograph with tactile skin, hair, embroidery and fabric texture, not an illustration or fantasy character redesign.",
@@ -39,6 +43,7 @@
     },
     "portra-soft-editorial": {
       "label": "Portra Soft Editorial",
+      "labelZh": "柔和胶片人像",
       "summary": "柔和肤色、粉彩高光和细腻胶片质感，适合人像与古风肖像",
       "defaultStrength": 52,
       "prompt": "Photorealistic soft editorial portrait inspired by gentle negative-film color: natural skin tones, creamy highlights, pastel neutrals, open soft shadows, restrained contrast, subtle background separation, tactile fabric and hair detail, delicate 35mm grain, refined magazine photography. Preserve identity, anatomy, hands, costume construction and scene geometry.",
@@ -48,6 +53,7 @@
     },
     "cinematic-teal-amber": {
       "label": "Cinematic Teal Amber",
+      "labelZh": "青金电影感",
       "summary": "克制青绿色暗部与琥珀高光，强化电影层次但保留真实肤色",
       "defaultStrength": 62,
       "prompt": "Photorealistic cinematic grade with controlled teal-cyan shadow separation and restrained amber highlights, motivated directional light, preserved skin tones, gentle contrast roll-off, subtle halation, atmospheric depth and fine film grain. Keep the original subject identity, costume, props and geometry; make the color contrast visible without a synthetic blockbuster look.",
@@ -57,6 +63,7 @@
     },
     "kodak-gold-vintage": {
       "label": "Kodak Gold Vintage",
+      "labelZh": "金色怀旧胶片",
       "summary": "温暖怀旧的金色胶片、柔和颗粒与轻微褪色感",
       "defaultStrength": 48,
       "prompt": "Photorealistic warm vintage film photograph with golden daylight, gentle yellow-red warmth, slightly faded blacks, soft highlight bloom, moderate fine grain, natural texture and nostalgic but believable color. Preserve the original face, clothing, objects and composition; keep the effect photographic and restrained.",
@@ -66,6 +73,7 @@
     },
     "dreamy-soft-bloom": {
       "label": "Dreamy Soft Bloom",
+      "labelZh": "梦境柔光",
       "summary": "低反差柔焦、轻微高光扩散与空气感，适合梦境人像",
       "defaultStrength": 58,
       "prompt": "Photorealistic dreamy portrait with low-contrast soft focus, delicate highlight bloom, gentle halation, luminous atmospheric veil, soft shallow depth of field and fine film grain. Keep eyes, facial structure, hair, hands, garment edges and important props coherent and recognizable; the dream layer must remain a real photograph.",
@@ -75,6 +83,7 @@
     },
     "film-noir-portrait": {
       "label": "Film Noir Portrait",
+      "labelZh": "黑色电影人像",
       "summary": "黑白或低饱和高反差光影，突出轮廓、表情与戏剧性阴影",
       "defaultStrength": 65,
       "prompt": "Photorealistic film-noir portrait with dramatic motivated side light, sculpted shadows, controlled monochrome-to-low-saturation tones, readable skin texture, atmospheric depth, subtle 35mm grain and restrained highlight roll-off. Preserve identity, facial structure, hands, hair, costume and scene geometry; keep shadow detail instead of crushing everything.",
@@ -84,6 +93,7 @@
     },
     "fine-art-chiaroscuro": {
       "label": "Fine Art Chiaroscuro",
+      "labelZh": "古典明暗人像",
       "summary": "古典明暗法与柔和暖暗色，适合古风、室内和戏剧性肖像",
       "defaultStrength": 60,
       "prompt": "Photorealistic fine-art portrait using restrained chiaroscuro: one coherent warm key light, deep but readable shadows, subtle brown-green ambience, natural skin and tactile textile detail, controlled falloff, quiet painterly composition without becoming a painting. Preserve the subject's identity, anatomy, costume construction, props and room geometry.",
@@ -93,6 +103,7 @@
     },
     "natural-cinematic": {
       "label": "Natural Cinematic",
+      "labelZh": "自然电影感",
       "summary": "自然光与平衡肤色，轻柔对比和细腻写实质感",
       "defaultStrength": 45,
       "prompt": "Natural motivated light, balanced skin tones, gently softened contrast, controlled highlights, subtle depth separation, realistic texture and fine 35mm grain, premium photorealistic editorial color grade.",
@@ -102,6 +113,7 @@
     },
     "natural-landscape": {
       "label": "Natural Landscape",
+      "labelZh": "自然风光",
       "summary": "忠实自然色彩、清晰空间层次和克制的风景细节增强",
       "defaultStrength": 35,
       "prompt": "Photorealistic natural landscape refinement, faithful daylight and atmospheric perspective, balanced greens and sky tones, controlled highlights, open shadow detail, realistic foliage, rock, soil, water, and cloud textures, restrained local contrast, natural depth, clean fine detail without an artificial HDR appearance.",
@@ -111,6 +123,7 @@
     },
     "golden-hour-landscape": {
       "label": "Golden Hour Landscape",
+      "labelZh": "黄金时刻风光",
       "summary": "低饱和金色侧光、柔和长阴影与真实大气透视",
       "defaultStrength": 50,
       "prompt": "Photorealistic golden-hour landscape, muted warm side light, softly extended shadows, restrained amber highlights, believable atmospheric perspective, preserved terrain and vegetation structure, controlled sky gradients, subtle highlight bloom, natural fine detail and gentle filmic contrast.",
@@ -120,6 +133,7 @@
     },
     "misty-mountains": {
       "label": "Misty Mountains",
+      "labelZh": "云雾山景",
       "summary": "保留山体轮廓的轻雾层次、冷暖空气透视与东方山水氛围",
       "defaultStrength": 48,
       "prompt": "Photorealistic mountain landscape with layered natural mist, preserved ridge and terrain geometry, soft cool atmospheric perspective, restrained warm light where present, delicate cloud separation, lifted distant values, realistic vegetation and rock textures, quiet Eastern landscape atmosphere without painterly conversion.",
@@ -129,6 +143,7 @@
     },
     "clean-architecture": {
       "label": "Clean Architecture",
+      "labelZh": "纯净建筑",
       "summary": "校正透视感、控制高光并保留真实建筑材质与线条",
       "defaultStrength": 30,
       "prompt": "Photorealistic architectural refinement, preserved geometry and structural lines, neutral-to-natural color balance, controlled window and sky highlights, readable shadow detail, realistic stone, wood, glass, and metal textures, clean depth and restrained micro-contrast.",

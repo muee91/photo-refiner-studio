@@ -2,6 +2,7 @@ version: 2
 presets:
   eastern-twilight:
     label: "Eastern Twilight"
+    label_zh: "东方暮光"
     summary_zh: "柔和暮光、青绿色暗部、低饱和暖金天光与湿润薄雾"
     default_strength: 78
     prompt: >-
@@ -26,6 +27,7 @@ presets:
       塑料皮肤、文字、Logo、边框和水印。
   warm-gold-ancient:
     label: "Warm Gold Ancient"
+    label_zh: "暖金古风"
     summary_zh: "克制的琥珀夕阳与灯笼暖光，适合古风人物和建筑"
     default_strength: 68
     prompt: >-
@@ -35,6 +37,7 @@ presets:
     avoid: "orange skin, harsh HDR, clipped lamps, excessive glow, CGI, text, logo, watermark"
   moonlit-cyan:
     label: "Moonlit Cyan"
+    label_zh: "月夜青调"
     summary_zh: "柔和月夜青色环境光、冷雾和少量暖色实景光"
     default_strength: 65
     prompt: >-
@@ -44,6 +47,7 @@ presets:
     avoid: "neon blue skin, crushed blacks, excessive fog, hard sharpening, CGI, text, watermark"
   surreal-eastern:
     label: "Surreal Eastern"
+    label_zh: "超现实东方"
     summary_zh: "古风人物的轻度超现实氛围：时间凝滞、非现实光线与可控梦境感"
     default_strength: 78
     prompt: >-
@@ -71,6 +75,7 @@ presets:
       不可能的人体结构、过量粒子、巨型道具、夸张变形、霓虹色、浓雾、死黑、文字、Logo、边框和水印。
   portra-soft-editorial:
     label: "Portra Soft Editorial"
+    label_zh: "柔和胶片人像"
     summary_zh: "柔和肤色、粉彩高光和细腻胶片质感，适合人像与古风肖像"
     default_strength: 52
     prompt: >-
@@ -91,6 +96,7 @@ presets:
       过饱和、CGI、文字、Logo 和水印。
   cinematic-teal-amber:
     label: "Cinematic Teal Amber"
+    label_zh: "青金电影感"
     summary_zh: "克制青绿色暗部与琥珀高光，强化电影层次但保留真实肤色"
     default_strength: 62
     prompt: >-
@@ -111,6 +117,7 @@ presets:
       CGI、文字、Logo 和水印。
   kodak-gold-vintage:
     label: "Kodak Gold Vintage"
+    label_zh: "金色怀旧胶片"
     summary_zh: "温暖怀旧的金色胶片、柔和颗粒与轻微褪色感"
     default_strength: 48
     prompt: >-
@@ -129,6 +136,7 @@ presets:
       CGI、文字、Logo 和水印。
   dreamy-soft-bloom:
     label: "Dreamy Soft Bloom"
+    label_zh: "梦境柔光"
     summary_zh: "低反差柔焦、轻微高光扩散与空气感，适合梦境人像"
     default_strength: 58
     prompt: >-
@@ -147,6 +155,7 @@ presets:
       人体变形、CGI、文字、Logo 和水印。
   film-noir-portrait:
     label: "Film Noir Portrait"
+    label_zh: "黑色电影人像"
     summary_zh: "黑白或低饱和高反差光影，突出轮廓、表情与戏剧性阴影"
     default_strength: 65
     prompt: >-
@@ -165,6 +174,7 @@ presets:
       避免死黑、纯白溢出、恐怖妆效、过度暗角、脸部模糊、改变身份、CGI、文字、Logo 和水印。
   fine-art-chiaroscuro:
     label: "Fine Art Chiaroscuro"
+    label_zh: "古典明暗人像"
     summary_zh: "古典明暗法与柔和暖暗色，适合古风、室内和戏剧性肖像"
     default_strength: 60
     prompt: >-
@@ -183,6 +193,7 @@ presets:
       避免绘画渲染、死黑、舞台式假光、蜡像皮肤、人体变形、凭空增加道具、CGI、文字、Logo 和水印。
   natural-cinematic:
     label: "Natural Cinematic"
+    label_zh: "自然电影感"
     summary_zh: "自然光与平衡肤色，轻柔对比和细腻写实质感"
     default_strength: 45
     prompt: >-
@@ -192,6 +203,7 @@ presets:
     avoid: "beauty-filter skin, HDR halos, oversaturation, excessive blur, CGI, text, watermark"
   natural-landscape:
     label: "Natural Landscape"
+    label_zh: "自然风光"
     summary_zh: "忠实自然色彩、清晰空间层次和克制的风景细节增强"
     default_strength: 35
     prompt: >-
@@ -205,6 +217,7 @@ presets:
       text, logo, border, watermark
   golden-hour-landscape:
     label: "Golden Hour Landscape"
+    label_zh: "黄金时刻风光"
     summary_zh: "低饱和金色侧光、柔和长阴影与真实大气透视"
     default_strength: 50
     prompt: >-
@@ -217,6 +230,7 @@ presets:
       invented terrain, repeated vegetation, CGI, text, logo, border, watermark
   misty-mountains:
     label: "Misty Mountains"
+    label_zh: "云雾山景"
     summary_zh: "保留山体轮廓的轻雾层次、冷暖空气透视与东方山水氛围"
     default_strength: 48
     prompt: >-
@@ -229,6 +243,7 @@ presets:
       oversaturated cyan, hard clarity, HDR halos, CGI, ink painting, text, watermark
   clean-architecture:
     label: "Clean Architecture"
+    label_zh: "纯净建筑"
     summary_zh: "校正透视感、控制高光并保留真实建筑材质与线条"
     default_strength: 30
     prompt: >-

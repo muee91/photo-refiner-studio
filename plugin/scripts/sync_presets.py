@@ -23,6 +23,7 @@ def main() -> None:
     for preset_id, item in data["presets"].items():
         generated["presets"][preset_id] = {
             "label": item["label"],
+            "labelZh": item.get("label_zh", item["label"]),
             "summary": item["summary_zh"],
             "defaultStrength": int(item.get("default_strength", 50)),
             "prompt": item["prompt"].strip(),

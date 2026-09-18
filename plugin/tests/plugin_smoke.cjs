@@ -65,6 +65,8 @@ function rpc(method, params = {}) {
     opened.structuredContent.presets.presets["eastern-twilight"].promptZh,
     /电影感暮光成片/,
   );
+  assert.equal(opened.structuredContent.presets.presets["eastern-twilight"].labelZh, "东方暮光");
+  assert.equal(opened.structuredContent.presets.presets["portra-soft-editorial"].labelZh, "柔和胶片人像");
   assert.ok(opened.structuredContent.presets.presets["natural-landscape"]);
   assert.equal(Object.keys(opened.structuredContent.presets.presets).length, 15);
   assert.ok(opened.structuredContent.presets.presets["portra-soft-editorial"]);
@@ -106,6 +108,7 @@ function rpc(method, params = {}) {
   assert.match(resource.contents[0].text, /direction\.preset/);
   assert.match(resource.contents[0].text, /preset-list/);
   assert.match(resource.contents[0].text, /默认只需选择风格/);
+  assert.match(resource.contents[0].text, /labelZh\|\|p\.label/);
   assert.ok(resource.contents[0].text.includes("头部 + 人脸"));
 
   const defaults = recommended.structuredContent.defaults;
