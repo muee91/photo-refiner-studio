@@ -5,6 +5,12 @@
 - `photo-refiner/`：Photo Refiner Skill；
 - `photo-refiner-studio/`：负责弹出设置面板和保存确认结果的 MCP 插件。
 
+## 拖入聊天框后的单行指令
+
+将本 ZIP 直接拖入 Codex 聊天框，然后发送下面这句话即可：
+
+> 安装我刚上传的 Photo Refiner 压缩包：自动解压并运行包内 `install_photo_refiner.py`，先把旧版 Skill、插件和缓存移动到可恢复备份，再安装新版并完成依赖、Skill 和 MCP smoke test；不要只给我安装步骤，直接执行并报告结果。
+
 ## 用 Codex 安装
 
 把 ZIP 解压后，将解压目录作为工作目录交给 Codex，并让 Codex 执行：
