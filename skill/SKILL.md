@@ -45,6 +45,8 @@ Stop if Pillow + ImageCms/LittleCMS, NumPy, PyYAML, OpenCV, or SIFT support is m
 
 After a source photograph is known, look for `open_photo_refiner_settings` (including namespaced MCP variants). If available, opening the Photo Refiner Studio panel is mandatory. **Invoke the namespaced MCP tool as a native/top-level tool call, never through `functions.exec`, a shell wrapper, or another orchestration tool.** Pass a positive source count plus the subject-aware recommendation. **Make this panel call the final visible action of the turn: do not append a text acknowledgement, settings summary, or any other message after it.** The host needs the Widget metadata to mount the panel. Do not print a parallel text menu. Resume only after the user submits the panel and a `confirmationPath` is returned. Never call the submit tool on the user's behalf.
 
+The panel has two separate states: editing fields only changes the Widget locally; clicking its confirmation button is the actual submission. When the Widget sends a `PHOTO_REFINER_PANEL_SUBMITTED` handoff containing a valid `confirmationPath`, treat that as explicit user confirmation. Do not ask “是否确认”, reopen the panel, or request the same settings again. Use that exact file with `init_job.py --confirmation-file` and continue the selected workflow. If no `confirmationPath` exists, the settings are not confirmed yet.
+
 If the Studio tool is genuinely unavailable, use a compact text fallback and require explicit confirmation before calling `init_job.py --confirmed`. Never infer panel unavailability merely because it was not auto-suggested.
 
 ## 4. Subject-aware starting settings

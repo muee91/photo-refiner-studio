@@ -38,6 +38,7 @@ function rpc(method, params = {}) {
   assert.deepEqual(listed.tools.map((item) => item.name), ["open_photo_refiner_settings", "submit_photo_refiner_settings", "delete_photo_refiner_prompt"]);
   assert.deepEqual(listed.tools[0].inputSchema.required, ["sourceCount"]);
   assert.equal(listed.tools[0].inputSchema.properties.sourceCount.minimum, 1);
+  assert.deepEqual(listed.tools[1].outputSchema.required, ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt"]);
 
   const noSource = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 0}});
   assert.equal(noSource.isError, true);
@@ -87,6 +88,8 @@ function rpc(method, params = {}) {
   assert.match(resource.contents[0].text, /先看效果图/);
   assert.match(resource.contents[0].text, /简单模式（推荐）/);
   assert.match(resource.contents[0].text, /专业模式/);
+  assert.match(resource.contents[0].text, /PHOTO_REFINER_PANEL_SUBMITTED/);
+  assert.match(resource.contents[0].text, /不要再次打开设置面板/);
   assert.match(resource.contents[0].text, /提示词库/);
   assert.match(resource.contents[0].text, /内置可直接使用/);
   assert.match(resource.contents[0].text, /根据照片的建议/);

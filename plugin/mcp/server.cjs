@@ -309,7 +309,7 @@ function toolDefinitions() {
     {
       name: "submit_photo_refiner_settings",
       title: "Confirm Photo Refiner settings",
-      description: "Validate and freeze settings submitted by the interactive Photo Refiner panel. Do not call this on the user's behalf; it represents an explicit panel submission.",
+      description: "Validate and freeze settings submitted by the interactive Photo Refiner panel. Do not call this on the user's behalf; it represents an explicit panel submission. After success, the returned confirmationPath is authoritative: continue from it without reopening the panel or asking the user to confirm the same settings again.",
       inputSchema: {
         type: "object",
         required: ["userConfirmed", "config"],
@@ -320,6 +320,20 @@ function toolDefinitions() {
         additionalProperties: false,
       },
       annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false},
+      outputSchema: {
+        type: "object",
+        required: ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt"],
+        additionalProperties: true,
+        properties: {
+          ok: {type: "boolean"},
+          kind: {type: "string"},
+          confirmationId: {type: "string"},
+          confirmationPath: {type: "string"},
+          confirmedAt: {type: "string"},
+          promptHash: {type: "string"},
+          summary: {type: "object"},
+        },
+      },
       _meta: {"openai/widgetAccessible": true, ui: {visibility: ["app"]}},
     },
     {
@@ -493,7 +507,7 @@ async function handleRpc(message) {
           extensions: {"io.modelcontextprotocol/ui": {}},
         },
         serverInfo: {name: "photo-refiner-studio", title: "Photo Refiner Studio", version: MANIFEST.version},
-        instructions: "For every Photo Refiner or $photo-refiner request with at least one attached or existing source photo, invoke the native top-level open_photo_refiner_settings tool before replying with settings or starting image generation. That tool call must be the final visible action of the turn; do not append any text after it, and never wrap it through functions.exec, a shell, or another orchestration tool. If no source photo is supplied, ask for one and do not open the panel. Never replace the panel with a text menu while this tool is available. Continue only from a user-submitted confirmationPath.",
+        instructions: "For every Photo Refiner or $photo-refiner request with at least one attached or existing source photo, invoke the native top-level open_photo_refiner_settings tool before replying with settings or starting image generation. That tool call must be the final visible action of the turn; do not append any text after it, and never wrap it through functions.exec, a shell, or another orchestration tool. If no source photo is supplied, ask for one and do not open the panel. Never replace the panel with a text menu while this tool is available. A message containing PHOTO_REFINER_PANEL_SUBMITTED and a valid confirmationPath is an explicit panel confirmation: do not ask again or reopen the panel; continue from that file. Otherwise continue only from a user-submitted confirmationPath.",
       });
     }
     if (message.method === "ping") return rpcResponse(id, {});
