@@ -193,6 +193,22 @@ Before local generation, v2.2 plans coarse detail regions with:
 python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" --image <look-master-or-source> ...
 ```
 
+When the visual analysis pass has identified the subject and important regions,
+pass its result through the formal handoff contract:
+
+```bash
+python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
+  --image <look-master-or-source> \
+  --vision-analysis <vision-analysis.json> \
+  --detail-budget balanced
+```
+
+The contract is documented in `references/vision-analysis-schema.md`. It accepts
+pixel or normalized boxes for the subject, face, hands, and props. The Vision
+pass remains responsible for detection; the planner remains responsible for
+value scoring, merging, and generation budgets. Manual box flags remain
+backward-compatible and override matching Vision fields.
+
 This planner is intentionally conservative. The generation budget is a **ceiling, never a quota**. It scores candidate regions by visual value and final-image scale, prefers one broad region over several fine ones, and may return fewer patches—or zero patches—when local generation is not worth the latency.
 
 Default generated-patch policy:

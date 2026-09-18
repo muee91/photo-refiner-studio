@@ -15,7 +15,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from build_blend_mask import build_mask
 from landmark_identity_gate import evaluate_landmarks
-from plan_detail_tiles import Box, build_plan
+from plan_detail_tiles import Box, build_plan, load_vision_analysis
 
 
 class PhotoRefinerV22Tests(unittest.TestCase):
@@ -66,6 +66,49 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         self.assertEqual(plan["estimated_generated_patches"], 3)
         self.assertEqual([item["region_type"] for item in plan["regions"]], ["costume", "head", "face"])
         self.assertTrue(all(item["requires_pixel_budget_check"] for item in plan["regions"]))
+
+    def test_vision_analysis_handoff_converts_normalized_regions(self):
+        analysis = self.root / "vision-analysis.json"
+        analysis.write_text(json.dumps({
+            "schema_version": 1,
+            "coordinate_space": "normalized",
+            "subject_type": "classical-portrait",
+            "regions": {
+                "subject": {"x": 0.2, "y": 0.1, "width": 0.6, "height": 0.8},
+                "face": {"x": 0.4, "y": 0.15, "width": 0.2, "height": 0.18},
+                "hands": [{"x": 0.3, "y": 0.7, "width": 0.1, "height": 0.12}],
+                "props": [{"x": 0.6, "y": 0.45, "width": 0.15, "height": 0.2}],
+            },
+        }), encoding="utf-8")
+        resolved = load_vision_analysis(analysis, 1500, 2000)
+        self.assertEqual(resolved["subject_type"], "classical-portrait")
+        self.assertEqual(resolved["subject_box"], Box(300, 200, 900, 1600))
+        self.assertEqual(resolved["face_box"], Box(600, 300, 300, 360))
+        self.assertEqual(resolved["hand_boxes"], [Box(450, 1400, 150, 240)])
+        self.assertEqual(resolved["prop_boxes"], [Box(900, 900, 225, 400)])
+
+    def test_vision_analysis_cli_feeds_planner_and_records_source(self):
+        analysis = self.root / "vision-analysis.json"
+        analysis.write_text(json.dumps({
+            "schema_version": 1,
+            "coordinate_space": "pixel",
+            "subject_type": "landscape",
+            "regions": {"subject": {"x": 200, "y": 300, "width": 900, "height": 700}},
+        }), encoding="utf-8")
+        result = self.run_script(
+            "plan_detail_tiles.py", "--image", self.source,
+            "--vision-analysis", analysis,
+        )
+        plan = json.loads(result.stdout)
+        self.assertEqual(plan["subject_type"], "landscape")
+        self.assertEqual(plan["regions"][0]["region_type"], "generic")
+        self.assertEqual(plan["vision_analysis"]["schema_version"], 1)
+
+    def test_vision_analysis_rejects_unknown_schema(self):
+        analysis = self.root / "bad-vision-analysis.json"
+        analysis.write_text(json.dumps({"schema_version": 2}), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            load_vision_analysis(analysis, 1500, 2000)
 
     def test_balanced_budget_is_ceiling_not_quota_for_tiny_face(self):
         plan = build_plan(

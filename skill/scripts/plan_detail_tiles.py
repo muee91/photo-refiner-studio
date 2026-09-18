@@ -13,7 +13,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from PIL import Image
 
@@ -89,6 +89,83 @@ def parse_box(value: str) -> Box:
     if width <= 0 or height <= 0 or x < 0 or y < 0:
         raise argparse.ArgumentTypeError("Boxes must be non-negative and use positive width/height")
     return Box(x, y, width, height)
+
+
+VISION_SUBJECT_TYPES = {"portrait", "classical-portrait", "landscape", "architecture", "generic"}
+
+
+def _analysis_number(value: Any, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"Vision analysis field {field} must be a finite number")
+    return float(value)
+
+
+def _analysis_box(value: Any, *, coordinate_space: str, image_w: int, image_h: int, field: str) -> Box:
+    """Convert a Vision result box into the planner's pixel-space Box."""
+    if isinstance(value, dict) and "box" in value:
+        value = value["box"]
+    if not isinstance(value, dict) or not all(key in value for key in ("x", "y", "width", "height")):
+        raise ValueError(f"Vision analysis field {field} must contain x, y, width, height")
+    x = _analysis_number(value["x"], f"{field}.x")
+    y = _analysis_number(value["y"], f"{field}.y")
+    width = _analysis_number(value["width"], f"{field}.width")
+    height = _analysis_number(value["height"], f"{field}.height")
+    if coordinate_space == "normalized":
+        if min(x, y, width, height) < 0 or max(x, y, width, height) > 1:
+            raise ValueError(f"Vision analysis field {field} must use values from 0 to 1 in normalized space")
+        x, width = x * image_w, width * image_w
+        y, height = y * image_h, height * image_h
+    elif coordinate_space != "pixel":
+        raise ValueError("Vision analysis coordinate_space must be pixel or normalized")
+    if x < 0 or y < 0 or width <= 0 or height <= 0:
+        raise ValueError(f"Vision analysis field {field} must use a non-negative origin and positive size")
+    return Box(round(x), round(y), max(1, round(width)), max(1, round(height))).clip(image_w, image_h)
+
+
+def load_vision_analysis(path: Path, image_w: int, image_h: int) -> dict:
+    """Load the stable Vision -> Planner handoff contract.
+
+    The file contains a subject type and coarse regions. Coordinates may be pixels
+    or normalized fractions, but the coordinate space must be explicit.
+    """
+    try:
+        payload = json.loads(path.expanduser().read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"Cannot read Vision analysis: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Vision analysis is not valid JSON: {path}") from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise ValueError("Vision analysis schema_version must be 1")
+    subject_type = payload.get("subject_type")
+    if subject_type not in VISION_SUBJECT_TYPES:
+        raise ValueError(f"Vision analysis subject_type must be one of: {', '.join(sorted(VISION_SUBJECT_TYPES))}")
+    coordinate_space = payload.get("coordinate_space", "pixel")
+    regions = payload.get("regions")
+    if not isinstance(regions, dict):
+        raise ValueError("Vision analysis regions must be an object")
+
+    def optional_box(name: str) -> Box | None:
+        value = regions.get(name)
+        return None if value is None else _analysis_box(value, coordinate_space=coordinate_space, image_w=image_w, image_h=image_h, field=f"regions.{name}")
+
+    def box_list(name: str) -> list[Box]:
+        values = regions.get(name, [])
+        if not isinstance(values, list):
+            raise ValueError(f"Vision analysis regions.{name} must be an array")
+        return [
+            _analysis_box(value, coordinate_space=coordinate_space, image_w=image_w, image_h=image_h, field=f"regions.{name}[{index}]")
+            for index, value in enumerate(values)
+        ]
+
+    return {
+        "schema_version": 1,
+        "coordinate_space": coordinate_space,
+        "subject_type": subject_type,
+        "subject_box": optional_box("subject"),
+        "face_box": optional_box("face"),
+        "hand_boxes": box_list("hands"),
+        "prop_boxes": box_list("props"),
+    }
 
 
 def read_image_size(path: Path) -> tuple[int, int]:
@@ -368,12 +445,17 @@ def build_plan(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plan coarse Photo Refiner v2.2 detail tiles with a soft generation budget and adaptive hard ceiling.")
     parser.add_argument("--image", type=Path, required=True, help="Reference image used for dimensions")
-    parser.add_argument("--subject-type", choices=["portrait", "classical-portrait", "landscape", "architecture", "generic"], default="portrait")
+    parser.add_argument("--subject-type", choices=sorted(VISION_SUBJECT_TYPES), help="Subject type; Vision analysis supplies this when omitted")
     parser.add_argument("--detail-budget", choices=sorted(BUDGET_LIMITS), default="balanced")
     parser.add_argument("--face-box", type=parse_box)
     parser.add_argument("--subject-box", type=parse_box)
     parser.add_argument("--hand-box", action="append", type=parse_box, default=[])
     parser.add_argument("--prop-box", action="append", type=parse_box, default=[])
+    parser.add_argument(
+        "--vision-analysis",
+        type=Path,
+        help="JSON file from the Vision pass; supplies subject_type and coarse subject/face/hands/props regions",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -381,16 +463,33 @@ def main() -> None:
     if not image.is_file():
         raise SystemExit(f"Missing image: {image}")
     image_w, image_h = read_image_size(image)
+    analysis = None
+    if args.vision_analysis:
+        try:
+            analysis = load_vision_analysis(args.vision_analysis, image_w, image_h)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+    subject_type = args.subject_type or (analysis["subject_type"] if analysis else "portrait")
+    face_box = args.face_box or (analysis["face_box"] if analysis else None)
+    subject_box = args.subject_box or (analysis["subject_box"] if analysis else None)
+    hand_boxes = args.hand_box or (analysis["hand_boxes"] if analysis else [])
+    prop_boxes = args.prop_box or (analysis["prop_boxes"] if analysis else [])
     plan = build_plan(
         image_w,
         image_h,
-        subject_type=args.subject_type,
+        subject_type=subject_type,
         detail_budget=args.detail_budget,
-        face_box=args.face_box.clip(image_w, image_h) if args.face_box else None,
-        subject_box=args.subject_box.clip(image_w, image_h) if args.subject_box else None,
-        hand_boxes=[box.clip(image_w, image_h) for box in args.hand_box],
-        prop_boxes=[box.clip(image_w, image_h) for box in args.prop_box],
+        face_box=face_box.clip(image_w, image_h) if face_box else None,
+        subject_box=subject_box.clip(image_w, image_h) if subject_box else None,
+        hand_boxes=[box.clip(image_w, image_h) for box in hand_boxes],
+        prop_boxes=[box.clip(image_w, image_h) for box in prop_boxes],
     )
+    if analysis:
+        plan["vision_analysis"] = {
+            "schema_version": analysis["schema_version"],
+            "coordinate_space": analysis["coordinate_space"],
+            "source": str(args.vision_analysis.expanduser().resolve()),
+        }
     rendered = json.dumps(plan, indent=2, ensure_ascii=False)
     if args.output:
         output = args.output.expanduser().resolve()
