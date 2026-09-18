@@ -1,1 +1,1 @@
-安装我刚上传的 Photo Refiner 压缩包：自动解压并运行包内 install_photo_refiner.py，先把旧版 Skill、插件和缓存移动到可恢复备份，再安装新版并完成依赖、Skill 和 MCP smoke test；不要只给我安装步骤，直接执行并报告结果。
+安装我刚上传的 Photo Refiner 压缩包：自动解压并运行包内 install_photo_refiner.py，永久删除旧版 Photo Refiner Skill、插件和缓存，再安装新版并完成依赖、Skill 和 MCP smoke test；不要只给我安装步骤，直接执行并报告结果。

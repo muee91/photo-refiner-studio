@@ -9,7 +9,7 @@
 
 将本 ZIP 直接拖入 Codex 聊天框，然后发送下面这句话即可：
 
-> 安装我刚上传的 Photo Refiner 压缩包：自动解压并运行包内 `install_photo_refiner.py`，先把旧版 Skill、插件和缓存移动到可恢复备份，再安装新版并完成依赖、Skill 和 MCP smoke test；不要只给我安装步骤，直接执行并报告结果。
+> 安装我刚上传的 Photo Refiner 压缩包：自动解压并运行包内 `install_photo_refiner.py`，永久删除旧版 Photo Refiner Skill、插件和缓存，再安装新版并完成依赖、Skill 和 MCP smoke test；不要只给我安装步骤，直接执行并报告结果。
 
 ## 用 Codex 安装
 
@@ -27,14 +27,13 @@ python3 install_photo_refiner.py --dry-run
 
 安装器会：
 
-1. 将旧版 Skill、插件源、插件缓存和个人 Marketplace 条目移动到
-   `~/.codex/photo-refiner-backups/<时间戳>/`；
+1. 永久删除旧版 Photo Refiner Skill、插件源和插件缓存；
 2. 安装新版 Skill 到 `~/.codex/skills/photo-refiner/`；
 3. 安装插件源到 `~/plugins/photo-refiner-studio/`；
 4. 写入新版插件缓存并更新 `~/.agents/plugins/marketplace.json`；
 5. 检查 Pillow/ImageCms、NumPy、PyYAML、OpenCV 和 SIFT 支持。
 
-旧版不会被永久删除，备份目录可用于恢复。安装结束后完全退出 Codex，再重新打开并新建任务。
+旧版不会保留备份，也无法通过安装器恢复。安装结束后完全退出 Codex，再重新打开并新建任务。
 
 ## 手动安装
 
