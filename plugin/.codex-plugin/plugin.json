@@ -1,6 +1,6 @@
 {
   "name": "photo-refiner-studio",
-  "version": "0.3.1+codex.20260913230000",
+  "version": "0.3.2+codex.20260914204000",
   "description": "Interactive Photo Refiner v2.2 settings and confirmation for Codex",
   "author": {"name": "muee"},
   "license": "Proprietary",

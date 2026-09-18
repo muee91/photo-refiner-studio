@@ -250,14 +250,10 @@ function sha256(value) {
 
 function uiMeta() {
   return {
-    // Some Codex builds only mount MCP Apps when visibility is explicit.
-    // Use the MCP Apps resource binding as the single authoritative template.
-    // Keeping the legacy openai/outputTemplate alias alongside ui.resourceUri
-    // causes newer Codex hosts to skip mounting the returned Widget.
+    // Codex Apps hosts mount widgets from the tool descriptor metadata.
     ui: {resourceUri: WIDGET_URI, visibility: ["model", "app"]},
     "ui/resourceUri": WIDGET_URI,
-    // Keep the legacy Apps SDK binding for older Codex hosts. New hosts use
-    // ui.resourceUri; older hosts ignore that field and require this alias.
+    // Keep the legacy Apps SDK binding for hosts that still read this alias.
     "openai/outputTemplate": WIDGET_URI,
     "openai/widgetAccessible": true,
   };
@@ -266,7 +262,12 @@ function uiMeta() {
 function widgetResourceMeta() {
   return {
     ui: {prefersBorder: true},
+    "openai/widgetDescription": "Interactive Photo Refiner settings panel for confirming a photo refinement workflow before generation.",
     "openai/widgetPrefersBorder": true,
+    "openai/widgetCSP": {
+      connect_domains: [],
+      resource_domains: [],
+    },
   };
 }
 
@@ -288,6 +289,21 @@ function toolDefinitions() {
         additionalProperties: false,
       },
       annotations: {readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false},
+      outputSchema: {
+        type: "object",
+        required: ["ok", "kind", "schemaVersion", "presets", "defaults"],
+        additionalProperties: true,
+        properties: {
+          ok: {type: "boolean"},
+          kind: {type: "string"},
+          schemaVersion: {type: "integer"},
+          presets: {type: "object"},
+          defaults: {type: "object"},
+          promptLibrary: {type: "object"},
+          recommendation: {type: "string"},
+          creativeDirections: {type: "array"},
+        },
+      },
       _meta: uiMeta(),
     },
     {
@@ -327,7 +343,7 @@ function toolDefinitions() {
 
 function toolResult(payload, withWidget = false) {
   const result = {
-    content: [{type: "text", text: JSON.stringify(payload)}],
+    content: [{type: "text", text: withWidget ? "Photo Refiner settings are ready." : JSON.stringify(payload)}],
     structuredContent: payload,
     isError: false,
   };
