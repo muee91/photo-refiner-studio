@@ -284,7 +284,7 @@ function toolDefinitions() {
           sourceCount: {type: "integer", minimum: 1, description: "Positive number of attached or existing source photos"},
           suggestedPreset: {type: "string", description: "Optional preset id inferred from the request"},
           recommendation: {type: "string", description: "Optional concise subject-aware recommendation shown above the settings"},
-          creativeDirections: {type: "array", maxItems: 3, description: "Optional editable creative directions inferred from the photo", items: {type: "object", additionalProperties: false, properties: {label: {type: "string"}, summary: {type: "string"}, prompt: {type: "string"}, avoid: {type: "string"}}}},
+          creativeDirections: {type: "array", maxItems: 3, description: "Optional editable creative directions inferred from the photo", items: {type: "object", additionalProperties: false, properties: {label: {type: "string"}, summary: {type: "string"}, prompt: {type: "string"}, avoid: {type: "string"}, preset: {type: "string"}, styleStrength: {type: "number", minimum: 0, maximum: 100}}}},
         },
         additionalProperties: false,
       },
@@ -412,6 +412,8 @@ function callTool(name, args) {
       summary: cleanText(String(item?.summary || ""), 240, "creativeDirections.summary"),
       prompt: cleanText(String(item?.prompt || ""), 1800, "creativeDirections.prompt"),
       avoid: cleanText(String(item?.avoid || ""), 600, "creativeDirections.avoid"),
+      ...(typeof item?.preset === "string" && PRESETS.presets[item.preset] ? {preset: item.preset} : {}),
+      ...(typeof item?.styleStrength === "number" && item.styleStrength >= 0 && item.styleStrength <= 100 ? {styleStrength: item.styleStrength} : {}),
     })).filter((item) => item.prompt) : [];
     return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 2, presets: PRESETS, defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
   }

@@ -66,6 +66,9 @@ function rpc(method, params = {}) {
     /电影感暮光成片/,
   );
   assert.ok(opened.structuredContent.presets.presets["natural-landscape"]);
+  assert.equal(Object.keys(opened.structuredContent.presets.presets).length, 15);
+  assert.ok(opened.structuredContent.presets.presets["portra-soft-editorial"]);
+  assert.ok(opened.structuredContent.presets.presets["fine-art-chiaroscuro"]);
   assert.match(opened._meta.ui.resourceUri, /^ui:\/\/widget\//);
   assert.match(opened._meta["openai/outputTemplate"], /^ui:\/\/widget\//);
   assert.equal(opened.content[1].type, "resource");
@@ -73,11 +76,17 @@ function rpc(method, params = {}) {
 
   const recommended = await rpc("tools/call", {
     name: "open_photo_refiner_settings",
-    arguments: {sourceCount: 1, suggestedPreset: "natural-landscape"},
+    arguments: {
+      sourceCount: 1,
+      suggestedPreset: "natural-landscape",
+      creativeDirections: [{label: "暖金古风", summary: "应用暖金光线", prompt: "preserve identity", avoid: "plastic skin", preset: "warm-gold-ancient", styleStrength: 68}],
+    },
   });
   assert.equal(recommended.structuredContent.defaults.preset, "natural-landscape");
   assert.equal(recommended.structuredContent.defaults.styleStrength, 35);
   assert.equal(recommended.structuredContent.presets.presets["natural-landscape"].defaultStrength, 35);
+  assert.equal(recommended.structuredContent.creativeDirections[0].preset, "warm-gold-ancient");
+  assert.equal(recommended.structuredContent.creativeDirections[0].styleStrength, 68);
 
   const resources = await rpc("resources/list");
   const resource = await rpc("resources/read", {uri: resources.resources[0].uri});
@@ -93,6 +102,8 @@ function rpc(method, params = {}) {
   assert.match(resource.contents[0].text, /提示词库/);
   assert.match(resource.contents[0].text, /内置可直接使用/);
   assert.match(resource.contents[0].text, /根据照片的建议/);
+  assert.match(resource.contents[0].text, /已应用到本次设置/);
+  assert.match(resource.contents[0].text, /direction\.preset/);
   assert.match(resource.contents[0].text, /preset-list/);
   assert.match(resource.contents[0].text, /默认只需选择风格/);
   assert.ok(resource.contents[0].text.includes("头部 + 人脸"));

@@ -37,6 +37,60 @@
       "promptZh": "将古风人物照片处理为带有克制超现实层次的电影感梦境：保留真实身份、五官、人体结构、 手部、头发与发饰、服装结构和场景几何；加入仿佛时间凝滞的氛围、略带非现实但物理可信的 暮光光线、少量漂浮尘粒与丝绸般的空气轨迹、细腻空间分层、安静的梦境尺度和诗意留白； 使用低饱和玉青色暗部与克制的古金色高光。最终必须仍然像真实摄影，保留皮肤、头发、 刺绣和织物的触感，不要变成插画或重新设计成幻想角色。",
       "avoidZh": "避免卡通、二次元、绘画感、幻想角色重设计、塑料皮肤、改变身份、多余肢体、重复发饰、 不可能的人体结构、过量粒子、巨型道具、夸张变形、霓虹色、浓雾、死黑、文字、Logo、边框和水印。"
     },
+    "portra-soft-editorial": {
+      "label": "Portra Soft Editorial",
+      "summary": "柔和肤色、粉彩高光和细腻胶片质感，适合人像与古风肖像",
+      "defaultStrength": 52,
+      "prompt": "Photorealistic soft editorial portrait inspired by gentle negative-film color: natural skin tones, creamy highlights, pastel neutrals, open soft shadows, restrained contrast, subtle background separation, tactile fabric and hair detail, delicate 35mm grain, refined magazine photography. Preserve identity, anatomy, hands, costume construction and scene geometry.",
+      "avoid": "orange skin, porcelain skin, excessive smoothing, crunchy sharpening, HDR halos, changed identity, altered anatomy, oversaturation, CGI, text, logo, watermark",
+      "promptZh": "以柔和负片人像质感处理照片：自然肤色、奶油般高光、粉彩中性色、打开的柔和阴影、 克制对比、自然背景分离、真实头发与面料纹理和细腻 35mm 胶片颗粒；保留人物身份、 人体结构、手部、服装结构与场景几何，呈现精致杂志人像而非塑料美颜。",
+      "avoidZh": "避免橙色肤色、瓷娃娃皮肤、过度磨皮、锐化过硬、HDR 光环、改变身份、人体变形、 过饱和、CGI、文字、Logo 和水印。"
+    },
+    "cinematic-teal-amber": {
+      "label": "Cinematic Teal Amber",
+      "summary": "克制青绿色暗部与琥珀高光，强化电影层次但保留真实肤色",
+      "defaultStrength": 62,
+      "prompt": "Photorealistic cinematic grade with controlled teal-cyan shadow separation and restrained amber highlights, motivated directional light, preserved skin tones, gentle contrast roll-off, subtle halation, atmospheric depth and fine film grain. Keep the original subject identity, costume, props and geometry; make the color contrast visible without a synthetic blockbuster look.",
+      "avoid": "extreme teal-orange, neon colors, orange skin, crushed blacks, clipped highlights, fake lens flares, plastic skin, changed geometry, CGI, text, logo, watermark",
+      "promptZh": "以电影调色方式建立克制的青绿色暗部与琥珀高光，使用有动机的方向光、自然肤色、 柔和对比滚降、轻微晕光、空气透视和细腻胶片颗粒；保留人物身份、服装、道具和场景几何， 让冷暖层次清晰但不要变成廉价青橙滤镜。",
+      "avoidZh": "避免夸张青橙、霓虹色、橙色肤色、死黑、高光溢出、虚假耀斑、塑料皮肤、改变几何、 CGI、文字、Logo 和水印。"
+    },
+    "kodak-gold-vintage": {
+      "label": "Kodak Gold Vintage",
+      "summary": "温暖怀旧的金色胶片、柔和颗粒与轻微褪色感",
+      "defaultStrength": 48,
+      "prompt": "Photorealistic warm vintage film photograph with golden daylight, gentle yellow-red warmth, slightly faded blacks, soft highlight bloom, moderate fine grain, natural texture and nostalgic but believable color. Preserve the original face, clothing, objects and composition; keep the effect photographic and restrained.",
+      "avoid": "heavy sepia, muddy shadows, yellow skin, excessive grain, faded detail, HDR halos, altered identity, CGI, text, logo, watermark",
+      "promptZh": "温暖怀旧的金色胶片摄影：金色日光、轻微黄红暖意、略抬并轻微褪色的黑位、柔和高光晕染、 适度细腻颗粒和真实材质；保留原始五官、服装、道具与构图，怀旧但不要做成泛黄滤镜。",
+      "avoidZh": "避免浓重棕褐、脏灰暗部、黄色肤色、过量颗粒、细节褪尽、HDR 光环、改变身份、 CGI、文字、Logo 和水印。"
+    },
+    "dreamy-soft-bloom": {
+      "label": "Dreamy Soft Bloom",
+      "summary": "低反差柔焦、轻微高光扩散与空气感，适合梦境人像",
+      "defaultStrength": 58,
+      "prompt": "Photorealistic dreamy portrait with low-contrast soft focus, delicate highlight bloom, gentle halation, luminous atmospheric veil, soft shallow depth of field and fine film grain. Keep eyes, facial structure, hair, hands, garment edges and important props coherent and recognizable; the dream layer must remain a real photograph.",
+      "avoid": "milky fog hiding the subject, blurred eyes, double edges, plastic skin, excessive glow, fantasy redesign, altered anatomy, CGI, text, logo, watermark",
+      "promptZh": "照片级梦境人像：低反差柔焦、细腻高光扩散、轻微晕光、明亮空气薄雾、柔和浅景深与胶片颗粒； 保持眼睛、五官结构、头发、手部、服装边缘和重要道具清晰连贯，梦境感必须仍然像真实摄影。",
+      "avoidZh": "避免乳白浓雾遮住主体、眼睛模糊、重影、塑料皮肤、过度发光、幻想角色重设计、 人体变形、CGI、文字、Logo 和水印。"
+    },
+    "film-noir-portrait": {
+      "label": "Film Noir Portrait",
+      "summary": "黑白或低饱和高反差光影，突出轮廓、表情与戏剧性阴影",
+      "defaultStrength": 65,
+      "prompt": "Photorealistic film-noir portrait with dramatic motivated side light, sculpted shadows, controlled monochrome-to-low-saturation tones, readable skin texture, atmospheric depth, subtle 35mm grain and restrained highlight roll-off. Preserve identity, facial structure, hands, hair, costume and scene geometry; keep shadow detail instead of crushing everything.",
+      "avoid": "crushed blacks, clipped whites, horror makeup, excessive vignette, blurred face, changed identity, CGI, text, logo, watermark",
+      "promptZh": "照片级黑色电影人像：有动机的戏剧性侧光、雕塑般阴影、黑白至低饱和层次、可读肤质、 空气透视、克制高光和细腻 35mm 颗粒；保留身份、五官、手部、头发、服装与场景几何， 保留阴影细节，不要全部压成死黑。",
+      "avoidZh": "避免死黑、纯白溢出、恐怖妆效、过度暗角、脸部模糊、改变身份、CGI、文字、Logo 和水印。"
+    },
+    "fine-art-chiaroscuro": {
+      "label": "Fine Art Chiaroscuro",
+      "summary": "古典明暗法与柔和暖暗色，适合古风、室内和戏剧性肖像",
+      "defaultStrength": 60,
+      "prompt": "Photorealistic fine-art portrait using restrained chiaroscuro: one coherent warm key light, deep but readable shadows, subtle brown-green ambience, natural skin and tactile textile detail, controlled falloff, quiet painterly composition without becoming a painting. Preserve the subject's identity, anatomy, costume construction, props and room geometry.",
+      "avoid": "painterly rendering, crushed blacks, theatrical fake light, wax skin, altered anatomy, invented props, CGI, text, logo, watermark",
+      "promptZh": "照片级古典明暗人像：统一而有动机的暖色主光、深但可读的阴影、细腻棕绿色环境色、 自然肤色、真实织物纹理与克制的光线衰减；借鉴古典明暗法但仍然是摄影，不变成油画， 保留人物身份、人体结构、服装、道具和室内几何。",
+      "avoidZh": "避免绘画渲染、死黑、舞台式假光、蜡像皮肤、人体变形、凭空增加道具、CGI、文字、Logo 和水印。"
+    },
     "natural-cinematic": {
       "label": "Natural Cinematic",
       "summary": "自然光与平衡肤色，轻柔对比和细腻写实质感",
