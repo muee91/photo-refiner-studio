@@ -75,7 +75,9 @@ class FlowRuntimeTests(unittest.TestCase):
             self.assertEqual(manifest["detail"]["mode"], "adaptive")
             self.assertEqual(manifest["retouch"]["style_strength"], 47)
             self.assertEqual(manifest["retouch"]["source"], "flow-graph")
-            self.assertIn("_photo_refiner_flow", str((source.parent / "_photo_refiner_flow")))
+            self.assertEqual(manifest["flow"]["graph_id"], "flow-a-only")
+            self.assertTrue(manifest["flow"]["steps"])
+            self.assertTrue(all(step["state"] == "pending" for step in manifest["flow"]["steps"]))
 
     def test_single_source_direct_effect_enables_creative_safe_recovery(self):
         with tempfile.TemporaryDirectory() as td:
@@ -127,6 +129,50 @@ class FlowRuntimeTests(unittest.TestCase):
             self.assertEqual(manifest["creative_output"]["mode"], "original-assembly")
             self.assertEqual(manifest["detail"]["mode"], "not-applicable")
             self.assertEqual(manifest["detail"]["hard_generated_patch_ceiling"], 0)
+
+    def test_flow_step_state_machine_tracks_execution(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            home = root / "home"
+            source = root / "source.jpg"
+            Image.new("RGB", (64, 96), (20, 30, 40)).save(source)
+            graph = convert_config(
+                {"detail": {"mode": "base-only"}, "deliveryMode": "one-click"},
+                source_count=1,
+                graph_id="flow-state-machine",
+            )
+            graph_path = self._write_graph_record(home, graph)
+            env = dict(os.environ)
+            env["HOME"] = str(home)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "init_job.py"),
+                    str(source),
+                    "--graph-file",
+                    str(graph_path),
+                    "--output-root",
+                    str(root / "jobs"),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            job_path = Path(result.stdout.strip()) / "job.json"
+            job = json.loads(job_path.read_text(encoding="utf-8"))
+            first = job["flow"]["steps"][0]["id"]
+            subprocess.run(
+                [sys.executable, str(SCRIPTS / "update_flow_state.py"), str(job_path), "--step", first, "--state", "running"],
+                check=True, capture_output=True, text=True, env=env,
+            )
+            subprocess.run(
+                [sys.executable, str(SCRIPTS / "update_flow_state.py"), str(job_path), "--step", first, "--state", "completed"],
+                check=True, capture_output=True, text=True, env=env,
+            )
+            job = json.loads(job_path.read_text(encoding="utf-8"))
+            self.assertEqual(job["flow"]["steps"][0]["state"], "completed")
+            self.assertEqual(job["status"], "running")
 
 if __name__ == "__main__":
     unittest.main()
