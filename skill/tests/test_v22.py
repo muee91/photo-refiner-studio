@@ -89,6 +89,20 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         self.assertEqual(manifest["patch_observation_summary"]["actual_sizes"], ["1024x768"])
         self.assertEqual(manifest["patch_observation_summary"]["requested_sizes"], ["1536x1536"])
 
+        summary = json.loads(self.run_script(
+            "summarize_patch_observations.py", job_dir,
+        ).stdout)
+        self.assertEqual(summary["jobs_scanned"], 1)
+        self.assertEqual(summary["observations"], 1)
+        self.assertEqual(summary["requested_to_actual"][0], {
+            "requested": "1536x1536",
+            "actual": "1024x768",
+            "count": 1,
+        })
+        self.assertEqual(summary["maximum_observed_width"]["pixels"], 1024)
+        self.assertEqual(summary["maximum_observed_height"]["pixels"], 768)
+        self.assertEqual(summary["maximum_observed_total_pixels"]["pixels"], 1024 * 768)
+
     def test_patch_observation_rejects_jobs_with_local_recovery_disabled(self):
         result = self.run_script(
             "init_job.py", self.source, "--output-root", self.root / "disabled-observation-jobs",
