@@ -52,6 +52,64 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         self.assertEqual(manifest["detail"]["mask_mode"], "lightweight")
         self.assertEqual(manifest["quality_gate"]["landmark_identity_gate"]["mode"], "optional-when-landmarks-available")
 
+    def test_patch_observation_records_actual_file_dimensions_and_mismatch(self):
+        result = self.run_script(
+            "init_job.py", self.source, "--output-root", self.root / "observed-jobs",
+            "--preset", "natural-cinematic", "--detail-budget", "balanced", "--confirmed",
+        )
+        job_dir = Path(result.stdout.strip())
+        job_path = job_dir / "job.json"
+        patch = job_dir / "intermediates" / "patches" / "face.png"
+        patch.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (1024, 768), (90, 80, 70)).save(patch)
+
+        observation = json.loads(self.run_script(
+            "record_patch_observation.py", job_path,
+            "--patch", patch,
+            "--region-type", "face",
+            "--region-role", "face",
+            "--requested-size", "1536x1536",
+            "--source-crop-size", "800x800",
+            "--final-region-size", "900x900",
+            "--planner-region-index", 2,
+            "--attempt", 1,
+        ).stdout)
+        self.assertEqual(observation["requested_size"], [1536, 1536])
+        self.assertEqual(observation["actual_size"], [1024, 768])
+        self.assertFalse(observation["size_match"])
+        self.assertAlmostEqual(observation["return_scale"]["width"], 1024 / 1536, places=6)
+        self.assertAlmostEqual(observation["return_scale"]["height"], 768 / 1536, places=6)
+
+        manifest = json.loads(job_path.read_text())
+        self.assertTrue(manifest["patch_observation"]["enabled"])
+        self.assertEqual(len(manifest["patch_observations"]), 1)
+        self.assertEqual(manifest["patch_observation_summary"]["count"], 1)
+        self.assertEqual(manifest["patch_observation_summary"]["size_match_count"], 0)
+        self.assertEqual(manifest["patch_observation_summary"]["size_mismatch_count"], 1)
+        self.assertEqual(manifest["patch_observation_summary"]["actual_sizes"], ["1024x768"])
+        self.assertEqual(manifest["patch_observation_summary"]["requested_sizes"], ["1536x1536"])
+
+    def test_patch_observation_rejects_jobs_with_local_recovery_disabled(self):
+        result = self.run_script(
+            "init_job.py", self.source, "--output-root", self.root / "disabled-observation-jobs",
+            "--preset", "natural-cinematic",
+            "--creative-recipe", "s001-abstract-quartet",
+            "--creative-assembly-mode", "original-assembly",
+            "--detail-budget", "balanced", "--confirmed",
+        )
+        job_dir = Path(result.stdout.strip())
+        job_path = job_dir / "job.json"
+        patch = job_dir / "intermediates" / "patch.png"
+        Image.new("RGB", (1024, 1024), (90, 80, 70)).save(patch)
+        rejected = self.run_script(
+            "record_patch_observation.py", job_path,
+            "--patch", patch,
+            "--region-type", "generic",
+            "--requested-size", "1024x1024",
+            ok=False,
+        )
+        self.assertIn("local detail recovery disabled", rejected.stderr)
+
     def test_single_source_direct_effect_creative_enables_adaptive_hd_recovery(self):
         result = self.run_script(
             "init_job.py", self.source, "--output-root", self.root / "creative-jobs",
