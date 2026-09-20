@@ -229,7 +229,7 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             self.assertEqual(m["creative_output"]["upstream_binding"], "direction-only")
             self.assertFalse(m["creative_preview"]["required"])
 
-            hd = subprocess.run(base + ["--creative-hd-chain"], check=True, capture_output=True, text=True)
+            hd = subprocess.run(base + ["--creative-hd-chain", "--creative-upscale"], check=True, capture_output=True, text=True)
             job = Path(hd.stdout.strip()) / "job.json"
             m = json.loads(job.read_text(encoding="utf-8"))
             self.assertEqual(m["creative_output"]["upstream_binding"], "hd-master")
@@ -237,6 +237,7 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             self.assertTrue(m["creative_preview"]["required"])
             self.assertFalse(m["creative_preview"]["approved"])
             self.assertEqual(m["detail"]["mode"], "adaptive")
+            self.assertTrue(m["creative_output"]["upscale"]["enabled"])
 
             updater = [sys.executable, str(SKILL_ROOT / "scripts" / "update_job.py"), str(job)]
             subprocess.run(updater + ["--status", "prepared"], check=True, capture_output=True, text=True)
@@ -300,6 +301,40 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             self.assertTrue(manifest["base_preview"]["approved"])
             self.assertEqual(manifest["status"], "completed")
 
+
+    def test_upscale_image_fallback_is_honest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "small.png"
+            Image.new("RGB", (100, 80), (30, 40, 50)).save(source)
+            output = root / "big.png"
+            result = subprocess.run(
+                [sys.executable, str(SKILL_ROOT / "scripts" / "upscale_image.py"),
+                 "--input", str(source), "--output", str(output), "--scale", "4", "--engine", "fallback"],
+                check=True, capture_output=True, text=True)
+            payload = json.loads(result.stdout.strip().splitlines()[-1])
+            self.assertEqual(payload["engine"], "fallback-lanczos")
+            self.assertTrue(payload["note"])
+            self.assertEqual(Image.open(output).size, (400, 320))
+
+    def test_register_blend_rejects_patch_aspect_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            import numpy as np
+            from PIL import Image as PILImage
+            rng = np.random.default_rng(7)
+            base_arr = rng.integers(0, 255, (160, 200, 3), dtype=np.uint8)
+            PILImage.fromarray(base_arr).save(root / "base.png")
+            PILImage.fromarray(base_arr[10:90, 10:70]).save(root / "target.png")
+            PILImage.fromarray(rng.integers(0, 255, (60, 60, 3), dtype=np.uint8)).save(root / "patch.png")
+            result = subprocess.run(
+                [sys.executable, str(SKILL_ROOT / "scripts" / "register_blend.py"),
+                 "--base", str(root / "base.png"), "--target", str(root / "target.png"),
+                 "--patch", str(root / "patch.png"), "--output", str(root / "out.png"),
+                 "--x", "10", "--y", "10", "--region-type", "generic"],
+                capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("deviates from target region aspect", result.stderr)
 
 if __name__ == "__main__":
     unittest.main()

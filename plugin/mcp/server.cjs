@@ -72,6 +72,10 @@ const DEFAULTS = {
   // Full HD creative chain: ordinary refinement to an approved HD master,
   // creative draft on it, then style-faithful tiled redraw.
   creativeHdChain: false,
+  // Non-patch areas of direct creative outputs are upscaled with the bundled
+  // 4X-UltraSharp engine before detail recovery (Lanczos fallback, honestly
+  // labeled, when the engine is not installed).
+  creativeUpscale: true,
   // Neutral fallback only; normal jobs pass a subject-aware suggestedPreset.
   preset: "natural-cinematic",
   customPrompt: "",
@@ -255,6 +259,7 @@ function validateConfig(raw) {
   config.creativeAssemblyMode = enumValue(config.creativeAssemblyMode, ["direct-effect", "original-assembly"], "creativeAssemblyMode");
   config.creativeFromBase = booleanValue(config.creativeFromBase, "creativeFromBase");
   config.creativeHdChain = booleanValue(config.creativeHdChain, "creativeHdChain");
+  config.creativeUpscale = booleanValue(config.creativeUpscale, "creativeUpscale");
   if (config.creativeRecipe !== "none") {
     const recipe = CREATIVE_RECIPE_BY_ID[config.creativeRecipe];
     if (!recipe) throw new Error(`Unknown creative recipe: ${config.creativeRecipe}`);
@@ -579,6 +584,7 @@ function callTool(name, args) {
     defaults.creativeAssemblyMode = "direct-effect";
     defaults.creativeFromBase = false;
     defaults.creativeHdChain = false;
+    defaults.creativeUpscale = true;
     if (typeof args.suggestedPreset === "string" && PRESETS.presets[args.suggestedPreset]) {
       defaults.preset = args.suggestedPreset;
       const presetDefault = PRESETS.presets[args.suggestedPreset].defaultStrength;
@@ -659,6 +665,7 @@ function callTool(name, args) {
         creativeAssemblyLabelZh: creativeRecipe ? creativeRecipe.creativeAssemblyLabelZh : null,
         creativeFromBase: config.creativeFromBase,
         creativeHdChain: config.creativeHdChain,
+        creativeUpscale: config.creativeUpscale,
         aspectRatio: config.aspectRatio,
         resolution: config.resolution,
         deliveryMode: config.deliveryMode,

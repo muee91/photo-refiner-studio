@@ -125,6 +125,16 @@ def main() -> None:
     else:
         blend_mask = None
     height, width = target.shape[:2]
+    patch_h, patch_w = patch.shape[:2]
+    target_ratio = width / height
+    patch_ratio = patch_w / patch_h
+    aspect_deviation = abs(patch_ratio - target_ratio) / target_ratio
+    if aspect_deviation > 0.05:
+        raise SystemExit(
+            f"Patch aspect {patch_ratio:.3f} deviates from target region aspect {target_ratio:.3f} "
+            f"by {aspect_deviation * 100:.1f}% (>5%). Regenerate the patch at the target region aspect "
+            "instead of recropping the target to match the generator output; a mismatched patch distorts content."
+        )
     if args.x < 0 or args.y < 0 or args.x + width > base.shape[1] or args.y + height > base.shape[0]:
         raise SystemExit("Target placement is outside base bounds")
     expected_target = base[args.y:args.y + height, args.x:args.x + width]

@@ -38,6 +38,13 @@ def main() -> None:
     except ImportError:
         missing.append("PyYAML")
 
+    try:
+        from upscale_image import engine_status
+
+        versions["upscaler"] = engine_status()
+    except Exception as exc:
+        versions["upscaler"] = f"detection failed: {exc}"
+
     result = {"ok": not missing, "versions": versions, "missing": missing}
     print(json.dumps(result, indent=2))
     if missing:

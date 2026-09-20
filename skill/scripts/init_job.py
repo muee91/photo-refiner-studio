@@ -189,6 +189,7 @@ def main() -> None:
     parser.add_argument("--creative-recipe", default="none", help="Confirmed Starryear recipe id or none for text-only fallback")
     parser.add_argument("--creative-assembly-mode", choices=["direct-effect", "original-assembly"], default="direct-effect", help="Creative output: complete effect image by default, or the original evidence/assembly layout")
     parser.add_argument("--creative-from-base", action="store_true", help="Two-stage: first render the confirmed preset as an approved main image, then translate creatively from it (single-source direct-effect only)")
+    parser.add_argument("--creative-upscale", action="store_true", help="Upscale the approved creative preview with 4X-UltraSharp (bundled engine) before detail recovery")
     parser.add_argument("--creative-hd-chain", action="store_true", help="Full HD creative chain: ordinary refinement to an approved HD master, creative draft on it, then style-faithful tiled redraw to native resolution (single-source direct-effect only)")
     parser.add_argument("--custom-prompt", default="")
     parser.add_argument("--custom-avoid", default="")
@@ -218,6 +219,7 @@ def main() -> None:
         # confirmation whose config predates or omits the field.
         args.creative_from_base = args.creative_from_base or bool(ui_config.get("creativeFromBase", False))
         args.creative_hd_chain = args.creative_hd_chain or bool(ui_config.get("creativeHdChain", False))
+        args.creative_upscale = args.creative_upscale or bool(ui_config.get("creativeUpscale", False))
         args.preset = ui_config["preset"]
         args.custom_prompt = ui_config.get("customPrompt", "")
         args.custom_avoid = ui_config.get("customAvoid", "")
@@ -290,6 +292,11 @@ def main() -> None:
             )
         )
         creative_output["hd_chain"] = hd_chain
+        creative_output["upscale"] = {
+            "enabled": bool(getattr(args, "creative_upscale", False)),
+            "engine": "auto",
+            "note": "After approval the preview is upscaled with 4X-UltraSharp when the bundled engine is installed (upscale_image.py --install-engine, no ComfyUI needed); patch planning then runs on the upscaled canvas. Without an engine an honest Lanczos fallback is recorded.",
+        }
     workflow = args.workflow
     if workflow == "auto":
         workflow = "batch" if len(sources) > 1 else "single"

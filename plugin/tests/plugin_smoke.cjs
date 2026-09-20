@@ -83,6 +83,7 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.equal(opened.structuredContent.defaults.creativeAssemblyMode, "direct-effect");
   assert.equal(opened.structuredContent.defaults.creativeFromBase, false);
   assert.equal(opened.structuredContent.defaults.creativeHdChain, false);
+  assert.equal(opened.structuredContent.defaults.creativeUpscale, true);
   assert.equal(opened.structuredContent.defaults.preset, "natural-cinematic");
   assert.equal(opened.structuredContent.defaults.styleStrength, 45);
   assert.equal(opened.structuredContent.presets.presets["natural-cinematic"].defaultStrength, 45);
@@ -154,6 +155,7 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.match(resourceHtml, /自定义宽高/);
   assert.match(resourceHtml, /使用此配方/);
   assert.match(resourceHtml, /高清创意链/);
+  assert.match(resourceHtml, /4X-UltraSharp/);
   assert.match(resourceHtml, /替换效果图/);
   assert.match(resourceHtml, /恢复默认图/);
   assert.match(resourceHtml, /lightbox/);
@@ -276,6 +278,7 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.equal(creativeSubmitted.structuredContent.summary.creativeAssemblyMode, "direct-effect");
   assert.equal(creativeSubmitted.structuredContent.summary.creativeFromBase, true);
   assert.equal(creativeSubmitted.structuredContent.summary.creativeHdChain, false);
+  assert.equal(creativeSubmitted.structuredContent.summary.creativeUpscale, true);
   const creativeConfirmation = JSON.parse(fs.readFileSync(creativeSubmitted.structuredContent.confirmationPath, "utf8"));
   assert.equal(creativeConfirmation.resolvedCreativeRecipe.sourceCommit, "b71ad7b187d00a72378a15f32181b655907d32a9");
   assert.equal(creativeConfirmation.config.creativeAssemblyMode, "direct-effect");
