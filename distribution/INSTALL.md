@@ -2,7 +2,7 @@
 
 这个发行包包含两部分：
 
-- `photo-refiner/`：Photo Refiner Skill；
+- `photo-refiner/`：Photo Refiner v2.3 Skill，包含 15 个原版 Starryear 创意转译工作流与选择器缩略图；
 - `photo-refiner-studio/`：负责弹出设置面板和保存确认结果的 MCP 插件。
 
 ## 拖入聊天框后的单行指令

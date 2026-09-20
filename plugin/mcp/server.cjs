@@ -9,13 +9,16 @@ const readline = require("node:readline");
 const ROOT = path.resolve(__dirname, "..");
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
 const PRESETS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "presets.json"), "utf8"));
-const WIDGET_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), "utf8");
+const CREATIVE_RECIPES = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "creative-recipes.json"), "utf8"));
+const CREATIVE_RECIPE_BY_ID = Object.fromEntries(CREATIVE_RECIPES.recipes.map((recipe) => [recipe.id, recipe]));
+const WIDGET_TEMPLATE_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), "utf8");
 // Use the slash-scoped URI shape accepted by Codex MCP App hosts. A flat URI
 // containing an encoded `+` can return a successful tool call while failing to
 // resolve and mount the Widget resource.
 const WIDGET_VERSION = String(MANIFEST.version).replace(/[^A-Za-z0-9._-]+/g, "-");
 const WIDGET_URI = `ui://widget/photo-refiner-settings/${WIDGET_VERSION}.html`;
 const WIDGET_MIME = "text/html;profile=mcp-app";
+const INITIAL_PAYLOAD_TOKEN = "__PHOTO_REFINER_INITIAL_PAYLOAD__";
 // Respect an injected HOME for isolated plugin sessions and smoke tests. macOS
 // os.homedir() resolves from the account database and can ignore HOME.
 const USER_HOME = process.env.HOME || os.homedir();
@@ -23,8 +26,16 @@ const CONFIRMATION_DIR = path.join(USER_HOME, ".codex", "photo-refiner", "confir
 const PREFERENCES_PATH = path.join(USER_HOME, ".codex", "photo-refiner", "preferences.json");
 
 const DEFAULTS = {
+  sourceCount: 1,
   uiMode: "simple",
   workflow: "auto",
+  creativeRecipe: "none",
+  // Starryear recipes default to a complete effect image. The source-evidence
+  // collage remains available as an explicit, recipe-faithful alternative.
+  creativeAssemblyMode: "direct-effect",
+  // Opt-in two-stage flow: render the confirmed preset as an approved main
+  // image first, then translate creatively with that image as look reference.
+  creativeFromBase: false,
   // Neutral fallback only; normal jobs pass a subject-aware suggestedPreset.
   preset: "natural-cinematic",
   customPrompt: "",
@@ -101,6 +112,24 @@ const DEFAULTS = {
   },
 };
 
+// resources/read has no per-call tool arguments. Keep a usable baseline in
+// the static Widget resource so hosts that mount the resource before exposing
+// window.openai.toolOutput do not leave every control disabled. The panel
+// detects this marker and keeps watching for the real call's source count,
+// recommendation, and saved preferences to replace the baseline.
+const FALLBACK_WIDGET_PAYLOAD = {
+  ok: true,
+  kind: "photo-refiner-settings",
+  schemaVersion: 3,
+  _photoRefinerFallback: true,
+  presets: PRESETS,
+  creativeRecipes: CREATIVE_RECIPES,
+  defaults: clone(DEFAULTS),
+  promptLibrary: {custom: []},
+  recommendation: "",
+  creativeDirections: [],
+};
+
 function loadPreferences() {
   try {
     const value = JSON.parse(fs.readFileSync(PREFERENCES_PATH, "utf8"));
@@ -147,6 +176,13 @@ function numberIn(value, min, max, field) {
   return value;
 }
 
+function integerIn(value, min, max, field) {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${field} must be an integer from ${min} to ${max}`);
+  }
+  return value;
+}
+
 function enumValue(value, allowed, field) {
   if (!allowed.includes(value)) throw new Error(`${field} must be one of: ${allowed.join(", ")}`);
   return value;
@@ -176,8 +212,19 @@ function mergeDefaults(config) {
 function validateConfig(raw) {
   if (!isObject(raw)) throw new Error("config must be an object");
   const config = mergeDefaults(raw);
+  config.sourceCount = integerIn(config.sourceCount, 1, 100, "sourceCount");
   config.uiMode = enumValue(config.uiMode, ["simple", "pro"], "uiMode");
   config.workflow = enumValue(config.workflow, ["auto", "single", "batch"], "workflow");
+  config.creativeRecipe = cleanText(config.creativeRecipe, 80, "creativeRecipe") || "none";
+  config.creativeAssemblyMode = enumValue(config.creativeAssemblyMode, ["direct-effect", "original-assembly"], "creativeAssemblyMode");
+  config.creativeFromBase = booleanValue(config.creativeFromBase, "creativeFromBase");
+  if (config.creativeRecipe !== "none") {
+    const recipe = CREATIVE_RECIPE_BY_ID[config.creativeRecipe];
+    if (!recipe) throw new Error(`Unknown creative recipe: ${config.creativeRecipe}`);
+    if (config.sourceCount < recipe.sourceCount.min || config.sourceCount > recipe.sourceCount.max) {
+      throw new Error(`${recipe.titleZh} requires ${recipe.sourceCount.min === recipe.sourceCount.max ? recipe.sourceCount.min : `${recipe.sourceCount.min}-${recipe.sourceCount.max}`} source photographs`);
+    }
+  }
   config.preset = cleanText(config.preset, 80, "preset");
   if (config.preset !== "custom" && !PRESETS.presets[config.preset]) {
     throw new Error(`Unknown preset: ${config.preset}`);
@@ -191,7 +238,17 @@ function validateConfig(raw) {
   if (config.aspectRatio !== "original" && config.framing === "preserve") {
     throw new Error("Changing aspect ratio requires crop, outpaint, or contain");
   }
-  config.resolution = enumValue(config.resolution, ["preview", "4k", "source-width"], "resolution");
+  const customResolution = /^(\d{3,4})x(\d{3,4})$/i.exec(String(config.resolution));
+  if (customResolution) {
+    const w = Number(customResolution[1]);
+    const h = Number(customResolution[2]);
+    if (w < 320 || w > 8192 || h < 320 || h > 8192) {
+      throw new Error("Custom resolution must be 320-8192 pixels per side");
+    }
+    config.resolution = `${w}x${h}`;
+  } else {
+    config.resolution = enumValue(config.resolution, ["preview", "4k", "source-width"], "resolution");
+  }
   config.deliveryMode = enumValue(config.deliveryMode, ["preview-first", "one-click"], "deliveryMode");
   config.outputFormat = enumValue(config.outputFormat, ["png", "jpg", "both"], "outputFormat");
   config.keepIntermediates = booleanValue(config.keepIntermediates, "keepIntermediates");
@@ -244,6 +301,25 @@ function resolvedPrompt(config) {
   return PRESETS.presets[config.preset];
 }
 
+function resolvedCreativeRecipe(config) {
+  if (config.creativeRecipe === "none") return null;
+  const recipe = CREATIVE_RECIPE_BY_ID[config.creativeRecipe];
+  return {
+    id: recipe.id,
+    number: recipe.number,
+    titleZh: recipe.titleZh,
+    titleEn: recipe.titleEn,
+    summaryZh: recipe.summaryZh,
+    sourceCount: recipe.sourceCount,
+    output: recipe.output,
+    sourceUrl: recipe.sourceUrl,
+    sourceCommit: recipe.sourceCommit,
+    creativeAssemblyMode: config.creativeAssemblyMode,
+    creativeAssemblyLabelZh: config.creativeAssemblyMode === "original-assembly" ? "原版拼接" : "直接效果图",
+    ...(recipe.sharedWorkflowWith ? {sharedWorkflowWith: recipe.sharedWorkflowWith} : {}),
+  };
+}
+
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -271,6 +347,24 @@ function widgetResourceMeta() {
   };
 }
 
+function widgetHtmlWithInitialPayload(payload) {
+  // Some Codex brokers mount the embedded resource but do not expose the
+  // originating tool result through window.openai.toolOutput. Keep the
+  // structured content available in that compatibility path as inert JSON.
+  const serialized = JSON.stringify(payload)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+  // A string replacement argument would interpret `$&`, `$'`, and similar
+  // sequences inside user-authored prompt text as replacement patterns and
+  // corrupt the Widget HTML. Pass a function so the payload is inert.
+  const html = WIDGET_TEMPLATE_HTML.replace(INITIAL_PAYLOAD_TOKEN, () => serialized);
+  if (html === WIDGET_TEMPLATE_HTML) throw new Error("Photo Refiner Widget is missing its initial-payload slot");
+  return html;
+}
+
 function toolDefinitions() {
   return [
     {
@@ -283,6 +377,7 @@ function toolDefinitions() {
         properties: {
           sourceCount: {type: "integer", minimum: 1, description: "Positive number of attached or existing source photos"},
           suggestedPreset: {type: "string", description: "Optional preset id inferred from the request"},
+          suggestedCreativeRecipe: {type: "string", description: "Optional Starryear creative recipe id inferred from the source photos and request"},
           recommendation: {type: "string", description: "Optional concise subject-aware recommendation shown above the settings"},
           creativeDirections: {type: "array", maxItems: 3, description: "Optional editable creative directions inferred from the photo", items: {type: "object", additionalProperties: false, properties: {label: {type: "string"}, summary: {type: "string"}, prompt: {type: "string"}, avoid: {type: "string"}, preset: {type: "string"}, styleStrength: {type: "number", minimum: 0, maximum: 100}}}},
         },
@@ -291,13 +386,14 @@ function toolDefinitions() {
       annotations: {readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false},
       outputSchema: {
         type: "object",
-        required: ["ok", "kind", "schemaVersion", "presets", "defaults"],
+        required: ["ok", "kind", "schemaVersion", "presets", "creativeRecipes", "defaults"],
         additionalProperties: true,
         properties: {
           ok: {type: "boolean"},
           kind: {type: "string"},
           schemaVersion: {type: "integer"},
           presets: {type: "object"},
+          creativeRecipes: {type: "object"},
           defaults: {type: "object"},
           promptLibrary: {type: "object"},
           recommendation: {type: "string"},
@@ -314,10 +410,15 @@ function toolDefinitions() {
         type: "object",
         required: ["userConfirmed", "config"],
         properties: {
-          userConfirmed: {type: "boolean", const: true},
+          // No `const` and no additionalProperties:false here: some Codex
+          // brokers wrap widget-originated calls with extra envelope fields
+          // and reject strict schemas as "Invalid MCP tool call params"
+          // before the request ever reaches this server. The server itself
+          // enforces userConfirmed === true and validates every config field.
+          userConfirmed: {type: "boolean"},
           config: {type: "object", additionalProperties: true},
         },
-        additionalProperties: false,
+        additionalProperties: true,
       },
       annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false},
       outputSchema: {
@@ -347,7 +448,8 @@ function toolDefinitions() {
           collection: {type: "string", enum: ["custom"]},
           entryId: {type: "string", minLength: 1},
         },
-        additionalProperties: false,
+        // Same broker-envelope tolerance as submit_photo_refiner_settings.
+        additionalProperties: true,
       },
       annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
       _meta: {"openai/widgetAccessible": true, ui: {visibility: ["app"]}},
@@ -362,6 +464,7 @@ function toolResult(payload, withWidget = false) {
     isError: false,
   };
   if (withWidget) {
+    const widgetHtml = widgetHtmlWithInitialPayload(payload);
     result._meta = uiMeta();
     // Code Mode brokers in some Codex builds flatten result metadata. Include
     // the MCP Apps resource as an embedded resource as a compatibility path;
@@ -371,7 +474,7 @@ function toolResult(payload, withWidget = false) {
       resource: {
         uri: WIDGET_URI,
         mimeType: WIDGET_MIME,
-        text: WIDGET_HTML,
+        text: widgetHtml,
         _meta: widgetResourceMeta(),
       },
     });
@@ -400,12 +503,24 @@ function callTool(name, args) {
     const preferences = loadPreferences();
     const savedConfig = isObject(preferences.lastConfig) ? preferences.lastConfig : {};
     const defaults = mergeDefaults(savedConfig);
+    defaults.sourceCount = args.sourceCount;
     defaults.workflow = args.sourceCount > 1 ? "batch" : "single";
+    // Starryear is an opt-in second stage after the normal preset. Do not
+    // revive a previously selected recipe or collage mode for a new job.
+    defaults.creativeRecipe = "none";
+    defaults.creativeAssemblyMode = "direct-effect";
+    defaults.creativeFromBase = false;
     if (typeof args.suggestedPreset === "string" && PRESETS.presets[args.suggestedPreset]) {
       defaults.preset = args.suggestedPreset;
       const presetDefault = PRESETS.presets[args.suggestedPreset].defaultStrength;
       const preserveSavedStrength = savedConfig.preset === args.suggestedPreset && typeof savedConfig.styleStrength === "number";
       if (!preserveSavedStrength && typeof presetDefault === "number") defaults.styleStrength = presetDefault;
+    }
+    if (typeof args.suggestedCreativeRecipe === "string") {
+      const suggestedRecipe = CREATIVE_RECIPE_BY_ID[args.suggestedCreativeRecipe];
+      if (suggestedRecipe && args.sourceCount >= suggestedRecipe.sourceCount.min && args.sourceCount <= suggestedRecipe.sourceCount.max) {
+        defaults.creativeRecipe = suggestedRecipe.id;
+      }
     }
     const creativeDirections = Array.isArray(args.creativeDirections) ? args.creativeDirections.slice(0, 3).map((item) => ({
       label: cleanText(String(item?.label || "灵感方向"), 80, "creativeDirections.label"),
@@ -415,20 +530,28 @@ function callTool(name, args) {
       ...(typeof item?.preset === "string" && PRESETS.presets[item.preset] ? {preset: item.preset} : {}),
       ...(typeof item?.styleStrength === "number" && item.styleStrength >= 0 && item.styleStrength <= 100 ? {styleStrength: item.styleStrength} : {}),
     })).filter((item) => item.prompt) : [];
-    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 2, presets: PRESETS, defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
+    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 3, presets: PRESETS, creativeRecipes: CREATIVE_RECIPES, defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
   }
   if (name === "submit_photo_refiner_settings") {
     if (args.userConfirmed !== true) throw new Error("Explicit user confirmation is required");
     const config = validateConfig(args.config);
     const prompt = resolvedPrompt(config);
+    const creativeRecipe = resolvedCreativeRecipe(config);
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
     const record = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       confirmationId: id,
       confirmedAt: now,
       confirmedBy: "photo-refiner-studio",
       config,
+      executionMode: creativeRecipe ? "creative-translation" : "photo-refinement",
+      resolvedCreativeRecipe: creativeRecipe,
+      creativeOutput: creativeRecipe ? {
+        mode: creativeRecipe.creativeAssemblyMode,
+        labelZh: creativeRecipe.creativeAssemblyLabelZh,
+        originalAssembly: creativeRecipe.creativeAssemblyMode === "original-assembly",
+      } : null,
       resolvedPrompt: {
         preset: config.preset,
         label: prompt.label,
@@ -460,6 +583,12 @@ function callTool(name, args) {
       promptHash: record.promptHash,
       summary: {
         workflow: config.workflow,
+        executionMode: creativeRecipe ? "creative-translation" : "photo-refinement",
+        creativeRecipe: creativeRecipe ? creativeRecipe.id : "none",
+        creativeRecipeTitle: creativeRecipe ? creativeRecipe.titleZh : null,
+        creativeAssemblyMode: creativeRecipe ? creativeRecipe.creativeAssemblyMode : null,
+        creativeAssemblyLabelZh: creativeRecipe ? creativeRecipe.creativeAssemblyLabelZh : null,
+        creativeFromBase: config.creativeFromBase,
         aspectRatio: config.aspectRatio,
         resolution: config.resolution,
         deliveryMode: config.deliveryMode,
@@ -528,7 +657,7 @@ async function handleRpc(message) {
     }
     if (message.method === "resources/read") {
       if (params.uri !== WIDGET_URI) return rpcError(id, -32602, `Unknown resource: ${params.uri}`);
-      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta: widgetResourceMeta()}]});
+      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtmlWithInitialPayload(FALLBACK_WIDGET_PAYLOAD), _meta: widgetResourceMeta()}]});
     }
     if (message.method === "resources/templates/list") return rpcResponse(id, {resourceTemplates: []});
     if (message.method === "prompts/list") return rpcResponse(id, {prompts: []});

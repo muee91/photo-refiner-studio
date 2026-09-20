@@ -12,6 +12,8 @@ from resolve_prompt import resolve_prompt
 ASPECT_RATIO_RE = re.compile(r"^[1-9]\d*:[1-9]\d*$")
 RESOLUTION_RE = re.compile(r"^[1-9]\d*x[1-9]\d*$", re.IGNORECASE)
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".heic", ".heif"}
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+CREATIVE_CATALOG_PATH = SKILL_ROOT / "references" / "starryear" / "catalog.json"
 
 
 def normalize_source_path(value: Path) -> Path:
@@ -112,6 +114,71 @@ def load_confirmation(path_value: Path) -> dict:
     return record
 
 
+def resolve_creative_recipe(recipe_id: str, source_count: int, confirmation: dict | None) -> dict | None:
+    if not recipe_id or recipe_id == "none":
+        return None
+    try:
+        catalog = json.loads(CREATIVE_CATALOG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Cannot read creative recipe catalog {CREATIVE_CATALOG_PATH}: {exc}") from exc
+    recipes: dict[str, dict] = {}
+    for item in catalog.get("recipes", []):
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            raise SystemExit("Creative recipe catalog contains a malformed entry")
+        recipes[item["id"]] = item
+    recipe = recipes.get(recipe_id)
+    if recipe is None:
+        raise SystemExit(f"Unknown creative recipe: {recipe_id}")
+    for key in ("titleZh", "recipePath"):
+        if not isinstance(recipe.get(key), str):
+            raise SystemExit(f"Creative recipe {recipe_id} is missing {key}")
+    count_range = recipe.get("sourceCount")
+    if (
+        not isinstance(count_range, dict)
+        or not isinstance(count_range.get("min"), int)
+        or not isinstance(count_range.get("max"), int)
+    ):
+        raise SystemExit(f"Creative recipe {recipe_id} has an invalid sourceCount")
+    minimum = count_range["min"]
+    maximum = count_range["max"]
+    if source_count < minimum or source_count > maximum:
+        expected = str(minimum) if minimum == maximum else f"{minimum}-{maximum}"
+        raise SystemExit(f"{recipe['titleZh']} requires {expected} source photographs; received {source_count}")
+    recipe_root = (CREATIVE_CATALOG_PATH.parent / recipe["recipePath"]).resolve()
+    if not (recipe_root / "SKILL.md").is_file():
+        raise SystemExit(f"Creative recipe is incomplete: missing {recipe_root / 'SKILL.md'}")
+    if confirmation is not None:
+        frozen = confirmation.get("resolvedCreativeRecipe")
+        if not isinstance(frozen, dict) or frozen.get("id") != recipe_id:
+            raise SystemExit("Confirmation is missing the selected creative recipe metadata")
+        if frozen.get("sourceCommit") != recipe.get("sourceCommit"):
+            raise SystemExit("Creative recipe source revision does not match the installed catalog")
+    return {
+        "id": recipe["id"],
+        "number": recipe.get("number", ""),
+        "title_zh": recipe["titleZh"],
+        "title_en": recipe.get("titleEn", ""),
+        "summary_zh": recipe.get("summaryZh", ""),
+        "source_count": count_range,
+        "output": recipe.get("output", {}),
+        "source_url": recipe.get("sourceUrl", ""),
+        "source_commit": recipe.get("sourceCommit", ""),
+        "recipe_root": str(recipe_root),
+        "skill_path": str(recipe_root / "SKILL.md"),
+        "shared_workflow_with": recipe.get("sharedWorkflowWith"),
+    }
+
+
+def resolve_creative_output_mode(value: str) -> dict:
+    if value not in {"direct-effect", "original-assembly"}:
+        raise SystemExit("Creative output mode must be direct-effect or original-assembly")
+    return {
+        "mode": value,
+        "label_zh": "原版拼接" if value == "original-assembly" else "直接效果图",
+        "original_assembly": value == "original-assembly",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create an isolated photo refinement job.")
     parser.add_argument("sources", nargs="+", type=Path)
@@ -119,6 +186,9 @@ def main() -> None:
     parser.add_argument("--workflow", choices=["auto", "single", "batch"], default="auto")
     parser.add_argument("--confirmation-file", type=Path, help="Confirmation JSON created by Photo Refiner Studio")
     parser.add_argument("--preset", help="Confirmed named preset or custom for text-only fallback")
+    parser.add_argument("--creative-recipe", default="none", help="Confirmed Starryear recipe id or none for text-only fallback")
+    parser.add_argument("--creative-assembly-mode", choices=["direct-effect", "original-assembly"], default="direct-effect", help="Creative output: complete effect image by default, or the original evidence/assembly layout")
+    parser.add_argument("--creative-from-base", action="store_true", help="Two-stage: first render the confirmed preset as an approved main image, then translate creatively from it (single-source direct-effect only)")
     parser.add_argument("--custom-prompt", default="")
     parser.add_argument("--custom-avoid", default="")
     parser.add_argument("--aspect-ratio", type=validate_aspect_ratio, default="original")
@@ -140,6 +210,12 @@ def main() -> None:
         confirmation = load_confirmation(args.confirmation_file)
         ui_config = confirmation["config"]
         args.workflow = ui_config["workflow"]
+        args.creative_recipe = ui_config.get("creativeRecipe", "none")
+        args.creative_assembly_mode = ui_config.get("creativeAssemblyMode", "direct-effect")
+        # The panel no longer carries a two-stage control; the choice is
+        # offered conversationally, so an explicit CLI flag must survive a
+        # confirmation whose config predates or omits the field.
+        args.creative_from_base = args.creative_from_base or bool(ui_config.get("creativeFromBase", False))
         args.preset = ui_config["preset"]
         args.custom_prompt = ui_config.get("customPrompt", "")
         args.custom_avoid = ui_config.get("customAvoid", "")
@@ -180,6 +256,28 @@ def main() -> None:
         args.detail_budget = args.detail_budget or "balanced"
 
     sources = validate_source_files(args.sources)
+    creative_recipe = resolve_creative_recipe(args.creative_recipe, len(sources), confirmation)
+    creative_output = resolve_creative_output_mode(args.creative_assembly_mode) if creative_recipe else None
+    execution_mode = "creative-translation" if creative_recipe else "photo-refinement"
+    if creative_output is not None:
+        # Single-source direct-effect canvases follow the confirmed panel
+        # aspect ratio (original = the source photograph's own ratio).
+        # Original-assembly and multi-photo recipes keep the recipe's
+        # documented output structure because their deterministic layout
+        # and panel geometry depend on it.
+        recipe_ratio = str((creative_recipe.get("output") or {}).get("aspectRatio") or "recipe-documented")
+        inherit_panel_ratio = creative_output["mode"] == "direct-effect" and len(sources) == 1
+        creative_output["aspect_ratio_source"] = "panel" if inherit_panel_ratio else "recipe"
+        creative_output["recipe_aspect_ratio"] = recipe_ratio
+        creative_output["effective_aspect_ratio"] = str(args.aspect_ratio) if inherit_panel_ratio else recipe_ratio
+        # Opt-in two-stage flow: stage 1 renders the confirmed preset as an
+        # approved main image; stage 2 translates creatively with that image
+        # as look reference while identity stays anchored to the source.
+        creative_output["upstream_binding"] = (
+            "look-master"
+            if args.creative_from_base and creative_output["mode"] == "direct-effect" and len(sources) == 1
+            else "direction-only"
+        )
     workflow = args.workflow
     if workflow == "auto":
         workflow = "batch" if len(sources) > 1 else "single"
@@ -214,7 +312,7 @@ def main() -> None:
 
     manifest = {
         "version": 2,
-        "release_version": "2.2",
+        "release_version": "2.3",
         "created_at": now.isoformat(),
         "confirmed_at": now.isoformat(),
         "confirmation": None
@@ -227,11 +325,22 @@ def main() -> None:
         },
         "status": "initialized",
         "working_color_space": "sRGB",
+        "execution_mode": execution_mode,
+        "creative_recipe": creative_recipe,
         "authority_model": {
             "source_master": ["identity", "anatomy", "factual_geometry", "construction", "authentic_material_reference"],
             "look_master": ["approved_color", "lighting", "tone", "atmosphere", "visual_style"],
             "detail_patch": ["registered_mid_frequency_detail", "registered_high_frequency_detail"],
-        },
+        } if creative_recipe is None else ({
+            "source_evidence": ["unchanged_source_pixels", "identity", "factual_scene_truth"],
+            "generated_panels": ["recipe_specific_visual_translation"],
+            "deterministic_assembly": ["layout", "source_pixel_placement", "final_dimensions"],
+        } if args.creative_assembly_mode == "original-assembly" else {
+            "source_reference": ["identity", "theme", "source-derived motifs"],
+            "generated_artwork": ["complete creative canvas", "recipe visual grammar"],
+            "deterministic_assembly": [],
+        }),
+        "creative_output": creative_output,
         "workflow": workflow,
         "ui_mode": ui_mode,
         "sources": [str(item) for item in sources],
@@ -242,15 +351,15 @@ def main() -> None:
         "framing": args.framing,
         "resolution": args.resolution,
         "delivery_mode": delivery_mode,
-        "base_preview": {"required": delivery_mode == "preview-first" and workflow == "single", "approved": False},
+        "base_preview": {"required": delivery_mode == "preview-first" and (workflow == "single" or creative_recipe is not None), "approved": False},
         "output_format": args.output_format,
         "batch": {
             "consistency": args.consistency,
             "master_frame": args.master_frame,
-            "shared_identity": True,
-            "shared_scene": True,
-            "shared_prompt": True,
-            "master_frame_approved": None if workflow == "single" else False,
+            "shared_identity": creative_recipe is None,
+            "shared_scene": creative_recipe is None,
+            "shared_prompt": creative_recipe is None,
+            "master_frame_approved": None if workflow == "single" or creative_recipe is not None else False,
         },
         "detail": {
             "mode": args.detail_mode,
@@ -274,6 +383,19 @@ def main() -> None:
                 "background": 0.30,
                 "generic": 0.50,
             },
+        } if creative_recipe is None else {
+            "mode": "not-applicable",
+            "generation_budget": "recipe-controlled",
+            "soft_generated_patch_budget": 0,
+            "hard_generated_patch_ceiling": 0,
+            "max_generated_patches": 0,
+            "adaptive_overflow": False,
+            "planner": "creative-recipe",
+            "mask_mode": "recipe-controlled",
+            "regions": [],
+            "patch_scope": "none",
+            "head_patch": False,
+            "note": ("Do not run ordinary face, head, costume, or environment detail patches over the original assembled creative artwork." if args.creative_assembly_mode == "original-assembly" else "Do not run ordinary face, head, costume, or environment detail patches over the complete direct-effect creative artwork."),
         },
         "retouch": {
             "style_strength": resolved_prompt.get("default_strength", 50),

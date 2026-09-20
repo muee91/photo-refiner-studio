@@ -1,13 +1,13 @@
 ---
 name: photo-refiner
-description: Refine photographs with an approved Image 2.5 look, high-resolution local detail recovery, registration, frequency-aware blending, and deterministic delivery sizing while preserving source identity and scene truth.
+description: Refine photographs with an approved Image 2.5 look and high-resolution detail recovery, or run an explicitly selected bundled Starryear source-faithful creative translation recipe with effect-image selection and deterministic assembly.
 ---
 
-# Photo Refiner v2.2
+# Photo Refiner v2.3
 
 Photo Refiner is a **photographic refinement workflow**, not a generic image-redesign skill. Image 2.5 establishes the approved visual look; deterministic scripts and localized generation recover useful detail without pretending that a low-resolution generation is native high resolution.
 
-Version 2.2 keeps the v2.1 SOURCE / LOOK / DETAIL authority model, but adds three execution rules: **adaptive tile planning**, **generation budgets**, and **lightweight blend masks**. The goal is to improve local recovery without exploding the number of generated patches.
+Version 2.3 keeps the v2.2 SOURCE / LOOK / DETAIL refinement model and adds an explicitly selected **creative translation** branch. That branch can run the bundled Starryear recipes without flattening their multi-stage workflows into ordinary filter presets.
 
 ## 1. Intent gate
 
@@ -15,7 +15,26 @@ A question about this Skill is **not** an edit request. If the user asks whether
 
 Start a refinement job only when the user explicitly asks to edit/refine a **specific source photograph**. Even then, do not generate until the initialization settings have been shown and explicitly confirmed.
 
-## 2. Three authorities
+## 2. Creative translation gate
+
+Normal Photo Refiner work and creative translation are separate execution modes:
+
+- `photo-refinement` uses SOURCE MASTER / LOOK MASTER / DETAIL PATCH as described below.
+- `creative-translation` is an optional second stage after the user has chosen the normal style preset. It uses a selected Starryear recipe with either a complete direct effect image (the default) or the original evidence/panel assembly. It runs only when the user selects a creative recipe in Studio or explicitly confirms one through the text fallback.
+
+Never flatten a bundled creative recipe into a color preset or append its name to the normal refinement prompt. The selected normal preset remains the frozen upstream visual direction; apply it deliberately alongside the recipe-specific translation instructions, rather than replacing it or treating the result as a simple filter. When creative translation is selected:
+
+1. Read [references/starryear/catalog.md](references/starryear/catalog.md) and [references/starryear/catalog.json](references/starryear/catalog.json).
+2. Validate the actual source count against the selected catalog entry.
+3. Read the selected `recipePath/SKILL.md` completely, then read every prompt, reference, and script that recipe requires.
+4. Resolve `creative_assembly_mode` from the confirmed settings. It defaults to `direct-effect`; `original-assembly` is an explicit alternative. Direct-effect generates one complete creative effect image using the frozen normal preset as its upstream visual direction plus the recipe's theme, prompt semantics, references, source-derived motifs, and visual grammar; it must not attach an unchanged source-evidence strip, place the original beside/below the artwork, crop an original assembly, or act as a simple filter. Original-assembly follows the recipe literally: preserve its evidence regions with actual source pixels, generate only its translated regions, and use its compositor. For single-source direct-effect jobs the creative canvas follows the confirmed panel aspect ratio (`original` means the source photograph's own ratio) instead of the recipe's documented output ratio; original-assembly and multi-photo recipes keep the recipe's documented output structure. `creative_output.aspect_ratio_source` / `effective_aspect_ratio` in `job.json` record the resolved choice. When `creative_output.upstream_binding` is `look-master` (`--creative-from-base`, offered conversationally: for a single-source direct-effect creative job in preview-first mode, ask once whether to 直接开始创意 or 先按预设出主图、确认后再创意), first run the Section 7 base pass with the frozen preset, show that main image, and continue only after explicit approval; the creative pass then anchors identity and motifs to the original source photograph and uses the approved main image only as its look reference, and the formal base-preview gate still applies to the creative artwork itself.
+5. Default to preview-first. Present the generated direct effect preview or assembled original preview and stop for approval when the confirmed delivery mode is `preview-first`; one-click may continue without that pause.
+6. Retry only failed generated regions. For direct-effect, retry the complete creative image; for original-assembly, retry only failed generated regions.
+7. Do not run the ordinary face, head, garment, environment, or whole-image DETAIL PATCH stage over a completed creative collage. It can overwrite the translated art and create mixed-sharpness seams.
+
+Effect images are selection aids, not visual source material. Never copy their people, places, wording, palette, or exact composition. If a catalog entry says its preview is missing, show that state honestly instead of substituting an unrelated image.
+
+## 3. Three authorities
 
 Every job has three explicit authorities:
 
@@ -25,7 +44,7 @@ Every job has three explicit authorities:
 
 The high-resolution stage is therefore **controlled information recovery on top of an approved look**, not a second global redesign.
 
-## 3. Source and initialization gate
+## 4. Source and initialization gate
 
 A usable job requires at least one attached photograph or an exact existing image path. A folder, workspace directory, Skill screenshot, or documentation image is not a source photograph.
 
@@ -49,7 +68,7 @@ The panel has two separate states: editing fields only changes the Widget locall
 
 If the Studio tool is genuinely unavailable, use a compact text fallback and require explicit confirmation before calling `init_job.py --confirmed`. Never infer panel unavailability merely because it was not auto-suggested.
 
-## 4. Subject-aware starting settings
+## 5. Subject-aware starting settings
 
 Inspect the source before opening the panel. Use `$SKILL_ROOT/references/subject-routing.md` and `$SKILL_ROOT/references/presets.yaml`.
 
@@ -79,6 +98,7 @@ detail.mask_mode: lightweight
 batch.consistency: balanced
 output_format: jpg
 working_color_space: sRGB
+creative_recipe: none
 ```
 
 When aspect ratio changes, require `crop`, `outpaint`, or `contain`; never silently stretch.
@@ -95,9 +115,19 @@ or, only for text fallback:
 python3 "$SKILL_ROOT/scripts/init_job.py" <source...> --preset <confirmed-preset> --confirmed
 ```
 
+If the text fallback confirmed a Starryear creative recipe (Section 2), pass the
+confirmed creative options explicitly; never infer them:
+
+```bash
+python3 "$SKILL_ROOT/scripts/init_job.py" <source...> --preset <confirmed-preset> \
+  --creative-recipe <confirmed-recipe-id> \
+  --creative-assembly-mode <direct-effect|original-assembly> \
+  --confirmed
+```
+
 Every job gets its own directory and immutable source hashes. Never overwrite, move, or delete source photographs.
 
-## 5. Color policy
+## 6. Color policy
 
 Photo Refiner v2.2 uses **sRGB as the internal working and delivery space** because Image 2.5 does not expose an ICC/P3 contract that this Skill can rely on.
 
@@ -113,7 +143,7 @@ After the user approves the Image 2.5 base, that result becomes LOOK MASTER and 
 
 Do **not** blindly reattach the camera file's original ICC profile to pixels that now contain Image 2.5/OpenCV-generated content. `resize_output.py --icc-source` is legacy compatibility only and does not relabel output pixels.
 
-## 6. Base / LOOK MASTER pass
+## 7. Base / LOOK MASTER pass
 
 1. Normalize the source to sRGB and inspect it.
 2. Build the deterministic brief from confirmed `job.json`:
@@ -135,11 +165,11 @@ The approved base is now **LOOK MASTER**.
 
 For batch jobs, the equivalent checkpoint is the approved master frame. Never process the rest of a batch before that approval.
 
-## 7. High-resolution recovery
+## 8. High-resolution recovery
 
 The generator's bitmap dimensions alone are not evidence of recovered detail. Before every local generation, quantify whether the subject can receive enough effective pixels.
 
-### 7.1 Plan regions
+### 8.1 Plan regions
 
 Choose only regions that materially benefit from more local information.
 
@@ -154,7 +184,7 @@ For landscapes, use terrain boundaries, foliage, water, clouds, atmospheric laye
 
 The face tile should normally contain full forehead, temples, cheeks, jawline, chin, and a narrow transition-skin margin; the face should occupy about 60–80% of tile height. Never let a face tile be the sole source of hair or costume detail.
 
-### 7.2 Pixel Budget gate
+### 8.2 Pixel Budget gate
 
 Before generation run:
 
@@ -178,7 +208,7 @@ Default minimum effective detail ratios:
 
 If the budget fails, tighten the crop first. If it is already tight, request a larger patch or reduce the final local scale. Never call a large but low-information bitmap “recovered detail.”
 
-### 7.3 Generate against both authorities
+### 8.3 Generate against both authorities
 
 For each accepted region, extract:
 
@@ -187,7 +217,7 @@ For each accepted region, extract:
 
 Generate the patch under both constraints. If dual-reference generation causes structural drift, allow one geometry-locked target-only retry. Maximum two generation attempts per tile unless the user explicitly asks for more.
 
-## 7A. Adaptive tile planning and generation budgets
+## 8A. Adaptive tile planning and generation budgets
 
 Before local generation, v2.2 plans coarse detail regions with:
 
@@ -230,7 +260,7 @@ For portrait/classical-costume work, the preferred coarse ordering remains:
 
 Do not create separate generated patches for eyes, nose, mouth, sleeves, individual ornaments, or small hair subregions unless the user explicitly asks for a more expensive workflow.
 
-## 8. Registration and fusion
+## 9. Registration and fusion
 
 Register with:
 
@@ -301,7 +331,7 @@ python3 "$SKILL_ROOT/scripts/landmark_identity_gate.py" \
 
 The JSON uses named `[x,y]` points (`left_eye`, `right_eye`, `nose_tip`, `mouth_left`, `mouth_right`; optional `chin`, `jaw_left`, `jaw_right`). The script similarity-aligns candidate to SOURCE MASTER and measures normalized residual structure. Do not run a separate detector solely to satisfy this gate if doing so would materially increase latency; it is opportunistic evidence, not a mandatory dependency.
 
-## 9. Identity and factual integrity
+## 10. Identity and factual integrity
 
 Reject regardless of numeric score for changed identity, face shape, feature spacing, gaze/expression, hand anatomy, finger count, garment construction, broken embroidery, shifted props, invented buildings/terrain, doubled contours, or other factual scene drift.
 
@@ -309,7 +339,7 @@ Do not invent missing anatomy or scene content merely to complete a crop. If the
 
 Face-embedding backends may be added as optional evidence later, but v2.2 does not require a heavyweight identity model. When source/candidate landmarks are available, run `$SKILL_ROOT/scripts/landmark_identity_gate.py` before accepting an identity-sensitive face patch. It similarity-aligns the landmark sets and rejects proportion/structure drift. This gate is supplementary; visual identity review remains required.
 
-## 10. Batch consistency
+## 11. Batch consistency
 
 For batch work, pick one master frame with usable exposure, a sharp important subject, key props, and low occlusion. The user must approve its look before the rest of the batch proceeds.
 
@@ -321,7 +351,7 @@ All frames refer to the same approved master look, frozen prompt version, palett
 
 A shared prompt alone does not guarantee consistency because generation is stochastic.
 
-## 11. Delivery
+## 12. Delivery
 
 Use `resize_output.py` only after the accepted composite is complete:
 
@@ -343,7 +373,7 @@ Final report should include:
 - registration model/metrics and retries
 - any identity, anatomy, texture, seam, or non-native-upscaling limitations
 
-## 12. State discipline
+## 13. State discipline
 
 Use `update_job.py` for accepted state transitions:
 

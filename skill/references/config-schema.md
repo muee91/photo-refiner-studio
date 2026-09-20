@@ -1,10 +1,13 @@
 # Configuration schema
 
-Persist resolved values in `job.json`. Version 2.2 formalizes the SOURCE/LOOK/DETAIL authority model, the sRGB working space, effective-detail budgets, region-aware registration, adaptive tile planning, and lightweight blend masks.
+Persist resolved values in `job.json`. Version 2.3 retains the v2.2 SOURCE/LOOK/DETAIL refinement model and adds an explicitly selected creative-translation branch.
 
 ```yaml
 version: 2
-release_version: "2.2"
+release_version: "2.3"
+execution_mode: photo-refinement   # photo-refinement | creative-translation
+creative_recipe: null              # resolved catalog record when creative translation is selected
+creative_output: null              # creative translation only: {mode: direct-effect | original-assembly, label_zh, original_assembly}
 workflow: single                 # single | batch
 ui_mode: simple                  # simple | pro; UI presentation only
 working_color_space: sRGB        # v2.2 working/delivery space
@@ -47,7 +50,7 @@ framing: preserve               # preserve | crop | outpaint | contain
 resolution: source-width        # 4k | source-width | WIDTHxHEIGHT (preview remains accepted for legacy jobs only)
 delivery_mode: preview-first    # preview-first | one-click
 base_preview:
-  required: true                 # single preview-first only; batches use master-frame approval
+  required: true                 # single preview-first or any preview-first creative translation
   approved: false                # when true, accepted base becomes LOOK MASTER
 output_format: jpg              # jpg | png | both
 batch:
@@ -56,7 +59,7 @@ batch:
   shared_identity: true
   shared_scene: true
   shared_prompt: true
-  master_frame_approved: false  # null for single; must become true before continuing a batch
+  master_frame_approved: false  # null for single or creative translation; normal batches require approval
 detail:
   mode: adaptive                # base-only | face | adaptive | explicit
   generation_budget: balanced   # fast | balanced | max
@@ -118,6 +121,8 @@ Pass `--confirmed` only after confirmation. Named presets must exist in `presets
 `source-width` preserves the original source width while calculating height from the selected aspect ratio. It does not mean stretching a low-resolution preview without detail passes. Every planned detail tile must satisfy its effective pixel budget before generation.
 
 For `master_frame: auto`, choose a source with a sharp face, usable exposure, clear key props and minimal occlusion. Other frames use the approved master look as a style reference, not as their sole edit target.
+
+For `execution_mode: creative-translation`, `creative_recipe` is selected after the normal style preset and freezes the selected catalog id, title, source-count contract, source commit, recipe root, and output structure. The selected normal preset remains frozen in `resolved_prompt` as the upstream visual direction. `creative_assembly_mode` is `direct-effect` by default or `original-assembly` only when explicitly selected. Direct-effect produces one complete creative effect image without an unchanged source-evidence comparison area or any deterministic panel assembly; original-assembly preserves the original recipe's evidence/generated-panel layout and deterministic compositor. Both modes record ordinary local detail recovery as `not-applicable` and must not run face/head/costume patches over the creative artwork. Multi-photo creative recipes still approve the generated/assembled effect preview through `--approve-base-preview`; they never use the normal batch master-frame gate. `creative_output.aspect_ratio_source` is `panel` for single-source direct-effect jobs — `effective_aspect_ratio` is then the confirmed panel ratio, where `original` follows the source photograph's own ratio — and `recipe` for original-assembly or multi-photo jobs, which keep `effective_aspect_ratio` equal to the recipe's documented output ratio. `creative_output.upstream_binding` is `direction-only` by default: the single-pass creative brief treats the frozen preset as look direction only and the recipe as the sole structural authority. When the user opts into the two-stage flow — offered conversationally for single-source direct-effect jobs in preview-first mode, or via `--creative-from-base`; a legacy `creativeFromBase` confirmation field is still honored — it is `look-master`: stage 1 renders the frozen preset as an ordinary style brief plus a stage note and requires explicit approval of that main image, and stage 2 translates creatively with the approved main image as look reference while identity stays anchored to the source photograph.
 
 ## v2.2 planning rules
 

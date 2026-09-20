@@ -55,6 +55,8 @@ def main() -> None:
 
     now = datetime.now().astimezone().isoformat()
     if args.approve_master:
+        if data.get("execution_mode") == "creative-translation":
+            raise SystemExit("Creative translations use effect-preview approval, not batch master-frame approval")
         if data.get("workflow") != "batch":
             raise SystemExit("Master-frame approval applies only to batch jobs")
         if current != "base_generated":
@@ -72,8 +74,9 @@ def main() -> None:
         data.setdefault("history", []).append(event)
 
     if args.approve_base_preview:
-        if data.get("delivery_mode") != "preview-first" or data.get("workflow") != "single":
-            raise SystemExit("Base-preview approval applies only to single-image preview-first jobs")
+        preview_eligible = data.get("workflow") == "single" or data.get("execution_mode") == "creative-translation"
+        if data.get("delivery_mode") != "preview-first" or not preview_eligible:
+            raise SystemExit("Base-preview approval applies only to single-image or creative-translation preview-first jobs")
         if current != "base_generated":
             raise SystemExit("Base preview can be approved only after status base_generated")
         data.setdefault("base_preview", {})["approved"] = True
@@ -87,6 +90,7 @@ def main() -> None:
             raise SystemExit(f"Invalid status transition: {current} -> {args.status}")
         if (
             data.get("workflow") == "batch"
+            and data.get("execution_mode") != "creative-translation"
             and current == "base_generated"
             and args.status in {"details_processed", "completed"}
             and not data.get("batch", {}).get("master_frame_approved")
@@ -94,7 +98,7 @@ def main() -> None:
             raise SystemExit("Approve the batch master frame before continuing")
         if (
             data.get("delivery_mode") == "preview-first"
-            and data.get("workflow") == "single"
+            and (data.get("workflow") == "single" or data.get("execution_mode") == "creative-translation")
             and current == "base_generated"
             and args.status in {"details_processed", "completed"}
             and not data.get("base_preview", {}).get("approved")

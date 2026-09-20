@@ -107,6 +107,14 @@ def main() -> None:
     if not data.get("confirmed_at") or not resolved.get("prompt"):
         raise SystemExit("Job is not confirmed or has no frozen resolved prompt")
 
+    execution_mode = data.get("execution_mode", "photo-refinement")
+    creative_output = data.get("creative_output") or {}
+    two_stage_look_master = (
+        execution_mode == "creative-translation"
+        and creative_output.get("upstream_binding") == "look-master"
+    )
+    creative_direct = execution_mode == "creative-translation" and not two_stage_look_master
+
     retouch = data.get("retouch") or {}
     instructions = []
     style_strength = retouch.get("style_strength")
@@ -171,6 +179,10 @@ def main() -> None:
         )
     elif patch_scope == "face-only":
         instructions.append("restore only the complete face outline and chin; do not infer or sharpen hair outside the face patch")
+    if two_stage_look_master:
+        instructions.append(
+            "two-stage creative translation, stage 1: render the confirmed preset as the main image for explicit user approval; run the creative pass only after that approval, keeping identity anchored to the original source photograph"
+        )
 
     invariants = (
         "Preserve identity, expression, gaze, anatomy, hands, joints, pose, clothing construction, intentional "
@@ -195,6 +207,39 @@ def main() -> None:
         "resolution": data.get("resolution", "source-width"),
         "delivery_mode": data.get("delivery_mode", "preview-first"),
     }
+    if creative_direct:
+        # Single-pass creative translation: the recipe is the sole structural
+        # authority. The frozen preset is demoted to a look direction, and the
+        # photographic-preservation invariants would contradict the recipe's
+        # non-photographic grammar, so the brief carries a creative variant.
+        recipe = data.get("creative_recipe") or {}
+        brief = {
+            "preset": resolved.get("preset"),
+            "style_strength": style_strength,
+            "upstream_style_direction": (
+                "Apply the frozen preset only as an upstream look direction (color, light, tone, atmosphere). "
+                "It must not add a photorealistic rendering pass; wherever it conflicts with the recipe's guardrails, the recipe's guardrails win."
+            ),
+            "creative_recipe": recipe,
+            "recipe_instruction": (
+                f"Execute the selected Starryear recipe as the sole structural authority: read "
+                f"{recipe.get('skill_path', 'the recipe SKILL.md')} and every prompt, reference, and script it requires, "
+                "then produce the creative artwork it defines."
+            ),
+            "avoid": resolved.get("avoid", ""),
+            "requested_adjustments": [],
+            "invariants": (
+                "Subject identity and theme must stay traceable to the source photograph(s) exactly as the recipe requires. "
+                "The recipe's guardrails override any photographic-preservation language. "
+                "Never run ordinary detail patches over the creative artwork."
+            ),
+            "authority_model": data.get("authority_model"),
+            "working_color_space": data.get("working_color_space", "sRGB"),
+            "framing": data.get("framing", "preserve"),
+            "aspect_ratio": creative_output.get("effective_aspect_ratio") or data.get("aspect_ratio", "original"),
+            "resolution": data.get("resolution", "source-width"),
+            "delivery_mode": data.get("delivery_mode", "preview-first"),
+        }
     canonical = json.dumps(brief, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     brief["edit_brief_hash"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     rendered = json.dumps(brief, indent=2, ensure_ascii=False) + "\n"
