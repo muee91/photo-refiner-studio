@@ -1,7 +1,7 @@
 {
   "name": "photo-refiner-studio",
-  "version": "0.5.0+codex.20260921010000",
-  "description": "Interactive Photo Refiner v2.3 settings and creative translation for Codex",
+  "version": "0.6.0-nodecanvas.20260920",
+  "description": "Photo Refiner v3 experimental Node Canvas plus the stable v2.3 settings surface",
   "author": {
     "name": "muee"
   },
@@ -15,8 +15,8 @@
   ],
   "interface": {
     "displayName": "Photo Refiner Studio",
-    "shortDescription": "Value-aware photo refinement with a simplified creative control surface",
-    "longDescription": "Configure Photo Refiner v2.3 through a simplified creative workspace before generation. The default surface focuses on look, delivery, and output while adaptive high-resolution recovery stays automatic. After choosing a style preset, Starryear is an optional second creative stage that defaults to one complete effect image; professional mode adds portrait, clothing, landscape, and batch controls.",
+    "shortDescription": "Photo refinement with optional in-ChatGPT node workflow canvas",
+    "longDescription": "Photo Refiner keeps the stable v2.3 proposal-sheet settings surface and adds an experimental high-level Node Canvas for Source → Look A → Effect B → Approval → Recovery → Delivery. The Node Canvas is optional; core processing remains usable without UI.",
     "developerName": "muee",
     "category": "Creative",
     "capabilities": [
@@ -24,9 +24,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Open the Photo Refiner settings for these photos",
-      "Retouch this portrait after I confirm the settings",
-      "Batch-match these photos with a consistent look"
+      "Open the Photo Refiner Node Canvas for this photo",
+      "Open the standard Photo Refiner settings for this photo",
+      "Retouch this portrait after I confirm the workflow"
     ],
     "brandColor": "#1C8878",
     "composerIcon": "./assets/photo-refiner.svg",
