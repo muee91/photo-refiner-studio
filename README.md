@@ -1,11 +1,28 @@
-# Photo Refiner Studio
+# Photo Refiner Flow
 
-Private source repository for the Photo Refiner Codex skill and its interactive MCP settings plugin.
+Private source repository branch for the independently installable **Photo Refiner Flow** node-workflow skill and MCP Apps UI.
 
-## Layout
+Photo Refiner Flow is designed to coexist with the original **Photo Refiner**. It uses separate Skill/plugin identities, MCP tool names, and local state directories.
 
-- `skill/` — reusable `photo-refiner` skill, references, scripts, and tests.
-- `plugin/` — `photo-refiner-studio` plugin, settings panel, MCP server, presets, and smoke test.
+## Installed identities
+
+- Skill: `photo-refiner-flow`
+- Plugin: `photo-refiner-flow-studio`
+- MCP server: `photoRefinerFlowStudio`
+- State: `~/.codex/photo-refiner-flow/`
+
+## Workflow
+
+```text
+Source → Look A → Effect B? → Approval → Recovery? → Delivery
+```
+
+## Repository layout
+
+- `skill/` — Flow skill runtime, graph compiler, refinement scripts, references, and tests.
+- `plugin/` — Flow MCP Apps plugin and embedded node canvas.
+- `node-canvas/` — standalone development preview of the same canvas UI.
+- `distribution/` — coexistence-safe installer and install instructions.
 
 ## Validation
 
@@ -16,4 +33,4 @@ python3 -m unittest discover -s skill/tests
 HOME="$(mktemp -d)" node plugin/tests/plugin_smoke.cjs
 ```
 
-The repository intentionally excludes user preferences, confirmation records, generated jobs, outputs, caches, and source photographs.
+The repository intentionally excludes user preferences, graph confirmations, generated jobs, outputs, caches, and source photographs.
