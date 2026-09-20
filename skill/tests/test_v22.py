@@ -98,10 +98,13 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         self.assertEqual(plan["portrait_extent"], "full")
         self.assertEqual(plan["soft_generated_patch_budget"], 3)
         self.assertEqual(plan["hard_generated_patch_ceiling"], 4)
-        self.assertLessEqual(plan["estimated_generated_patches"], 4)
+        self.assertEqual(plan["estimated_generated_patches"], 4)
+        self.assertEqual(plan["planner"], "adaptive-value-merge-v2.4-creative-safe")
         roles = {item["region_role"] for item in plan["regions"]}
         self.assertIn("upper-costume", roles)
         self.assertIn("lower-costume", roles)
+        self.assertIn("head", roles)
+        self.assertIn("face", roles)
 
     def test_creative_safe_complex_full_body_caps_at_five(self):
         plan = build_plan(
