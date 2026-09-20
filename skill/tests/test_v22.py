@@ -43,7 +43,7 @@ class PhotoRefinerV22Tests(unittest.TestCase):
             "--preset", "natural-cinematic", "--detail-budget", "fast", "--confirmed",
         )
         manifest = json.loads((Path(result.stdout.strip()) / "job.json").read_text())
-        self.assertEqual(manifest["release_version"], "2.3")
+        self.assertEqual(manifest["release_version"], "3.0-flow")
         self.assertEqual(manifest["detail"]["generation_budget"], "fast")
         self.assertEqual(manifest["detail"]["soft_generated_patch_budget"], 1)
         self.assertEqual(manifest["detail"]["hard_generated_patch_ceiling"], 1)
