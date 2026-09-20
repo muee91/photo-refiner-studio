@@ -502,6 +502,21 @@ def main() -> None:
             "separate_job_folder": True,
             "keep_intermediates": args.keep_intermediates,
         },
+        "patch_observation": {
+            "enabled": detail_manifest.get("mode") != "not-applicable",
+            "recorder": "scripts/record_patch_observation.py",
+            "actual_size_source": "generated-image-file",
+            "requested_size_source": "generation-call",
+            "note": "Record every generated local detail patch after it is materialized inside the job directory. Never infer actual size from API/client documentation.",
+        },
+        "patch_observations": [],
+        "patch_observation_summary": {
+            "count": 0,
+            "size_match_count": 0,
+            "size_mismatch_count": 0,
+            "actual_sizes": [],
+            "requested_sizes": [],
+        },
         "artifacts": [],
         "history": [{"status": "initialized", "at": now.isoformat()}],
     }
