@@ -12,7 +12,7 @@ const PRESETS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "presets.js
 const CREATIVE_RECIPES = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "creative-recipes.json"), "utf8"));
 const CREATIVE_RECIPE_BY_ID = Object.fromEntries(CREATIVE_RECIPES.recipes.map((recipe) => [recipe.id, recipe]));
 const WIDGET_TEMPLATE_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), "utf8");
-const NODE_CANVAS_ROOT = path.resolve(ROOT, "..", "node-canvas");
+const NODE_CANVAS_ROOT = path.join(ROOT, "assets", "node-canvas");
 const NODE_CANVAS_INDEX_HTML = fs.readFileSync(path.join(NODE_CANVAS_ROOT, "index.html"), "utf8");
 const NODE_CANVAS_STYLES = fs.readFileSync(path.join(NODE_CANVAS_ROOT, "styles.css"), "utf8");
 const NODE_CANVAS_SCRIPT = fs.readFileSync(path.join(NODE_CANVAS_ROOT, "app.js"), "utf8");
