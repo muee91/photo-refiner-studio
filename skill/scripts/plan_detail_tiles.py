@@ -23,6 +23,19 @@ BUDGET_POLICY = {
     "balanced": {"soft": 3, "hard": 6, "threshold": 0.38, "overflow_threshold": 0.50},
     "max": {"soft": 5, "hard": 8, "threshold": 0.24, "overflow_threshold": 0.36},
 }
+# Creative-safe recovery is intentionally capped more tightly than normal
+# refinement. The cap expands with portrait coverage so full-body work can
+# protect lower garments/hands/props without turning into micro-patch tiling.
+CREATIVE_SAFE_STAGE_POLICY = {
+    "close": {"soft": 2, "hard": 3},
+    "half": {"soft": 2, "hard": 3},
+    "full": {"soft": 3, "hard": 4},
+    "complex-full": {"soft": 4, "hard": 5},
+    "scene": {"soft": 2, "hard": 3},
+}
+PORTRAIT_EXTENTS = {"close", "half", "full", "complex-full"}
+DETAIL_COMPLEXITIES = {"normal", "complex"}
+RECOVERY_PROFILES = {"normal", "creative-safe"}
 BUDGET_LIMITS = {name: policy["hard"] for name, policy in BUDGET_POLICY.items()}
 BASE_VALUE = {
     "face": 1.00,
@@ -140,6 +153,12 @@ def load_vision_analysis(path: Path, image_w: int, image_h: int) -> dict:
     if subject_type not in VISION_SUBJECT_TYPES:
         raise ValueError(f"Vision analysis subject_type must be one of: {', '.join(sorted(VISION_SUBJECT_TYPES))}")
     coordinate_space = payload.get("coordinate_space", "pixel")
+    portrait_extent = payload.get("portrait_extent")
+    if portrait_extent is not None and portrait_extent not in PORTRAIT_EXTENTS:
+        raise ValueError(f"Vision analysis portrait_extent must be one of: {', '.join(sorted(PORTRAIT_EXTENTS))}")
+    detail_complexity = payload.get("detail_complexity", "normal")
+    if detail_complexity not in DETAIL_COMPLEXITIES:
+        raise ValueError(f"Vision analysis detail_complexity must be one of: {', '.join(sorted(DETAIL_COMPLEXITIES))}")
     regions = payload.get("regions")
     if not isinstance(regions, dict):
         raise ValueError("Vision analysis regions must be an object")
@@ -161,6 +180,8 @@ def load_vision_analysis(path: Path, image_w: int, image_h: int) -> dict:
         "schema_version": 1,
         "coordinate_space": coordinate_space,
         "subject_type": subject_type,
+        "portrait_extent": portrait_extent,
+        "detail_complexity": detail_complexity,
         "subject_box": optional_box("subject"),
         "face_box": optional_box("face"),
         "hand_boxes": box_list("hands"),
@@ -181,10 +202,84 @@ def height_fraction(box: Box | None, image_h: int) -> float:
     return 0.0 if box is None else box.height / float(image_h)
 
 
+def infer_portrait_extent(
+    subject_box: Box | None,
+    face_box: Box | None,
+    image_h: int,
+    hand_boxes: Iterable[Box],
+    prop_boxes: Iterable[Box],
+) -> str:
+    """Infer coarse portrait coverage when Vision does not supply it.
+
+    Face-to-subject height is a stable proxy for close/half/full framing. A
+    complex-full classification is only inferred when a full figure also has
+    multiple high-value auxiliaries; Vision may provide it explicitly.
+    """
+    if subject_box is None or face_box is None:
+        return "half"
+    face_to_subject = face_box.height / float(max(1, subject_box.height))
+    subject_h = subject_box.height / float(max(1, image_h))
+    if face_to_subject <= 0.18 and subject_h >= 0.52:
+        extent = "full"
+    elif face_to_subject <= 0.30:
+        extent = "half"
+    else:
+        extent = "close"
+    if extent == "full":
+        auxiliary_count = len(list(hand_boxes)) + len(list(prop_boxes))
+        if auxiliary_count >= 3:
+            return "complex-full"
+    return extent
+
+
+def creative_safe_policy(detail_budget: str, extent: str, detail_complexity: str) -> dict:
+    if extent not in CREATIVE_SAFE_STAGE_POLICY:
+        extent = "half"
+    if detail_complexity == "complex" and extent == "full":
+        extent = "complex-full"
+    stage = CREATIVE_SAFE_STAGE_POLICY[extent]
+    base = BUDGET_POLICY[detail_budget]
+    if detail_budget == "fast":
+        soft = min(stage["soft"], 1)
+        hard = min(stage["hard"], 2)
+    elif detail_budget == "max":
+        soft = min(stage["soft"] + 1, 5)
+        hard = min(stage["hard"] + 1, 5)
+    else:
+        soft = stage["soft"]
+        hard = stage["hard"]
+    return {
+        "soft": soft,
+        "hard": hard,
+        "threshold": max(base["threshold"], 0.34),
+        "overflow_threshold": max(base["overflow_threshold"], 0.46),
+    }
+
+
 def make_costume_box(subject_box: Box | None, image_w: int, image_h: int) -> Box | None:
     if subject_box is None:
         return None
     return subject_box.expand(image_w, image_h, left=0.08, top=0.05, right=0.08, bottom=0.10)
+
+
+def make_upper_costume_box(subject_box: Box | None, image_w: int, image_h: int) -> Box | None:
+    if subject_box is None:
+        return None
+    top = subject_box.y + round(subject_box.height * 0.10)
+    height = max(1, round(subject_box.height * 0.52))
+    return Box(subject_box.x, top, subject_box.width, height).expand(
+        image_w, image_h, left=0.10, top=0.08, right=0.10, bottom=0.08
+    )
+
+
+def make_lower_costume_box(subject_box: Box | None, image_w: int, image_h: int) -> Box | None:
+    if subject_box is None:
+        return None
+    top = subject_box.y + round(subject_box.height * 0.44)
+    height = max(1, subject_box.bottom - top)
+    return Box(subject_box.x, top, subject_box.width, height).expand(
+        image_w, image_h, left=0.10, top=0.08, right=0.10, bottom=0.12
+    )
 
 
 def make_head_box(face_box: Box | None, image_w: int, image_h: int) -> Box | None:
@@ -208,10 +303,11 @@ def candidate_value(region_type: str, subject_box: Box, image_w: int, image_h: i
     return round(min(score, 1.0), 4)
 
 
-def append_candidate(candidates: list[dict], *, region_type: str, crop: Box, subject_box: Box, image_w: int, image_h: int, rationale: str, importance: float = 1.0) -> None:
+def append_candidate(candidates: list[dict], *, region_type: str, crop: Box, subject_box: Box, image_w: int, image_h: int, rationale: str, importance: float = 1.0, region_role: str | None = None) -> None:
     score = candidate_value(region_type, subject_box, image_w, image_h, importance=importance)
     candidate = {
         "region_type": region_type,
+        "region_role": region_role or region_type,
         "blend_order": BLEND_ORDER[region_type],
         "crop": crop.to_json(),
         "subject_box": subject_box.to_json(),
@@ -246,15 +342,36 @@ def build_plan(
     subject_box: Box | None,
     hand_boxes: Iterable[Box],
     prop_boxes: Iterable[Box],
+    recovery_profile: str = "normal",
+    portrait_extent: str | None = None,
+    detail_complexity: str = "normal",
 ) -> dict:
-    policy = BUDGET_POLICY[detail_budget]
+    if recovery_profile not in RECOVERY_PROFILES:
+        raise ValueError(f"Unknown recovery profile: {recovery_profile}")
+    if detail_complexity not in DETAIL_COMPLEXITIES:
+        raise ValueError(f"Unknown detail complexity: {detail_complexity}")
+    hand_boxes = list(hand_boxes)
+    prop_boxes = list(prop_boxes)
+    portrait_like = subject_type in {"portrait", "classical-portrait"}
+    resolved_extent = portrait_extent
+    if portrait_like:
+        resolved_extent = resolved_extent or infer_portrait_extent(subject_box, face_box, image_h, hand_boxes, prop_boxes)
+        if detail_complexity == "complex" and resolved_extent == "full":
+            resolved_extent = "complex-full"
+    elif recovery_profile == "creative-safe":
+        resolved_extent = "scene"
+
+    policy = (
+        creative_safe_policy(detail_budget, resolved_extent or "half", detail_complexity)
+        if recovery_profile == "creative-safe"
+        else BUDGET_POLICY[detail_budget]
+    )
     soft_patches = policy["soft"]
     hard_patches = policy["hard"]
     threshold = policy["threshold"]
     overflow_threshold = policy["overflow_threshold"]
     candidates: list[dict] = []
     skipped: list[dict] = []
-    portrait_like = subject_type in {"portrait", "classical-portrait"}
     costume_box = make_costume_box(subject_box, image_w, image_h)
     head_box = make_head_box(face_box, image_w, image_h)
     planned_face = make_face_box(face_box, image_w, image_h)
@@ -283,15 +400,43 @@ def build_plan(
             # Costume is useful for full/three-quarter figures, but close portraits do
             # not spend a generation on it by default.
             if costume_box is not None and subject_area >= 0.12 and face_h < 0.30:
-                append_candidate(
-                    candidates,
-                    region_type="costume",
-                    crop=costume_box,
-                    subject_box=subject_box,
-                    image_w=image_w,
-                    image_h=image_h,
-                    rationale="Broad costume/body recovery preserves silhouette, embroidery and fabric structure without micro-patches.",
-                )
+                if recovery_profile == "creative-safe" and resolved_extent in {"full", "complex-full"}:
+                    upper_costume = make_upper_costume_box(subject_box, image_w, image_h)
+                    lower_costume = make_lower_costume_box(subject_box, image_w, image_h)
+                    if upper_costume is not None:
+                        append_candidate(
+                            candidates,
+                            region_type="costume",
+                            region_role="upper-costume",
+                            crop=upper_costume,
+                            subject_box=upper_costume,
+                            image_w=image_w,
+                            image_h=image_h,
+                            importance=1.20,
+                            rationale="Creative-safe full-body recovery keeps the upper costume as one broad style-preserving patch.",
+                        )
+                    if lower_costume is not None:
+                        append_candidate(
+                            candidates,
+                            region_type="costume",
+                            region_role="lower-costume",
+                            crop=lower_costume,
+                            subject_box=lower_costume,
+                            image_w=image_w,
+                            image_h=image_h,
+                            importance=1.24,
+                            rationale="Creative-safe full-body recovery reserves a separate lower-garment patch so skirts, robes and legs are not omitted.",
+                        )
+                else:
+                    append_candidate(
+                        candidates,
+                        region_type="costume",
+                        crop=costume_box,
+                        subject_box=subject_box,
+                        image_w=image_w,
+                        image_h=image_h,
+                        rationale="Broad costume/body recovery preserves silhouette, embroidery and fabric structure without micro-patches.",
+                    )
             elif costume_box is not None:
                 skipped.append({"region_type": "costume", "reason": "close_portrait_or_small_subject; broader costume generation not worth the budget"})
 
@@ -425,6 +570,9 @@ def build_plan(
 
     return {
         "subject_type": subject_type,
+        "recovery_profile": recovery_profile,
+        "portrait_extent": resolved_extent,
+        "detail_complexity": detail_complexity,
         "detail_budget": detail_budget,
         "soft_generated_patch_budget": soft_patches,
         "hard_generated_patch_ceiling": hard_patches,
@@ -447,6 +595,9 @@ def main() -> None:
     parser.add_argument("--image", type=Path, required=True, help="Reference image used for dimensions")
     parser.add_argument("--subject-type", choices=sorted(VISION_SUBJECT_TYPES), help="Subject type; Vision analysis supplies this when omitted")
     parser.add_argument("--detail-budget", choices=sorted(BUDGET_LIMITS), default="balanced")
+    parser.add_argument("--recovery-profile", choices=sorted(RECOVERY_PROFILES), default="normal")
+    parser.add_argument("--portrait-extent", choices=sorted(PORTRAIT_EXTENTS))
+    parser.add_argument("--detail-complexity", choices=sorted(DETAIL_COMPLEXITIES), default="normal")
     parser.add_argument("--face-box", type=parse_box)
     parser.add_argument("--subject-box", type=parse_box)
     parser.add_argument("--hand-box", action="append", type=parse_box, default=[])
@@ -474,6 +625,10 @@ def main() -> None:
     subject_box = args.subject_box or (analysis["subject_box"] if analysis else None)
     hand_boxes = args.hand_box or (analysis["hand_boxes"] if analysis else [])
     prop_boxes = args.prop_box or (analysis["prop_boxes"] if analysis else [])
+    portrait_extent = args.portrait_extent or (analysis["portrait_extent"] if analysis else None)
+    detail_complexity = args.detail_complexity
+    if analysis and args.detail_complexity == "normal":
+        detail_complexity = analysis["detail_complexity"]
     plan = build_plan(
         image_w,
         image_h,
@@ -483,6 +638,9 @@ def main() -> None:
         subject_box=subject_box.clip(image_w, image_h) if subject_box else None,
         hand_boxes=[box.clip(image_w, image_h) for box in hand_boxes],
         prop_boxes=[box.clip(image_w, image_h) for box in prop_boxes],
+        recovery_profile=args.recovery_profile,
+        portrait_extent=portrait_extent,
+        detail_complexity=detail_complexity,
     )
     if analysis:
         plan["vision_analysis"] = {
