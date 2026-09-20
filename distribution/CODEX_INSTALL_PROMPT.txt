@@ -1,1 +1,1 @@
-安装我刚上传的 Photo Refiner Flow 压缩包：自动解压并运行包内 install_photo_refiner_flow.py，只替换 Photo Refiner Flow 自己的 Skill、插件和缓存，保留原来的 Photo Refiner 不动；完成依赖、Skill、节点图和 MCP smoke test 后报告结果。\n
+安装我刚上传的 Photo Refiner Flow 压缩包：先运行 verify_flow_release.py 完成 Python 编译、Skill 单测、MCP smoke 和发行包检查，再运行 install_photo_refiner_flow.py；只替换 Photo Refiner Flow 自己的 Skill、插件和缓存，保留原来的 Photo Refiner 不动，最后报告测试与安装结果。
