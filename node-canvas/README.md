@@ -1,4 +1,4 @@
-# Photo Refiner Node Canvas alpha
+# Photo Refiner Flow alpha
 
 Standalone local UI for `feat/node-canvas-v3`. It does not depend on MCP Widget mounting.
 
