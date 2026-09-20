@@ -460,7 +460,7 @@ function toolDefinitions() {
     {
       name: "open_photo_refiner_flow_settings",
       title: "Open Photo Refiner Flow settings",
-      description: "MANDATORY only after at least one source photograph is attached or an existing local image path is known: invoke the interactive settings panel as a native top-level tool call before replying with settings or starting image generation, unless this conversation already contains a submitted confirmationPath. This tool call must be the final visible action of the turn: do not append text, a settings summary, or any acknowledgement after it, because the host needs the Widget metadata to mount the panel. Never invoke it through functions.exec, a shell wrapper, or another orchestration tool. Do not open this panel when no source photograph is known. Do not print a text settings menu when this tool is available.",
+      description: "Optional compact fallback settings panel for Photo Refiner Flow. Use it only when the user explicitly asks for the compact settings surface or the Flow canvas cannot mount. The normal Flow entry is open_photo_refiner_flow.",
       inputSchema: {
         type: "object",
         required: ["sourceCount"],
@@ -495,7 +495,7 @@ function toolDefinitions() {
     {
       name: "open_photo_refiner_flow",
       title: "Open Photo Refiner Flow",
-      description: "Open the experimental high-level Photo Refiner node canvas inside a compatible ChatGPT/Codex MCP Apps host. This is optional and coexists with the existing settings panel. Use it when the user explicitly wants the node workflow UI.",
+      description: "Primary Photo Refiner Flow entry. Open the node workflow canvas for Source → Look A → Effect B → Approval → Recovery → Delivery after at least one source photograph is known.",
       inputSchema: {
         type: "object",
         required: ["sourceCount"],
@@ -523,7 +523,7 @@ function toolDefinitions() {
     },
     {
       name: "submit_photo_refiner_flow_graph",
-      title: "Confirm Photo Refiner node graph",
+      title: "Confirm Photo Refiner Flow graph",
       description: "Validate and freeze a graph explicitly submitted from the Photo Refiner Flow. Do not call this on the user's behalf.",
       inputSchema: {
         type: "object",
@@ -545,7 +545,7 @@ function toolDefinitions() {
     {
       name: "submit_photo_refiner_flow_settings",
       title: "Confirm Photo Refiner Flow settings",
-      description: "Validate and freeze settings submitted by the interactive Photo Refiner panel. Do not call this on the user's behalf; it represents an explicit panel submission. After success, the returned confirmationPath is authoritative: continue from it without reopening the panel or asking the user to confirm the same settings again.",
+      description: "Validate and freeze settings submitted by the compact Photo Refiner Flow fallback panel. Do not call this on the user's behalf; it represents an explicit panel submission. After success, the returned confirmationPath is authoritative: continue from it without reopening the panel or asking the user to confirm the same settings again.",
       inputSchema: {
         type: "object",
         required: ["userConfirmed", "config"],
@@ -579,7 +579,7 @@ function toolDefinitions() {
     },
     {
       name: "delete_photo_refiner_flow_prompt",
-      title: "Delete saved Photo Refiner prompt",
+      title: "Delete saved Photo Refiner Flow prompt",
       description: "Delete one user-authored prompt after an explicit action in the settings panel. Built-in presets are not deletable.",
       inputSchema: {
         type: "object",
