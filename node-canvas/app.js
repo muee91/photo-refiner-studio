@@ -27,7 +27,7 @@ function configToGraph(c){
   nodes.push(node('delivery','delivery',true,{resolution:c.resolution||'source-width',outputFormat:c.outputFormat||'jpg'},1140,180));
   return makeGraph(nodes,'node-canvas');
 }
-function makeGraph(nodes,createdFrom){const ids=nodes.filter(n=>n.enabled).map(n=>n.id);return{version:1,graphId:`node-canvas-${Date.now()}`,createdFrom,nodes,edges:ids.slice(0,-1).map((id,i)=>({from:id,to:ids[i+1],kind:'flow'})),metadata:{ui:'node-canvas-alpha'}}}
+function makeGraph(nodes,createdFrom){const ids=nodes.filter(n=>n.enabled).map(n=>n.id);return{version:1,graphId:`photo-refiner-flow-${Date.now()}`,createdFrom,nodes,edges:ids.slice(0,-1).map((id,i)=>({from:id,to:ids[i+1],kind:'flow'})),metadata:{ui:'photo-refiner-flow'}}}
 function reset(config){state.graph=configToGraph(structuredClone(config));render()}
 function render(){const host=$('#nodes');host.innerHTML='';state.graph.nodes.forEach((n,i)=>host.appendChild(renderNode(n,i)));refreshGraph();requestAnimationFrame(drawEdges)}
 function renderNode(n,index){
