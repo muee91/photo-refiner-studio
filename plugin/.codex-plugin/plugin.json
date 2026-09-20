@@ -1,7 +1,7 @@
 {
-  "name": "photo-refiner-studio",
-  "version": "0.6.0-nodecanvas.20260920",
-  "description": "Photo Refiner v3 experimental Node Canvas plus the stable v2.3 settings surface",
+  "name": "photo-refiner-flow-studio",
+  "version": "1.0.0-flow.20260920",
+  "description": "Photo Refiner Flow — node-based photo refinement workflow for ChatGPT/Codex",
   "author": {
     "name": "muee"
   },
@@ -14,9 +14,9 @@
     "image-editing"
   ],
   "interface": {
-    "displayName": "Photo Refiner Studio",
-    "shortDescription": "Photo refinement with optional in-ChatGPT node workflow canvas",
-    "longDescription": "Photo Refiner keeps the stable v2.3 proposal-sheet settings surface and adds an experimental high-level Node Canvas for Source → Look A → Effect B → Approval → Recovery → Delivery. The Node Canvas is optional; core processing remains usable without UI.",
+    "displayName": "Photo Refiner Flow",
+    "shortDescription": "Node-based Photo Refiner workflow with A/B creative stages and high-resolution recovery",
+    "longDescription": "Photo Refiner Flow is an independently installable node workflow for Source → Look A → Effect B → Approval → Recovery → Delivery. It coexists with the original Photo Refiner and keeps its own plugin identity, state, graph records, and MCP tools.",
     "developerName": "muee",
     "category": "Creative",
     "capabilities": [
@@ -24,9 +24,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Open the Photo Refiner Node Canvas for this photo",
-      "Open the standard Photo Refiner settings for this photo",
-      "Retouch this portrait after I confirm the workflow"
+      "Open Photo Refiner Flow for this photo",
+      "Use Photo Refiner Flow to build an A/B edit workflow for this photo",
+      "Open the Photo Refiner Flow node canvas"
     ],
     "brandColor": "#1C8878",
     "composerIcon": "./assets/photo-refiner.svg",
