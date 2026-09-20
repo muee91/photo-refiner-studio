@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "nodeTypes": {
+    "source": {"labelZh":"原图","labelEn":"Source","order":10,"singleton":true,"optional":false},
+    "look": {"labelZh":"风格 A","labelEn":"Look A","order":20,"singleton":true,"optional":false},
+    "creative-effect": {"labelZh":"效果 B","labelEn":"Effect B","order":30,"singleton":true,"optional":true},
+    "approval": {"labelZh":"确认","labelEn":"Approval","order":40,"singleton":true,"optional":false},
+    "recovery": {"labelZh":"高分恢复","labelEn":"Recovery","order":50,"singleton":true,"optional":true},
+    "delivery": {"labelZh":"交付","labelEn":"Delivery","order":60,"singleton":true,"optional":false}
+  }
+}
