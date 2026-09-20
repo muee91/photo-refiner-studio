@@ -225,6 +225,38 @@ For eligible single-source `direct-effect` creative recovery, use the approved *
 
 Generate the patch under both constraints. If dual-reference generation causes structural drift, allow one geometry-locked target-only retry. Maximum two generation attempts per tile unless the user explicitly asks for more.
 
+### 8.4 Record actual client-returned patch dimensions
+
+The ChatGPT client image-generation path is the runtime authority for patch output dimensions. Do **not** treat API documentation, planner recommendations, or requested dimensions as proof of the returned bitmap size.
+
+After **every generated local DETAIL PATCH / CREATIVE DETAIL PATCH**:
+
+1. Materialize the returned image inside the current job directory, normally under `intermediates/patches/`.
+2. Record the exact size that was requested from the client generation call.
+3. Run:
+
+```bash
+python3 "$SKILL_ROOT/scripts/record_patch_observation.py" <job.json> \
+  --patch <generated-patch-file> \
+  --region-type <face|hand|head|costume|prop|architecture|background|generic> \
+  --region-role <planner-region-role> \
+  --requested-size <WxH> \
+  --source-crop-size <WxH> \
+  --final-region-size <WxH> \
+  --planner-region-index <zero-based-index> \
+  --attempt <generation-attempt>
+```
+
+`record_patch_observation.py` opens the generated file itself with Pillow and writes the measured dimensions to `job.json.patch_observations[]`. The record includes requested size, actual size, file bytes/hash, region identity, normal-vs-creative detail mode, and requested-to-returned scale ratios.
+
+Rules:
+
+- `requested_size` must be the dimensions actually sent to the client generation path, not merely `recommended_patch_size`.
+- `actual_size` must come from the returned image file. Never fill it from memory, documentation, API limits, or assumptions.
+- Record failed/retried generations as separate observations only when an image file was actually returned; increment `--attempt`.
+- A requested/actual mismatch is observational evidence, not an automatic failure. Pixel Budget and visual quality gates decide whether the patch remains useful.
+- `original-assembly` and other jobs with `detail.mode = not-applicable` must not record local recovery patches.
+
 ## 8A. Adaptive tile planning and generation budgets
 
 Before local generation, v2.2 plans coarse detail regions with:
