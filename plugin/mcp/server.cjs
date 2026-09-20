@@ -12,17 +12,23 @@ const PRESETS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "presets.js
 const CREATIVE_RECIPES = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "creative-recipes.json"), "utf8"));
 const CREATIVE_RECIPE_BY_ID = Object.fromEntries(CREATIVE_RECIPES.recipes.map((recipe) => [recipe.id, recipe]));
 const WIDGET_TEMPLATE_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), "utf8");
+const NODE_CANVAS_ROOT = path.resolve(ROOT, "..", "node-canvas");
+const NODE_CANVAS_INDEX_HTML = fs.readFileSync(path.join(NODE_CANVAS_ROOT, "index.html"), "utf8");
+const NODE_CANVAS_STYLES = fs.readFileSync(path.join(NODE_CANVAS_ROOT, "styles.css"), "utf8");
+const NODE_CANVAS_SCRIPT = fs.readFileSync(path.join(NODE_CANVAS_ROOT, "app.js"), "utf8");
 // Use the slash-scoped URI shape accepted by Codex MCP App hosts. A flat URI
 // containing an encoded `+` can return a successful tool call while failing to
 // resolve and mount the Widget resource.
 const WIDGET_VERSION = String(MANIFEST.version).replace(/[^A-Za-z0-9._-]+/g, "-");
 const WIDGET_URI = `ui://widget/photo-refiner-settings/${WIDGET_VERSION}.html`;
+const NODE_CANVAS_URI = `ui://widget/photo-refiner-node-canvas/${WIDGET_VERSION}.html`;
 const WIDGET_MIME = "text/html;profile=mcp-app";
 const INITIAL_PAYLOAD_TOKEN = "__PHOTO_REFINER_INITIAL_PAYLOAD__";
 // Respect an injected HOME for isolated plugin sessions and smoke tests. macOS
 // os.homedir() resolves from the account database and can ignore HOME.
 const USER_HOME = process.env.HOME || os.homedir();
 const CONFIRMATION_DIR = path.join(USER_HOME, ".codex", "photo-refiner", "confirmed");
+const GRAPH_DIR = path.join(USER_HOME, ".codex", "photo-refiner", "graphs");
 const PREFERENCES_PATH = path.join(USER_HOME, ".codex", "photo-refiner", "preferences.json");
 
 const DEFAULTS = {
@@ -128,6 +134,16 @@ const FALLBACK_WIDGET_PAYLOAD = {
   promptLibrary: {custom: []},
   recommendation: "",
   creativeDirections: [],
+};
+
+const FALLBACK_NODE_CANVAS_PAYLOAD = {
+  ok: true,
+  kind: "photo-refiner-node-canvas",
+  schemaVersion: 1,
+  _photoRefinerFallback: true,
+  presets: PRESETS,
+  creativeRecipes: CREATIVE_RECIPES,
+  defaults: clone(DEFAULTS),
 };
 
 function loadPreferences() {
@@ -324,13 +340,13 @@ function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
-function uiMeta() {
+function uiMeta(resourceUri = WIDGET_URI) {
   return {
     // Codex Apps hosts mount widgets from the tool descriptor metadata.
-    ui: {resourceUri: WIDGET_URI, visibility: ["model", "app"]},
-    "ui/resourceUri": WIDGET_URI,
+    ui: {resourceUri, visibility: ["model", "app"]},
+    "ui/resourceUri": resourceUri,
     // Keep the legacy Apps SDK binding for hosts that still read this alias.
-    "openai/outputTemplate": WIDGET_URI,
+    "openai/outputTemplate": resourceUri,
     "openai/widgetAccessible": true,
   };
 }
@@ -345,6 +361,80 @@ function widgetResourceMeta() {
       resource_domains: [],
     },
   };
+}
+
+function nodeCanvasResourceMeta() {
+  return {
+    ui: {prefersBorder: false},
+    "openai/widgetDescription": "Interactive Photo Refiner node workflow canvas. It edits a high-level graph while keeping the existing processing backend independent from the UI.",
+    "openai/widgetPrefersBorder": false,
+    "openai/widgetCSP": {
+      connect_domains: [],
+      resource_domains: [],
+    },
+  };
+}
+
+function nodeCanvasHtmlWithInitialPayload(payload) {
+  const serialized = JSON.stringify(payload)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+  let html = NODE_CANVAS_INDEX_HTML;
+  html = html.replace('<link rel="stylesheet" href="styles.css">', () => `<style>${NODE_CANVAS_STYLES}</style>`);
+  html = html.replace('<script src="app.js"></script>', () => `<script>window.__PHOTO_REFINER_NODE_PAYLOAD__=${serialized};</script><script>${NODE_CANVAS_SCRIPT}</script>`);
+  if (html === NODE_CANVAS_INDEX_HTML) throw new Error("Photo Refiner Node Canvas could not inline its assets");
+  return html;
+}
+
+function validateSubmittedGraph(raw) {
+  if (!isObject(raw) || raw.version !== 1 || typeof raw.graphId !== "string" || !raw.graphId.trim()) {
+    throw new Error("Invalid node graph header");
+  }
+  if (!Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) throw new Error("Node graph requires nodes and edges arrays");
+  const ids = new Set();
+  const enabled = [];
+  for (const node of raw.nodes) {
+    if (!isObject(node) || typeof node.id !== "string" || !node.id || typeof node.type !== "string" || typeof node.enabled !== "boolean" || !isObject(node.config)) {
+      throw new Error("Node graph contains a malformed node");
+    }
+    if (ids.has(node.id)) throw new Error(`Duplicate node id: ${node.id}`);
+    ids.add(node.id);
+    if (node.enabled) enabled.push(node);
+  }
+  const allowed = ["source", "look", "creative-effect", "approval", "recovery", "delivery"];
+  const types = enabled.map((node) => node.type);
+  if (types.some((type) => !allowed.includes(type))) throw new Error("Node graph contains an unknown node type");
+  const creative = enabled.find((node) => node.type === "creative-effect");
+  const recovery = enabled.find((node) => node.type === "recovery");
+  const expected = ["source", "look", ...(creative ? ["creative-effect"] : []), "approval", ...(recovery ? ["recovery"] : []), "delivery"];
+  if (JSON.stringify(types) !== JSON.stringify(expected)) throw new Error(`Enabled node order must be: ${expected.join(" -> ")}`);
+  const source = enabled.find((node) => node.type === "source");
+  const look = enabled.find((node) => node.type === "look");
+  if (!source || !Number.isInteger(source.config.sourceCount) || source.config.sourceCount < 1 || source.config.sourceCount > 100) throw new Error("Source node requires sourceCount 1-100");
+  if (!look || !["direction-only", "look-master"].includes(look.config.renderMode || "look-master")) throw new Error("Look node has invalid renderMode");
+  if (creative) {
+    const recipe = CREATIVE_RECIPE_BY_ID[creative.config.recipeId];
+    if (!recipe) throw new Error(`Unknown creative recipe: ${creative.config.recipeId}`);
+    if (source.config.sourceCount < recipe.sourceCount.min || source.config.sourceCount > recipe.sourceCount.max) throw new Error(`${recipe.titleZh} does not accept ${source.config.sourceCount} source photographs`);
+    if (creative.config.sourceCommit && creative.config.sourceCommit !== recipe.sourceCommit) throw new Error("Creative recipe sourceCommit does not match installed catalog");
+    if (!["direct-effect", "original-assembly"].includes(creative.config.mode || "direct-effect")) throw new Error("Creative node has invalid mode");
+    if (creative.config.mode === "original-assembly" && look.config.renderMode === "look-master") throw new Error("original-assembly cannot consume a rendered LOOK_A");
+  }
+  if (recovery) {
+    const mode = recovery.config.mode || "normal";
+    if (!["normal", "creative-safe", "disabled"].includes(mode)) throw new Error("Recovery node has invalid mode");
+    if (creative?.config.mode === "original-assembly") throw new Error("Recovery must be disabled for original-assembly");
+    if (mode === "creative-safe" && (!creative || source.config.sourceCount > 1)) throw new Error("creative-safe recovery requires a single-source creative effect");
+  }
+  const expectedEdges = enabled.slice(0, -1).map((node, index) => `${node.id}->${enabled[index + 1].id}`);
+  const actualEdges = raw.edges
+    .filter((edge) => isObject(edge) && (edge.kind || "flow") === "flow")
+    .map((edge) => `${edge.from}->${edge.to}`);
+  if (JSON.stringify(actualEdges) !== JSON.stringify(expectedEdges)) throw new Error("Enabled flow must be one continuous controlled chain");
+  return clone(raw);
 }
 
 function widgetHtmlWithInitialPayload(payload) {
@@ -403,6 +493,56 @@ function toolDefinitions() {
       _meta: uiMeta(),
     },
     {
+      name: "open_photo_refiner_node_canvas",
+      title: "Open Photo Refiner Node Canvas",
+      description: "Open the experimental high-level Photo Refiner node canvas inside a compatible ChatGPT/Codex MCP Apps host. This is optional and coexists with the existing settings panel. Use it when the user explicitly wants the node workflow UI.",
+      inputSchema: {
+        type: "object",
+        required: ["sourceCount"],
+        properties: {
+          sourceCount: {type: "integer", minimum: 1},
+          suggestedPreset: {type: "string"},
+          suggestedCreativeRecipe: {type: "string"},
+        },
+        additionalProperties: false,
+      },
+      annotations: {readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false},
+      outputSchema: {
+        type: "object",
+        required: ["ok", "kind", "schemaVersion", "creativeRecipes", "defaults"],
+        additionalProperties: true,
+        properties: {
+          ok: {type: "boolean"},
+          kind: {type: "string"},
+          schemaVersion: {type: "integer"},
+          creativeRecipes: {type: "object"},
+          defaults: {type: "object"},
+        },
+      },
+      _meta: uiMeta(NODE_CANVAS_URI),
+    },
+    {
+      name: "submit_photo_refiner_graph",
+      title: "Confirm Photo Refiner node graph",
+      description: "Validate and freeze a graph explicitly submitted from the Photo Refiner Node Canvas. Do not call this on the user's behalf.",
+      inputSchema: {
+        type: "object",
+        required: ["userConfirmed", "graph"],
+        properties: {
+          userConfirmed: {type: "boolean"},
+          graph: {type: "object", additionalProperties: true},
+        },
+        additionalProperties: true,
+      },
+      annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false},
+      outputSchema: {
+        type: "object",
+        required: ["ok", "kind", "graphId", "graphPath", "confirmedAt"],
+        additionalProperties: true,
+      },
+      _meta: {"openai/widgetAccessible": true, ui: {visibility: ["app"]}},
+    },
+    {
       name: "submit_photo_refiner_settings",
       title: "Confirm Photo Refiner settings",
       description: "Validate and freeze settings submitted by the interactive Photo Refiner panel. Do not call this on the user's behalf; it represents an explicit panel submission. After success, the returned confirmationPath is authoritative: continue from it without reopening the panel or asking the user to confirm the same settings again.",
@@ -457,6 +597,20 @@ function toolDefinitions() {
   ];
 }
 
+function nodeCanvasToolResult(payload) {
+  const html = nodeCanvasHtmlWithInitialPayload(payload);
+  return {
+    content: [
+      {type: "text", text: "Photo Refiner Node Canvas is ready."},
+      {type: "resource", resource: {uri: NODE_CANVAS_URI, mimeType: WIDGET_MIME, text: html, _meta: nodeCanvasResourceMeta()}},
+      {type: "resource_link", uri: NODE_CANVAS_URI, name: "Photo Refiner Node Canvas", title: "Photo Refiner Node Canvas", mimeType: WIDGET_MIME, _meta: nodeCanvasResourceMeta()},
+    ],
+    structuredContent: payload,
+    isError: false,
+    _meta: uiMeta(NODE_CANVAS_URI),
+  };
+}
+
 function toolResult(payload, withWidget = false) {
   const result = {
     content: [{type: "text", text: withWidget ? "Photo Refiner settings are ready." : JSON.stringify(payload)}],
@@ -496,6 +650,38 @@ function toolError(message) {
 }
 
 function callTool(name, args) {
+  if (name === "open_photo_refiner_node_canvas") {
+    if (!Number.isInteger(args.sourceCount) || args.sourceCount < 1) throw new Error("At least one source photograph is required before opening Node Canvas");
+    const preferences = loadPreferences();
+    const savedConfig = isObject(preferences.lastConfig) ? preferences.lastConfig : {};
+    const defaults = mergeDefaults(savedConfig);
+    defaults.sourceCount = args.sourceCount;
+    defaults.workflow = args.sourceCount > 1 ? "batch" : "single";
+    defaults.creativeRecipe = "none";
+    defaults.creativeAssemblyMode = "direct-effect";
+    defaults.creativeFromBase = false;
+    if (typeof args.suggestedPreset === "string" && PRESETS.presets[args.suggestedPreset]) {
+      defaults.preset = args.suggestedPreset;
+      const presetDefault = PRESETS.presets[args.suggestedPreset].defaultStrength;
+      if (typeof presetDefault === "number") defaults.styleStrength = presetDefault;
+    }
+    if (typeof args.suggestedCreativeRecipe === "string") {
+      const recipe = CREATIVE_RECIPE_BY_ID[args.suggestedCreativeRecipe];
+      if (recipe && args.sourceCount >= recipe.sourceCount.min && args.sourceCount <= recipe.sourceCount.max) defaults.creativeRecipe = recipe.id;
+    }
+    return nodeCanvasToolResult({ok: true, kind: "photo-refiner-node-canvas", schemaVersion: 1, presets: PRESETS, creativeRecipes: CREATIVE_RECIPES, defaults});
+  }
+  if (name === "submit_photo_refiner_graph") {
+    if (args.userConfirmed !== true) throw new Error("Explicit user confirmation is required");
+    const graph = validateSubmittedGraph(args.graph);
+    const now = new Date().toISOString();
+    const graphId = graph.graphId || crypto.randomUUID();
+    fs.mkdirSync(GRAPH_DIR, {recursive: true, mode: 0o700});
+    const graphPath = path.join(GRAPH_DIR, `${graphId}.json`);
+    const record = {schemaVersion: 1, graphId, confirmedAt: now, confirmedBy: "photo-refiner-node-canvas", graph};
+    fs.writeFileSync(graphPath, `${JSON.stringify(record, null, 2)}\n`, {encoding: "utf8", mode: 0o600});
+    return toolResult({ok: true, kind: "photo-refiner-node-graph", graphId, graphPath, confirmedAt: now});
+  }
   if (name === "open_photo_refiner_settings") {
     if (!Number.isInteger(args.sourceCount) || args.sourceCount < 1) {
       throw new Error("At least one source photograph is required before opening Photo Refiner settings");
@@ -653,11 +839,19 @@ async function handleRpc(message) {
       }
     }
     if (message.method === "resources/list") {
-      return rpcResponse(id, {resources: [{uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME, _meta: widgetResourceMeta()}]});
+      return rpcResponse(id, {resources: [
+        {uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME, _meta: widgetResourceMeta()},
+        {uri: NODE_CANVAS_URI, name: "Photo Refiner Node Canvas", mimeType: WIDGET_MIME, _meta: nodeCanvasResourceMeta()},
+      ]});
     }
     if (message.method === "resources/read") {
-      if (params.uri !== WIDGET_URI) return rpcError(id, -32602, `Unknown resource: ${params.uri}`);
-      return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtmlWithInitialPayload(FALLBACK_WIDGET_PAYLOAD), _meta: widgetResourceMeta()}]});
+      if (params.uri === WIDGET_URI) {
+        return rpcResponse(id, {contents: [{uri: WIDGET_URI, mimeType: WIDGET_MIME, text: widgetHtmlWithInitialPayload(FALLBACK_WIDGET_PAYLOAD), _meta: widgetResourceMeta()}]});
+      }
+      if (params.uri === NODE_CANVAS_URI) {
+        return rpcResponse(id, {contents: [{uri: NODE_CANVAS_URI, mimeType: WIDGET_MIME, text: nodeCanvasHtmlWithInitialPayload(FALLBACK_NODE_CANVAS_PAYLOAD), _meta: nodeCanvasResourceMeta()}]});
+      }
+      return rpcError(id, -32602, `Unknown resource: ${params.uri}`);
     }
     if (message.method === "resources/templates/list") return rpcResponse(id, {resourceTemplates: []});
     if (message.method === "prompts/list") return rpcResponse(id, {prompts: []});
