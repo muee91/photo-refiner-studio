@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 
 from resolve_prompt import resolve_prompt
+from validate_graph import validate_graph
+from compile_graph_plan import compile_plan
 
 
 ASPECT_RATIO_RE = re.compile(r"^[1-9]\d*:[1-9]\d*$")
@@ -96,12 +98,12 @@ def sha256_file(path: Path) -> str:
 
 def load_confirmation(path_value: Path) -> dict:
     confirmation_path = path_value.expanduser().resolve()
-    confirmation_root = (Path.home() / ".codex" / "photo-refiner" / "confirmed").resolve()
+    confirmation_root = (Path.home() / ".codex" / "photo-refiner-flow" / "confirmed").resolve()
     if not confirmation_path.is_file() or not confirmation_path.is_relative_to(confirmation_root):
-        raise SystemExit("Confirmation file must exist inside ~/.codex/photo-refiner/confirmed")
+        raise SystemExit("Confirmation file must exist inside ~/.codex/photo-refiner-flow/confirmed")
     record = json.loads(confirmation_path.read_text(encoding="utf-8"))
-    if record.get("confirmedBy") != "photo-refiner-studio" or not record.get("confirmationId"):
-        raise SystemExit("Invalid Photo Refiner Studio confirmation")
+    if record.get("confirmedBy") != "photo-refiner-flow-studio" or not record.get("confirmationId"):
+        raise SystemExit("Invalid Photo Refiner Flow settings confirmation")
     resolved = record.get("resolvedPrompt")
     expected_hash = hashlib.sha256(
         json.dumps(resolved, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -112,6 +114,37 @@ def load_confirmation(path_value: Path) -> dict:
         raise SystemExit("Confirmation is missing its config")
     record["confirmationPath"] = str(confirmation_path)
     return record
+
+
+def load_flow_graph(path_value: Path) -> dict:
+    graph_path = path_value.expanduser().resolve()
+    graph_root = (Path.home() / ".codex" / "photo-refiner-flow" / "graphs").resolve()
+    if not graph_path.is_file() or not graph_path.is_relative_to(graph_root):
+        raise SystemExit("Flow graph must exist inside ~/.codex/photo-refiner-flow/graphs")
+    try:
+        record = json.loads(graph_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Cannot read Flow graph: {exc}") from exc
+    if record.get("confirmedBy") != "photo-refiner-flow-studio":
+        raise SystemExit("Invalid Photo Refiner Flow graph confirmation")
+    graph = record.get("graph")
+    if not isinstance(graph, dict) or graph.get("graphId") != record.get("graphId"):
+        raise SystemExit("Flow graph record is malformed")
+    try:
+        validate_graph(graph)
+        plan = compile_plan(graph)
+    except ValueError as exc:
+        raise SystemExit(f"Invalid Photo Refiner Flow graph: {exc}") from exc
+    record["graphPath"] = str(graph_path)
+    record["compiledPlan"] = plan
+    return record
+
+
+def enabled_graph_node(graph: dict, node_type: str) -> dict | None:
+    for node in graph.get("nodes", []):
+        if node.get("enabled") is True and node.get("type") == node_type:
+            return node
+    return None
 
 
 def resolve_creative_recipe(recipe_id: str, source_count: int, confirmation: dict | None) -> dict | None:
@@ -184,7 +217,8 @@ def main() -> None:
     parser.add_argument("sources", nargs="+", type=Path)
     parser.add_argument("--output-root", type=Path)
     parser.add_argument("--workflow", choices=["auto", "single", "batch"], default="auto")
-    parser.add_argument("--confirmation-file", type=Path, help="Confirmation JSON created by Photo Refiner Studio")
+    parser.add_argument("--graph-file", type=Path, help="Confirmed graph JSON created by Photo Refiner Flow")
+    parser.add_argument("--confirmation-file", type=Path, help="Fallback settings confirmation JSON created by Photo Refiner Flow")
     parser.add_argument("--preset", help="Confirmed named preset or custom for text-only fallback")
     parser.add_argument("--creative-recipe", default="none", help="Confirmed Starryear recipe id or none for text-only fallback")
     parser.add_argument("--creative-assembly-mode", choices=["direct-effect", "original-assembly"], default="direct-effect", help="Creative output: complete effect image by default, or the original evidence/assembly layout")
@@ -204,9 +238,97 @@ def main() -> None:
     parser.add_argument("--confirmed", action="store_true", help="Assert that the displayed settings were confirmed by the user")
     args = parser.parse_args()
 
+    if args.graph_file and args.confirmation_file:
+        raise SystemExit("Use either --graph-file or --confirmation-file, not both")
+
+    sources = validate_source_files(args.sources)
     cli_detail_budget = args.detail_budget
     confirmation = None
-    if args.confirmation_file:
+    flow_graph_record = None
+    flow_graph = None
+    flow_plan = None
+    flow_recovery_mode = None
+    flow_style_strength = None
+    flow_patch_scope = "head-and-face"
+
+    if args.graph_file:
+        flow_graph_record = load_flow_graph(args.graph_file)
+        flow_graph = flow_graph_record["graph"]
+        flow_plan = flow_graph_record["compiledPlan"]
+        source_node = enabled_graph_node(flow_graph, "source")
+        look_node = enabled_graph_node(flow_graph, "look")
+        creative_node = enabled_graph_node(flow_graph, "creative-effect")
+        approval_node = enabled_graph_node(flow_graph, "approval")
+        recovery_node = enabled_graph_node(flow_graph, "recovery")
+        delivery_node = enabled_graph_node(flow_graph, "delivery")
+        if not all((source_node, look_node, approval_node, delivery_node)):
+            raise SystemExit("Flow graph is missing a required node")
+        expected_count = int(source_node["config"].get("sourceCount", 0))
+        if expected_count != len(sources):
+            raise SystemExit(f"Flow graph expects {expected_count} source photographs; received {len(sources)}")
+
+        look_config = look_node["config"]
+        args.workflow = "batch" if len(sources) > 1 else "single"
+        args.preset = look_config.get("preset", "natural-cinematic")
+        args.custom_prompt = look_config.get("customPrompt", "")
+        args.custom_avoid = look_config.get("customAvoid", "")
+        args.aspect_ratio = validate_aspect_ratio(str(look_config.get("aspectRatio", "original")))
+        args.framing = look_config.get("framing", "preserve")
+        if args.framing not in {"preserve", "crop", "outpaint", "contain"}:
+            raise SystemExit("Flow look node has invalid framing")
+        flow_style_strength = float(look_config.get("styleStrength", 45))
+        if not 0 <= flow_style_strength <= 100:
+            raise SystemExit("Flow look styleStrength must be 0-100")
+
+        if creative_node:
+            creative_config = creative_node["config"]
+            args.creative_recipe = creative_config.get("recipeId", "none")
+            args.creative_assembly_mode = creative_config.get("mode", "direct-effect")
+            args.creative_from_base = look_config.get("renderMode", "look-master") == "look-master"
+        else:
+            args.creative_recipe = "none"
+            args.creative_assembly_mode = "direct-effect"
+            args.creative_from_base = False
+
+        approval_config = approval_node["config"]
+        delivery_mode = approval_config.get("deliveryMode", "preview-first")
+        if delivery_mode not in {"preview-first", "one-click"}:
+            raise SystemExit("Flow approval node has invalid deliveryMode")
+
+        delivery_config = delivery_node["config"]
+        args.resolution = validate_resolution(str(delivery_config.get("resolution", "source-width")))
+        args.output_format = delivery_config.get("outputFormat", "jpg")
+        if args.output_format not in {"png", "jpg", "both"}:
+            raise SystemExit("Flow delivery node has invalid outputFormat")
+        args.keep_intermediates = bool(delivery_config.get("keepIntermediates", False))
+
+        if recovery_node:
+            recovery_config = recovery_node["config"]
+            flow_recovery_mode = recovery_config.get("mode", "normal")
+            args.detail_mode = recovery_config.get("detailMode", "adaptive")
+            args.detail_budget = cli_detail_budget or recovery_config.get("generationBudget", "balanced")
+            flow_patch_scope = recovery_config.get("patchScope", "head-and-face")
+        else:
+            flow_recovery_mode = "disabled"
+            args.detail_mode = "base-only"
+            args.detail_budget = cli_detail_budget or "balanced"
+        args.detail_regions = ""
+        args.consistency = "balanced"
+        ui_mode = "flow"
+
+        try:
+            resolved_prompt = resolve_prompt(args.preset, args.custom_prompt, args.custom_avoid)
+        except (OSError, ValueError, KeyError) as exc:
+            raise SystemExit(str(exc)) from exc
+        resolved_prompt["default_strength"] = flow_style_strength
+        digest_source = json.dumps(
+            {key: value for key, value in resolved_prompt.items() if key != "prompt_hash"},
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+        resolved_prompt["prompt_hash"] = hashlib.sha256(digest_source).hexdigest()
+
+    elif args.confirmation_file:
         confirmation = load_confirmation(args.confirmation_file)
         ui_config = confirmation["config"]
         args.workflow = ui_config["workflow"]
@@ -244,7 +366,7 @@ def main() -> None:
         }
     else:
         if not args.confirmed:
-            raise SystemExit("Refusing to initialize: show the settings and obtain user confirmation, then pass --confirmed")
+            raise SystemExit("Refusing to initialize: confirm a Flow graph/settings configuration or pass --confirmed for text fallback")
         if not args.preset:
             raise SystemExit("--preset is required for text-only confirmed initialization")
         try:
@@ -255,8 +377,12 @@ def main() -> None:
         ui_mode = "simple"
         args.detail_budget = args.detail_budget or "balanced"
 
-    sources = validate_source_files(args.sources)
     creative_recipe = resolve_creative_recipe(args.creative_recipe, len(sources), confirmation)
+    if flow_graph is not None and creative_recipe is not None:
+        creative_node = enabled_graph_node(flow_graph, "creative-effect")
+        frozen_commit = (creative_node or {}).get("config", {}).get("sourceCommit")
+        if frozen_commit and frozen_commit != creative_recipe.get("source_commit"):
+            raise SystemExit("Flow graph creative recipe source revision does not match the installed catalog")
     creative_output = resolve_creative_output_mode(args.creative_assembly_mode) if creative_recipe else None
     execution_mode = "creative-translation" if creative_recipe else "photo-refinement"
     if creative_output is not None:
@@ -291,7 +417,7 @@ def main() -> None:
     if args.detail_mode == "explicit" and not detail_regions:
         raise SystemExit("--detail-regions is required when --detail-mode explicit is selected")
 
-    output_root = args.output_root or (sources[0].parent / "_photo_refiner")
+    output_root = args.output_root or (sources[0].parent / "_photo_refiner_flow")
     output_root = output_root.expanduser().resolve()
     label = "batch" if workflow == "batch" else sources[0].stem
     now = datetime.now().astimezone()
@@ -310,11 +436,72 @@ def main() -> None:
         "max": {"soft": 5, "hard": 8},
     }
 
+    if creative_recipe is None:
+        detail_manifest = {
+            "mode": args.detail_mode,
+            "generation_budget": args.detail_budget,
+            "soft_generated_patch_budget": budget_policy[args.detail_budget]["soft"],
+            "hard_generated_patch_ceiling": budget_policy[args.detail_budget]["hard"],
+            "max_generated_patches": budget_policy[args.detail_budget]["hard"],
+            "adaptive_overflow": args.detail_budget != "fast",
+            "planner": "adaptive-value-merge-v2.2",
+            "mask_mode": "lightweight",
+            "regions": detail_regions,
+            "patch_scope": flow_patch_scope if flow_graph is not None else ("head-and-face" if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face")),
+            "head_patch": (flow_patch_scope == "head-and-face") if flow_graph is not None else (True if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face") == "head-and-face"),
+            "pixel_budget_thresholds": {
+                "face": 0.85, "hand": 0.75, "head": 0.65, "costume": 0.50,
+                "prop": 0.50, "architecture": 0.50, "background": 0.30, "generic": 0.50,
+            },
+        }
+    elif flow_graph is not None and flow_recovery_mode == "creative-safe":
+        detail_manifest = {
+            "mode": "creative-safe",
+            "generation_budget": args.detail_budget,
+            "soft_generated_patch_budget": min(2, budget_policy[args.detail_budget]["soft"]),
+            "hard_generated_patch_ceiling": min(3, budget_policy[args.detail_budget]["hard"]),
+            "max_generated_patches": min(3, budget_policy[args.detail_budget]["hard"]),
+            "adaptive_overflow": False,
+            "planner": "adaptive-value-merge-v2.2",
+            "mask_mode": "lightweight",
+            "regions": [],
+            "patch_scope": flow_patch_scope,
+            "head_patch": flow_patch_scope == "head-and-face",
+            "allowed_region_types": ["face", "head", "hand", "costume", "prop"],
+            "background_generation": False,
+            "look_authority": "LOOK_AB",
+            "identity_authority": "SOURCE_MASTER",
+            "note": "Creative-safe recovery preserves the approved A+B look and uses fewer, lower-impact local patches.",
+        }
+    else:
+        detail_manifest = {
+            "mode": "not-applicable",
+            "generation_budget": "recipe-controlled",
+            "soft_generated_patch_budget": 0,
+            "hard_generated_patch_ceiling": 0,
+            "max_generated_patches": 0,
+            "adaptive_overflow": False,
+            "planner": "creative-recipe",
+            "mask_mode": "recipe-controlled",
+            "regions": [],
+            "patch_scope": "none",
+            "head_patch": False,
+            "note": ("Do not run ordinary recovery over original assembled creative artwork." if args.creative_assembly_mode == "original-assembly" else "Recovery disabled for this creative graph."),
+        }
+
     manifest = {
         "version": 2,
-        "release_version": "2.3",
+        "release_version": "3.0-flow",
         "created_at": now.isoformat(),
         "confirmed_at": now.isoformat(),
+        "product": "photo-refiner-flow",
+        "graph_confirmation": None if flow_graph_record is None else {
+            "id": flow_graph_record["graphId"],
+            "path": flow_graph_record["graphPath"],
+            "confirmed_at": flow_graph_record.get("confirmedAt"),
+            "confirmed_by": flow_graph_record.get("confirmedBy"),
+            "plan_hash": (flow_plan or {}).get("planHash"),
+        },
         "confirmation": None
         if confirmation is None
         else {
@@ -361,56 +548,29 @@ def main() -> None:
             "shared_prompt": creative_recipe is None,
             "master_frame_approved": None if workflow == "single" or creative_recipe is not None else False,
         },
-        "detail": {
-            "mode": args.detail_mode,
-            "generation_budget": args.detail_budget,
-            "soft_generated_patch_budget": budget_policy[args.detail_budget]["soft"],
-            "hard_generated_patch_ceiling": budget_policy[args.detail_budget]["hard"],
-            "max_generated_patches": budget_policy[args.detail_budget]["hard"],
-            "adaptive_overflow": args.detail_budget != "fast",
-            "planner": "adaptive-value-merge-v2.2",
-            "mask_mode": "lightweight",
-            "regions": detail_regions,
-            "patch_scope": "head-and-face" if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face"),
-            "head_patch": True if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face") == "head-and-face",
-            "pixel_budget_thresholds": {
-                "face": 0.85,
-                "hand": 0.75,
-                "head": 0.65,
-                "costume": 0.50,
-                "prop": 0.50,
-                "architecture": 0.50,
-                "background": 0.30,
-                "generic": 0.50,
-            },
-        } if creative_recipe is None else {
-            "mode": "not-applicable",
-            "generation_budget": "recipe-controlled",
-            "soft_generated_patch_budget": 0,
-            "hard_generated_patch_ceiling": 0,
-            "max_generated_patches": 0,
-            "adaptive_overflow": False,
-            "planner": "creative-recipe",
-            "mask_mode": "recipe-controlled",
-            "regions": [],
-            "patch_scope": "none",
-            "head_patch": False,
-            "note": ("Do not run ordinary face, head, costume, or environment detail patches over the original assembled creative artwork." if args.creative_assembly_mode == "original-assembly" else "Do not run ordinary face, head, costume, or environment detail patches over the complete direct-effect creative artwork."),
-        },
-        "retouch": {
-            "style_strength": resolved_prompt.get("default_strength", 50),
-            "detail_strength": 60,
-        }
-        if confirmation is None
-        else {
-            "style_strength": confirmation["config"]["styleStrength"],
-            "global": confirmation["config"]["global"],
-            "portrait": confirmation["config"]["portrait"],
-            "body": confirmation["config"]["body"],
-            "clothing": confirmation["config"]["clothing"],
-            "background": confirmation["config"]["background"],
-            "detail_strength": confirmation["config"]["detail"]["strength"],
-        },
+        "detail": detail_manifest,
+        "retouch": (
+            {
+                "style_strength": flow_style_strength,
+                "detail_strength": 60,
+                "source": "flow-graph",
+            }
+            if flow_graph is not None
+            else ({
+                "style_strength": resolved_prompt.get("default_strength", 50),
+                "detail_strength": 60,
+            }
+            if confirmation is None
+            else {
+                "style_strength": confirmation["config"]["styleStrength"],
+                "global": confirmation["config"]["global"],
+                "portrait": confirmation["config"]["portrait"],
+                "body": confirmation["config"]["body"],
+                "clothing": confirmation["config"]["clothing"],
+                "background": confirmation["config"]["background"],
+                "detail_strength": confirmation["config"]["detail"]["strength"],
+            })
+        ),
         "quality_gate": {
             "registration_min_ratio": 0.75,
             "registration_min_inliers": 40,
