@@ -193,6 +193,11 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.match(resourceHtml, /bridgeRequest/);
   assert.doesNotMatch(resourceHtml, /callTool\.length/);
   assert.match(resourceHtml, /addEventListener\('change',handleFieldChange\)/);
+  // interactive wiring must exist for every control group — a dropped wiring
+  // leaves controls dead while the panel still renders (0.7.0 regression)
+  for (const wiring of ["querySelectorAll\\('#recipeFilters \\.chip'\\)", "querySelectorAll\\('.chip\\[data-frag\\]'\\)", "querySelectorAll\\('.opt-card\\[data-delivery\\]'\\)", "querySelectorAll\\('#resSeg \\.chip'\\)", "getElementById\\('resApply'\\)", "querySelectorAll\\('#proTabs button'\\)", "querySelectorAll\\('.row-btn\\[data-pick\\]'\\)"]) {
+    assert.match(resourceHtml, new RegExp(wiring), `missing wiring: ${wiring}`);
+  }
   assert.match(resourceHtml, /未收到初始设置/);
   assert.match(resourceHtml, /不要再次打开设置面板/);
   assert.match(resourceHtml, /PHOTO_REFINER_PANEL_SUBMITTED/);
