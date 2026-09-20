@@ -1,30 +1,39 @@
 ---
-name: photo-refiner
-description: Refine photographs with an approved Image 2.5 look and high-resolution detail recovery, or run an explicitly selected bundled Starryear source-faithful creative translation recipe with effect-image selection and deterministic assembly.
+name: photo-refiner-flow
+description: Node-based photographic refinement with Look A, optional Starryear Effect B, explicit approval, creative-safe high-resolution recovery, and independent delivery.
 ---
 
-# Photo Refiner v2.3
+# Photo Refiner Flow
 
-Photo Refiner is a **photographic refinement workflow**, not a generic image-redesign skill. Image 2.5 establishes the approved visual look; deterministic scripts and localized generation recover useful detail without pretending that a low-resolution generation is native high resolution.
+Photo Refiner Flow is the independently installable node-workflow edition of Photo Refiner. It coexists with the original `photo-refiner` Skill and uses separate MCP tools and local state.
 
-Version 2.3 keeps the v2.2 SOURCE / LOOK / DETAIL refinement model and adds an explicitly selected **creative translation** branch. That branch can run the bundled Starryear recipes without flattening their multi-stage workflows into ordinary filter presets.
-
-## Node Canvas branch
-
-The `feat/node-canvas-v3` branch adds an experimental high-level graph layer without replacing the proven v2.3 processing backend.
-
-The controlled graph is:
+Its controlled graph is:
 
 ```text
 Source -> Look A -> Effect B? -> Approval -> Recovery? -> Delivery
 ```
 
-Read `references/node-graph.md` before changing graph semantics. Validate exported graphs with `scripts/validate_graph.py` and compile them with `scripts/compile_graph_plan.py`.
+The existing Photo Refiner image-processing scripts remain the backend; the graph is the authoritative workflow configuration for Flow.
 
-Important compatibility rule: Look A can be either `direction-only` or `look-master`. `direction-only` preserves the current one-pass direct-effect behavior; `look-master` preserves `creative-from-base` and spends a real A-stage generation before Effect B. The Canvas must never silently add a generation call.
+## Flow graph contract
 
-The standalone local prototype lives in `../node-canvas/` and does not depend on MCP Widget mounting. Until graph execution is wired fully into job initialization, the existing v2.3 scripts remain the runtime authority.
+Read `references/node-graph.md` before changing graph semantics. Validate confirmed graphs with `scripts/validate_graph.py` and compile them with `scripts/compile_graph_plan.py`.
 
+Look A has two execution semantics:
+
+- `direction-only`: A contributes visual direction without spending a separate generation.
+- `look-master`: A renders a real LOOK_A before Effect B.
+
+Effect B is optional. `direct-effect` produces one complete creative image; `original-assembly` follows the selected Starryear recipe's evidence/layout structure.
+
+Recovery policy:
+
+- no Effect B -> `normal`
+- single-source `direct-effect` -> `creative-safe`
+- `original-assembly` -> disabled
+- multi-source creative recipes -> disabled in graph v1
+
+The UI host is optional. A confirmed graph remains usable through its `graphPath` even if the embedded UI is unavailable.
 
 ## 1. Intent gate
 
@@ -37,7 +46,7 @@ Start a refinement job only when the user explicitly asks to edit/refine a **spe
 Normal Photo Refiner work and creative translation are separate execution modes:
 
 - `photo-refinement` uses SOURCE MASTER / LOOK MASTER / DETAIL PATCH as described below.
-- `creative-translation` is an optional second stage after the user has chosen the normal style preset. It uses a selected Starryear recipe with either a complete direct effect image (the default) or the original evidence/panel assembly. It runs only when the user selects a creative recipe in Studio or explicitly confirms one through the text fallback.
+- `creative-translation` is an optional second stage after the user has chosen the normal style preset. It uses a selected Starryear recipe with either a complete direct effect image (the default) or the original evidence/panel assembly. It runs only when the user enables Effect B in Photo Refiner Flow or explicitly confirms the same graph through a fallback.
 
 Never flatten a bundled creative recipe into a color preset or append its name to the normal refinement prompt. The selected normal preset remains the frozen upstream visual direction; apply it deliberately alongside the recipe-specific translation instructions, rather than replacing it or treating the result as a simple filter. When creative translation is selected:
 
@@ -65,13 +74,7 @@ The high-resolution stage is therefore **controlled information recovery on top 
 
 A usable job requires at least one attached photograph or an exact existing image path. A folder, workspace directory, Skill screenshot, or documentation image is not a source photograph.
 
-The commands in this document are relative to the directory that contains this
-`SKILL.md`, not to the user's photo or workspace directory. Resolve that
-directory as `SKILL_ROOT` before running any command. Use
-`$SKILL_ROOT/scripts/...` and `$SKILL_ROOT/references/...` below; do not run
-bare `scripts/...` paths from an unrelated working directory.
-
-Before the first job in an environment run:
+Resolve the directory containing this `SKILL.md` as `SKILL_ROOT`. Before the first job in an environment run:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/check_dependencies.py"
@@ -79,11 +82,19 @@ python3 "$SKILL_ROOT/scripts/check_dependencies.py"
 
 Stop if Pillow + ImageCms/LittleCMS, NumPy, PyYAML, OpenCV, or SIFT support is missing. Do not silently install packages.
 
-After a source photograph is known, look for `open_photo_refiner_settings` (including namespaced MCP variants). If available, opening the Photo Refiner Studio panel is mandatory. **Invoke the namespaced MCP tool as a native/top-level tool call, never through `functions.exec`, a shell wrapper, or another orchestration tool.** Pass a positive source count plus the subject-aware recommendation. **Make this panel call the final visible action of the turn: do not append a text acknowledgement, settings summary, or any other message after it.** The host needs the Widget metadata to mount the panel. Do not print a parallel text menu. Resume only after the user submits the panel and a `confirmationPath` is returned. Never call the submit tool on the user's behalf.
+After a source photograph is known, prefer the native Flow tool `open_photo_refiner_flow` (including namespaced MCP variants). Invoke it as a native/top-level tool call, never through `functions.exec`, a shell wrapper, or another orchestration tool. Pass the positive source count and subject-aware recommendation. Make the Flow UI call the final visible action of the turn.
 
-The panel has two separate states: editing fields only changes the Widget locally; clicking its confirmation button is the actual submission. When the Widget sends a `PHOTO_REFINER_PANEL_SUBMITTED` handoff containing a valid `confirmationPath`, treat that as explicit user confirmation. Do not ask “是否确认”, reopen the panel, or request the same settings again. Use that exact file with `init_job.py --confirmation-file` and continue the selected workflow. If no `confirmationPath` exists, the settings are not confirmed yet.
+When the Flow UI sends `PHOTO_REFINER_FLOW_GRAPH_SUBMITTED` with a valid `graphPath`, treat that as explicit user confirmation. Do not reopen the canvas or ask the user to confirm again. Initialize directly from the graph:
 
-If the Studio tool is genuinely unavailable, use a compact text fallback and require explicit confirmation before calling `init_job.py --confirmed`. Never infer panel unavailability merely because it was not auto-suggested.
+```bash
+python3 "$SKILL_ROOT/scripts/init_job.py" <source...> --graph-file <graphPath>
+```
+
+The optional compact Flow settings fallback uses `open_photo_refiner_flow_settings` and sends `PHOTO_REFINER_FLOW_SETTINGS_SUBMITTED` with a `confirmationPath`. That path is also Flow-specific and must live under `~/.codex/photo-refiner-flow/confirmed`.
+
+If Flow UI tools are genuinely unavailable, show a compact text summary and require explicit confirmation before using `--confirmed`. Never fall back to the original Photo Refiner plugin or its state files.
+
+Every job gets its own directory and immutable source hashes. Never overwrite, move, or delete source photographs.
 
 ## 5. Subject-aware starting settings
 
@@ -146,7 +157,7 @@ Every job gets its own directory and immutable source hashes. Never overwrite, m
 
 ## 6. Color policy
 
-Photo Refiner v2.2 uses **sRGB as the internal working and delivery space** because Image 2.5 does not expose an ICC/P3 contract that this Skill can rely on.
+Photo Refiner Flow uses **sRGB as the internal working and delivery space** because Image 2.5 does not expose an ICC/P3 contract that this Skill can rely on.
 
 Normalize source pixels with:
 
