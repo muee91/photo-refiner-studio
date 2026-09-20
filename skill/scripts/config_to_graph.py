@@ -75,7 +75,7 @@ def convert_config(config: dict[str, Any], *, source_count: int | None = None, g
 
     enabled_ids = [node["id"] for node in nodes if node["enabled"]]
     edges = [{"from":left,"to":right,"kind":"flow"} for left,right in zip(enabled_ids,enabled_ids[1:])]
-    graph = {"version":1,"graphId":graph_id or f"photo-refiner-{uuid.uuid4()}","createdFrom":"legacy-config","nodes":nodes,"edges":edges,"metadata":{"legacyConfigVersion":config.get("schemaVersion",2)}}
+    graph = {"version":1,"graphId":graph_id or f"photo-refiner-flow-{uuid.uuid4()}","createdFrom":"legacy-config","nodes":nodes,"edges":edges,"metadata":{"legacyConfigVersion":config.get("schemaVersion",2)}}
     validate_graph(graph, catalog_path)
     return graph
 
