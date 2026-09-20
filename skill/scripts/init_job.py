@@ -489,12 +489,30 @@ def main() -> None:
             "note": ("Do not run ordinary recovery over original assembled creative artwork." if args.creative_assembly_mode == "original-assembly" else "Recovery disabled for this creative graph."),
         }
 
+    flow_runtime = None
+    if flow_plan is not None:
+        flow_runtime = {
+            "graph_id": flow_graph["graphId"],
+            "graph_path": flow_graph_record["graphPath"],
+            "plan_hash": flow_plan.get("planHash"),
+            "current_step": None,
+            "steps": [
+                {
+                    **step,
+                    "state": "pending",
+                    "updated_at": None,
+                }
+                for step in flow_plan.get("steps", [])
+            ],
+        }
+
     manifest = {
         "version": 2,
         "release_version": "3.0-flow",
         "created_at": now.isoformat(),
         "confirmed_at": now.isoformat(),
         "product": "photo-refiner-flow",
+        "flow": flow_runtime,
         "graph_confirmation": None if flow_graph_record is None else {
             "id": flow_graph_record["graphId"],
             "path": flow_graph_record["graphPath"],
