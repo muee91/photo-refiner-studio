@@ -73,17 +73,40 @@ class PhotoRefinerV21Tests(unittest.TestCase):
 
     def test_pixel_budget_accepts_real_detail_and_rejects_fake_upscale(self):
         accepted = json.loads(self.run_script(
-            "pixel_budget.py", "--patch-size", "1536x1536", "--source-crop-size", "1000x1000",
-            "--source-subject-size", "700x700", "--final-subject-size", "1200x1200", "--region-type", "face",
+            "pixel_budget.py", "--patch-size", "1536x1536",
+            "--working-canvas", "1000x1000", "--delivery-canvas", "1714x1714",
+            "--region-crop", "0,0,1000,1000", "--region-subject", "150,150,700,700",
+            "--region-type", "face",
         ).stdout)
         self.assertTrue(accepted["accepted"])
         rejected = json.loads(self.run_script(
-            "pixel_budget.py", "--patch-size", "1536x1536", "--source-crop-size", "1000x1000",
-            "--source-subject-size", "350x350", "--final-subject-size", "1200x1200", "--region-type", "face",
+            "pixel_budget.py", "--patch-size", "1536x1536",
+            "--working-canvas", "1000x1000", "--delivery-canvas", "2000x2000",
+            "--region-crop", "0,0,1000,1000", "--region-subject", "325,325,350,350",
+            "--region-type", "face",
             ok=False,
         ).stdout)
         self.assertFalse(rejected["accepted"])
         self.assertEqual(rejected["recommended_action"], "tighten_crop")
+
+    def test_pixel_budget_cannot_be_fooled_by_working_canvas_numbers(self):
+        # A patch that only fills its working-canvas region must not read as
+        # sufficient once the delivery canvas is several times larger.
+        result = json.loads(self.run_script(
+            "pixel_budget.py", "--patch-size", "1254x1254",
+            "--working-canvas", "1024x1536", "--delivery-canvas", "1024x1536",
+            "--region-crop", "472,382,245,370", "--region-subject", "492,415,205,276",
+            "--region-type", "face",
+        ).stdout)
+        self.assertTrue(result["accepted"])
+        delivered = json.loads(self.run_script(
+            "pixel_budget.py", "--patch-size", "1254x1254",
+            "--working-canvas", "1024x1536", "--delivery-canvas", "4672x7008",
+            "--region-crop", "472,382,245,370", "--region-subject", "492,415,205,276",
+            "--region-type", "face",
+            ok=False,
+        ).stdout)
+        self.assertFalse(delivered["accepted"])
 
     def test_face_registration_uses_similarity_and_frequency_fusion(self):
         rng = np.random.default_rng(17)

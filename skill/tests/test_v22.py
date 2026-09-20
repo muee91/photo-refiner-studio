@@ -14,6 +14,7 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from build_blend_mask import build_mask
+from job_contract import PLANNER_CREATIVE_SAFE, PLANNER_NORMAL
 from landmark_identity_gate import evaluate_landmarks
 from plan_detail_tiles import Box, build_plan, load_vision_analysis
 
@@ -48,7 +49,7 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         self.assertEqual(manifest["detail"]["soft_generated_patch_budget"], 1)
         self.assertEqual(manifest["detail"]["hard_generated_patch_ceiling"], 1)
         self.assertEqual(manifest["detail"]["max_generated_patches"], 1)
-        self.assertEqual(manifest["detail"]["planner"], "adaptive-value-merge-v2.2")
+        self.assertEqual(manifest["detail"]["planner"], PLANNER_NORMAL)
         self.assertEqual(manifest["detail"]["mask_mode"], "lightweight")
         self.assertEqual(manifest["quality_gate"]["landmark_identity_gate"]["mode"], "optional-when-landmarks-available")
 
@@ -69,8 +70,6 @@ class PhotoRefinerV22Tests(unittest.TestCase):
             "--region-type", "face",
             "--region-role", "face",
             "--requested-size", "1536x1536",
-            "--source-crop-size", "800x800",
-            "--final-region-size", "900x900",
             "--planner-region-index", 2,
             "--attempt", 1,
         ).stdout)
@@ -136,9 +135,11 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         self.assertEqual(manifest["release_version"], "2.4")
         self.assertEqual(manifest["execution_mode"], "creative-translation")
         self.assertEqual(manifest["detail"]["mode"], "creative-safe-adaptive")
-        self.assertEqual(manifest["detail"]["planner"], "adaptive-value-merge-v2.4-creative-safe")
+        self.assertEqual(manifest["detail"]["planner"], PLANNER_CREATIVE_SAFE)
         self.assertEqual(manifest["detail"]["patch_scope"], "adaptive-subject")
-        self.assertEqual(manifest["detail"]["hard_generated_patch_ceiling"], 5)
+        self.assertNotIn("hard_generated_patch_ceiling", manifest["detail"])
+        self.assertEqual(manifest["detail"]["absolute_generated_patch_ceiling"], 5)
+        self.assertEqual(manifest["detail"]["portrait_budget_policy"]["full"], {"soft": 3, "hard": 4})
         self.assertEqual(manifest["detail"]["look_authority"], "CREATIVE_LOOK_MASTER")
         self.assertEqual(manifest["detail"]["identity_authority"], "SOURCE_MASTER")
         self.assertEqual(manifest["authority_model"]["creative_look_master"][0], "approved_creative_canvas")
@@ -171,7 +172,7 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         self.assertEqual(plan["soft_generated_patch_budget"], 3)
         self.assertEqual(plan["hard_generated_patch_ceiling"], 4)
         self.assertEqual(plan["estimated_generated_patches"], 4)
-        self.assertEqual(plan["planner"], "adaptive-value-merge-v2.4-creative-safe")
+        self.assertEqual(plan["planner"], PLANNER_CREATIVE_SAFE)
         roles = {item["region_role"] for item in plan["regions"]}
         self.assertIn("upper-costume", roles)
         self.assertIn("lower-costume", roles)
@@ -201,7 +202,7 @@ class PhotoRefinerV22Tests(unittest.TestCase):
             subject_box=Box(400, 350, 700, 1300), face_box=Box(600, 500, 250, 350),
             hand_boxes=[], prop_boxes=[],
         )
-        self.assertEqual(plan["planner"], "adaptive-value-merge-v2.2")
+        self.assertEqual(plan["planner"], PLANNER_NORMAL)
         self.assertEqual(plan["soft_generated_patch_budget"], 3)
         self.assertEqual(plan["hard_generated_patch_ceiling"], 6)
         self.assertEqual(plan["max_generated_patches"], 6)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Plan a coarse, generation-budget-aware detail-tile layout.
 
-Photo Refiner v2.2 deliberately treats the generation budget as a ceiling, not a
+Photo Refiner deliberately treats the generation budget as a ceiling, not a
 quota. The planner prefers zero/few broad patches over many micro-patches and
 expects every selected region to pass pixel_budget.py before generation.
 """
@@ -18,24 +18,24 @@ from typing import Any, Iterable
 from PIL import Image
 
 
-BUDGET_POLICY = {
-    "fast": {"soft": 1, "hard": 1, "threshold": 0.50, "overflow_threshold": 1.01},
-    "balanced": {"soft": 3, "hard": 6, "threshold": 0.38, "overflow_threshold": 0.50},
-    "max": {"soft": 5, "hard": 8, "threshold": 0.24, "overflow_threshold": 0.36},
-}
-# Creative-safe recovery is intentionally capped more tightly than normal
-# refinement. The cap expands with portrait coverage so full-body work can
-# protect lower garments/hands/props without turning into micro-patch tiling.
-CREATIVE_SAFE_STAGE_POLICY = {
-    "close": {"soft": 2, "hard": 3},
-    "half": {"soft": 2, "hard": 3},
-    "full": {"soft": 3, "hard": 4},
-    "complex-full": {"soft": 4, "hard": 5},
-    "scene": {"soft": 2, "hard": 3},
-}
-PORTRAIT_EXTENTS = {"close", "half", "full", "complex-full"}
-DETAIL_COMPLEXITIES = {"normal", "complex"}
-RECOVERY_PROFILES = {"normal", "creative-safe"}
+from job_contract import (
+    BUDGET_POLICY,
+    CREATIVE_SAFE_STAGE_POLICY,
+    DETAIL_COMPLEXITIES,
+    PIXEL_BUDGET_THRESHOLDS,
+    PLANNER_CREATIVE_SAFE,
+    PLANNER_NORMAL,
+    PORTRAIT_EXTENTS,
+    RECOVERY_PROFILES,
+    Canvas,
+    creative_safe_policy,
+    delivery_headroom_width,
+    effective_detail_ratio,
+    fit_patch_size,
+    parse_size,
+    tiles_for_span,
+)
+
 BUDGET_LIMITS = {name: policy["hard"] for name, policy in BUDGET_POLICY.items()}
 BASE_VALUE = {
     "face": 1.00,
@@ -232,31 +232,6 @@ def infer_portrait_extent(
     return extent
 
 
-def creative_safe_policy(detail_budget: str, extent: str, detail_complexity: str) -> dict:
-    if extent not in CREATIVE_SAFE_STAGE_POLICY:
-        extent = "half"
-    if detail_complexity == "complex" and extent == "full":
-        extent = "complex-full"
-    stage = CREATIVE_SAFE_STAGE_POLICY[extent]
-    base = BUDGET_POLICY[detail_budget]
-    if detail_budget == "fast":
-        soft = min(stage["soft"], 1)
-        hard = min(stage["hard"], 2)
-    elif detail_budget == "max":
-        soft = min(stage["soft"] + 1, 5)
-        hard = min(stage["hard"] + 1, 5)
-    else:
-        soft = stage["soft"]
-        hard = stage["hard"]
-    creative_overflow_threshold = 1.01 if detail_budget == "fast" else (0.42 if detail_budget == "max" else 0.46)
-    return {
-        "soft": soft,
-        "hard": hard,
-        "threshold": max(base["threshold"], 0.34),
-        "overflow_threshold": creative_overflow_threshold,
-    }
-
-
 def make_costume_box(subject_box: Box | None, image_w: int, image_h: int) -> Box | None:
     if subject_box is None:
         return None
@@ -346,6 +321,8 @@ def build_plan(
     recovery_profile: str = "normal",
     portrait_extent: str | None = None,
     detail_complexity: str = "normal",
+    delivery_canvas: tuple[int, int] | None = None,
+    observed_patch_size: tuple[int, int] | None = None,
 ) -> dict:
     if recovery_profile not in RECOVERY_PROFILES:
         raise ValueError(f"Unknown recovery profile: {recovery_profile}")
@@ -569,6 +546,128 @@ def build_plan(
     regions = sorted(selected_by_value, key=lambda item: item["blend_order"])
     overflow_count = max(0, len(regions) - soft_patches)
 
+    working = Canvas(image_w, image_h)
+    delivery = Canvas(*(delivery_canvas or (image_w, image_h)))
+    scale = delivery.width / working.width
+    dropped_for_budget: list[dict] = []
+    for region in regions:
+        crop = region["crop"]
+        if observed_patch_size is not None:
+            region["patch_size_planned"] = list(fit_patch_size(crop["width"], crop["height"], observed_patch_size))
+        else:
+            region["patch_size_planned"] = list(region.get("recommended_patch_size") or [crop["width"], crop["height"]])
+    # Every candidate region, kept or not, bounds how wide an honest delivery can be.
+    headroom_widths = [
+        delivery_headroom_width(
+            (region["crop"]["width"], region["crop"]["height"]),
+            region["region_type"],
+            working.width,
+            observed_patch_size,
+        )
+        for region in regions
+    ] if observed_patch_size else []
+    if scale > 1.0 and observed_patch_size is None:
+        raise ValueError(
+            "Planning an enlarged delivery requires --observed-patch-size (the size this "
+            "runtime has actually returned); without it, patches that cannot reach the "
+            "delivery canvas get planned, generated and burned."
+        )
+    # The budget is judged against the delivery canvas whenever the observed return
+    # size is known. A region can fail at delivery_scale 1.0 too: a 1254px cap cannot
+    # feed a 3248px costume block no matter how large the canvas already is.
+    if observed_patch_size is not None:
+        kept = []
+        for region in regions:
+            crop = region["crop"]
+            subject = region.get("subject_box") or crop
+            patch = tuple(region["patch_size_planned"])
+            ratio = effective_detail_ratio(
+                patch_size=patch,
+                region_crop_size=(crop["width"], crop["height"]),
+                region_subject_size=(subject["width"], subject["height"]),
+                working=working,
+                delivery=delivery,
+                region_type=region["region_type"],
+            )
+            if ratio.accepted:
+                kept.append(region)
+            else:
+                dropped_for_budget.append({
+                    "region_type": region["region_type"],
+                    "region_role": region.get("region_role", region["region_type"]),
+                    "planned_patch_size": list(patch),
+                    "crop_size": [crop["width"], crop["height"]],
+                    "detail_ratio": round(ratio.minimum, 4),
+                    "threshold": ratio.threshold,
+                    "max_honest_delivery_width": round(delivery_headroom_width(
+                        (crop["width"], crop["height"]), region["region_type"],
+                        working.width, observed_patch_size,
+                    )),
+                    "reason": "cannot serve the delivery canvas",
+                })
+        regions = kept
+        overflow_count = max(0, len(regions) - soft_patches)
+
+    max_honest_width = round(min(headroom_widths)) if headroom_widths else None
+    delivery_feasibility = None
+    tiling_requirement = None
+    if max_honest_width is not None:
+        if delivery.width <= max_honest_width:
+            delivery_feasibility = {
+                "verdict": "native",
+                "requested_delivery_width": delivery.width,
+                "max_honest_delivery_width": max_honest_width,
+                "binding_regions": [],
+            }
+        else:
+            binding = [
+                {
+                    "region_type": item["region_type"],
+                    "region_role": item["region_role"],
+                    "detail_ratio": item["detail_ratio"],
+                    "threshold": item["threshold"],
+                }
+                for item in dropped_for_budget
+            ]
+            delivery_feasibility = {
+                "verdict": "needs-tiling",
+                "requested_delivery_width": delivery.width,
+                "max_honest_delivery_width": max_honest_width,
+                "binding_regions": binding,
+            }
+            # Only dropped regions need splitting: a kept region already passed the
+            # budget with a single observed-size patch.
+            per_region = []
+            for item in dropped_for_budget:
+                crop_w, crop_h = item["crop_size"]
+                footprint = (max(1, round(crop_w * scale)), max(1, round(crop_h * scale)))
+                needed = tiles_for_span(footprint, observed_patch_size, item["threshold"])
+                per_region.append({
+                    "region_type": item["region_type"],
+                    "region_role": item["region_role"],
+                    "threshold": item["threshold"],
+                    "delivery_footprint": list(footprint),
+                    "tiles": needed,
+                })
+            tiles = sum(entry["tiles"] for entry in per_region)
+            breakdown = ", ".join(f"{entry['region_role']} x{entry['tiles']}" for entry in per_region)
+            consent = (
+                f"To deliver {delivery.width}x{delivery.height} honestly, the "
+                f"{len(per_region)} region(s) a single patch cannot feed need about {tiles} tile "
+                f"redraws at the observed {observed_patch_size[0]}px cap"
+            )
+            if breakdown:
+                consent += f" ({breakdown})"
+            consent += f". Continue with the tiling chain, or deliver at {max_honest_width}px wide?"
+            tiling_requirement = {
+                "tile_size": list(observed_patch_size),
+                "tile_overlap": 0.15,
+                "regions": per_region,
+                "tile_count": tiles,
+                "estimated_generation_calls": tiles,
+                "consent_prompt": consent,
+            }
+
     return {
         "subject_type": subject_type,
         "recovery_profile": recovery_profile,
@@ -584,7 +683,14 @@ def build_plan(
         "region_count": len(regions),
         "regions": regions,
         "skipped_candidates": skipped,
-        "planner": "adaptive-value-merge-v2.4-creative-safe" if recovery_profile == "creative-safe" else "adaptive-value-merge-v2.2",
+        "working_canvas": [working.width, working.height],
+        "delivery_canvas": [delivery.width, delivery.height],
+        "delivery_scale": round(scale, 6),
+        "pixel_budget_space": "delivery",
+        "regions_dropped_for_budget": dropped_for_budget,
+        "delivery_feasibility": delivery_feasibility,
+        "tiling_requirement": tiling_requirement,
+        "planner": PLANNER_CREATIVE_SAFE if recovery_profile == "creative-safe" else PLANNER_NORMAL,
         "value_threshold": threshold,
         "overflow_value_threshold": overflow_threshold,
         "principle": "soft_budget_is_normal; high_value_regions_may_overflow_to_hard_ceiling; prefer_merging_over_splitting",
@@ -592,7 +698,7 @@ def build_plan(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Plan coarse Photo Refiner v2.2 detail tiles with a soft generation budget and adaptive hard ceiling.")
+    parser = argparse.ArgumentParser(description="Plan coarse detail tiles with a soft generation budget and an adaptive hard ceiling.")
     parser.add_argument("--image", type=Path, required=True, help="Reference image used for dimensions")
     parser.add_argument("--subject-type", choices=sorted(VISION_SUBJECT_TYPES), help="Subject type; Vision analysis supplies this when omitted")
     parser.add_argument("--detail-budget", choices=sorted(BUDGET_LIMITS), default="balanced")
@@ -607,6 +713,16 @@ def main() -> None:
         "--vision-analysis",
         type=Path,
         help="JSON file from the Vision pass; supplies subject_type and coarse subject/face/hands/props regions",
+    )
+    parser.add_argument(
+        "--delivery-canvas",
+        type=parse_size,
+        help="Final delivered WIDTHxHEIGHT; when larger than --image the plan is gated in delivery space",
+    )
+    parser.add_argument(
+        "--observed-patch-size",
+        type=parse_size,
+        help="Largest patch size this runtime has actually returned (see record_patch_observation.py)",
     )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -630,19 +746,24 @@ def main() -> None:
     detail_complexity = args.detail_complexity
     if analysis and args.detail_complexity == "normal":
         detail_complexity = analysis["detail_complexity"]
-    plan = build_plan(
-        image_w,
-        image_h,
-        subject_type=subject_type,
-        detail_budget=args.detail_budget,
-        face_box=face_box.clip(image_w, image_h) if face_box else None,
-        subject_box=subject_box.clip(image_w, image_h) if subject_box else None,
-        hand_boxes=[box.clip(image_w, image_h) for box in hand_boxes],
-        prop_boxes=[box.clip(image_w, image_h) for box in prop_boxes],
-        recovery_profile=args.recovery_profile,
-        portrait_extent=portrait_extent,
-        detail_complexity=detail_complexity,
-    )
+    try:
+        plan = build_plan(
+            image_w,
+            image_h,
+            subject_type=subject_type,
+            detail_budget=args.detail_budget,
+            face_box=face_box.clip(image_w, image_h) if face_box else None,
+            subject_box=subject_box.clip(image_w, image_h) if subject_box else None,
+            hand_boxes=[box.clip(image_w, image_h) for box in hand_boxes],
+            prop_boxes=[box.clip(image_w, image_h) for box in prop_boxes],
+            recovery_profile=args.recovery_profile,
+            portrait_extent=portrait_extent,
+            detail_complexity=detail_complexity,
+            delivery_canvas=args.delivery_canvas,
+            observed_patch_size=args.observed_patch_size,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if analysis:
         plan["vision_analysis"] = {
             "schema_version": analysis["schema_version"],

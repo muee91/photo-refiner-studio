@@ -30,7 +30,7 @@ Never flatten a bundled creative recipe into a color preset or append its name t
 4. Resolve `creative_assembly_mode` from the confirmed settings. It defaults to `direct-effect`; `original-assembly` is an explicit alternative. Direct-effect generates one complete creative effect image using the frozen normal preset as its upstream visual direction plus the recipe's theme, prompt semantics, references, source-derived motifs, and visual grammar; it must not attach an unchanged source-evidence strip, place the original beside/below the artwork, crop an original assembly, or act as a simple filter. Original-assembly follows the recipe literally: preserve its evidence regions with actual source pixels, generate only its translated regions, and use its compositor. For single-source direct-effect jobs the creative canvas follows the confirmed panel aspect ratio (`original` means the source photograph's own ratio) instead of the recipe's documented output ratio; original-assembly and multi-photo recipes keep the recipe's documented output structure. `creative_output.aspect_ratio_source` / `effective_aspect_ratio` in `job.json` record the resolved choice. When `creative_output.upstream_binding` is `look-master` (`--creative-from-base`, offered conversationally: for a single-source direct-effect creative job in preview-first mode, ask once whether to 直接开始创意 or 先按预设出主图、确认后再创意), first run the Section 7 base pass with the frozen preset, show that main image, and continue only after explicit approval; the creative pass then anchors identity and motifs to the original source photograph and uses the approved main image only as its look reference, and the formal base-preview gate still applies to the creative artwork itself. When `creative_output.upstream_binding` is `hd-master` (the panel's 高清创意链 toggle or `--creative-hd-chain`), run the full ordinary refinement first — Section 7 base pass, then Section 8/8A high-resolution recovery — so `details_processed` marks the approved high-definition master; then generate the creative draft on that master (identity, structure and micro-detail reference come from the HD master, grammar from the recipe), record `creative_generated`, and require `--approve-creative-preview` before the style-faithful redraw pass into `completed`.
 5. Default to preview-first. Present the generated direct effect preview or assembled original preview and stop for approval when the confirmed delivery mode is `preview-first`; one-click may continue without that pause.
 6. Retry only failed generated regions. For direct-effect, retry the complete creative image; for original-assembly, retry only failed generated regions.
-7. When `creative_output.upscale.enabled` (the panel's 4X-UltraSharp toggle), first run `scripts/upscale_image.py --input <approved preview> --output <upscaled working canvas> --scale 4` — the bundled 4X-UltraSharp engine sharpens the non-patch areas of the approved creative image, patch planning then runs on the upscaled canvas, and the delivery resize keeps that sharpness. Without an installed engine the script records an honest Lanczos fallback (`upscale_image.py --install-engine` installs the self-contained engine; no ComfyUI needed). Every patch must be generated at its target region aspect — `register_blend.py` rejects patches whose aspect deviates more than 5% from the target region instead of recropping the target to match the generator output. For a **single-source `direct-effect`** result, the approved creative image becomes **CREATIVE LOOK MASTER** and must continue through the creative-safe adaptive high-resolution recovery in Section 8/8A before final delivery. Do not run the ordinary recovery profile over it. For `original-assembly` or multi-source creative layouts, keep local recovery disabled because ordinary patches can cross evidence/generated/layout boundaries and overwrite the translated art. For `hd-master` chains the order inverts: `details_processed` marks the ordinary high-resolution recovery of the approved main image (a photograph, so the ordinary profile applies); after the creative draft is approved, finish with the style-faithful tiled redraw — tile the approved HD master (~2048² tiles, ≥15% overlap), re-render each tile under the recipe grammar with the HD-master crop as structure reference and the matching creative-draft region as style reference, gate each tile on composition registration (median error ≤3 px against the draft region, one retry), and blend overlaps with the multiband model. The creative artwork itself still never receives ordinary photographic patches.
+7. When `creative_output.upscale.enabled` (the panel's 4X-UltraSharp toggle), first run `scripts/upscale_image.py --job <job.json> --input <approved preview> --output <upscaled working canvas> --scale 4` — the bundled 4X-UltraSharp engine sharpens the **non-patch** areas of the approved creative image, patch planning then runs on the upscaled canvas, and the delivery resize keeps that sharpness. Pass `--job`: the delivery gate counts only recorded passes, and it counts a pass as raising the canvas only when `adds_information` is true. 4X never improves a patch region's own budget — the detail ratio is patch pixels over that region's footprint in the delivered file, and enlarging the canvas enlarges that footprint by the same factor, so subject coverage comes from tiles, not from upscaling. Without an installed engine the script records an honest Lanczos fallback (`upscale_image.py --install-engine` installs the self-contained engine; no ComfyUI needed). Every patch must be generated at its target region aspect — `register_blend.py` rejects patches whose aspect deviates more than 5% from the target region instead of recropping the target to match the generator output. For a **single-source `direct-effect`** result, the approved creative image becomes **CREATIVE LOOK MASTER** and must continue through the creative-safe adaptive high-resolution recovery in Section 8/8A before final delivery. Do not run the ordinary recovery profile over it. For `original-assembly` or multi-source creative layouts, keep local recovery disabled because ordinary patches can cross evidence/generated/layout boundaries and overwrite the translated art. For `hd-master` chains the order inverts: `details_processed` marks the ordinary high-resolution recovery of the approved main image (a photograph, so the ordinary profile applies); after the creative draft is approved, finish with the style-faithful tiled redraw — tile the approved HD master (~2048² tiles, ≥15% overlap), re-render each tile under the recipe grammar with the HD-master crop as structure reference and the matching creative-draft region as style reference, gate each tile on composition registration (median error ≤3 px against the draft region, one retry), and blend overlaps with the multiband model. The creative artwork itself still never receives ordinary photographic patches.
 
 Effect images are selection aids, not visual source material. Never copy their people, places, wording, palette, or exact composition. If a catalog entry says its preview is missing, show that state honestly instead of substituting an unrelated image.
 
@@ -49,6 +49,19 @@ Eligible single-source `direct-effect` creative work uses the same separation wi
 - **CREATIVE DETAIL PATCH** may recover registered mid/high-frequency detail only. It must not turn the creative region back into an ordinary photograph or invent a new style.
 
 The high-resolution stage is therefore **controlled information recovery on top of the approved ordinary or creative look**, not a second global redesign.
+
+### 3.1 Two canvases, always named
+
+Every budget, plan and delivery decision is made between two different pixel spaces,
+and conflating them is the failure this Skill must never repeat:
+
+- **WORKING CANVAS** — the approved master's real pixels. Patch coordinates, crops and composites all live here, and an Image 2.5 master is typically near 1024-1536 on a side.
+- **DELIVERY CANVAS** — the size the file is finally delivered at. `resolution: source-width` means the source photograph's own dimensions, which for a camera file can be 4.5x the master.
+
+`delivery_scale = delivery_width / working_width` is the share of the deliverable
+that interpolation invented. `pixel_budget.py`, `plan_detail_tiles.py` and
+`delivery_gate.py` all take both explicitly, so a plan can never grade itself in the
+smaller space and then ship in the larger one.
 
 ## 4. Source and initialization gate
 
@@ -95,11 +108,11 @@ delivery_mode: preview-first
 resolution: source-width
 detail.mode: adaptive
 detail.patch_scope: head-and-face
-detail.generation_budget: balanced
+detail.generation_budget: balanced      # Studio 细节生成预算: fast | balanced | max
 detail.soft_generated_patch_budget: 3
 detail.hard_generated_patch_ceiling: 6
 detail.max_generated_patches: 6
-detail.planner: adaptive-value-merge-v2.2
+detail.planner: adaptive-value-merge-v2.4
 detail.mask_mode: lightweight
 batch.consistency: balanced
 output_format: jpg
@@ -135,7 +148,7 @@ Every job gets its own directory and immutable source hashes. Never overwrite, m
 
 ## 6. Color policy
 
-Photo Refiner v2.2 uses **sRGB as the internal working and delivery space** because Image 2.5 does not expose an ICC/P3 contract that this Skill can rely on.
+Photo Refiner uses **sRGB as the internal working and delivery space** because Image 2.5 does not expose an ICC/P3 contract that this Skill can rely on.
 
 Normalize source pixels with:
 
@@ -164,7 +177,8 @@ python3 "$SKILL_ROOT/scripts/build_edit_prompt.py" <job.json>
 6. Record approval:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --approve-base-preview
+python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --approve-base-preview \
+  --artifact base_preview=<the-exact-image-the-user-approved>
 ```
 
 The approved base is now **LOOK MASTER**.
@@ -195,13 +209,23 @@ The face tile should normally contain full forehead, temples, cheeks, jawline, c
 Before generation run:
 
 ```bash
-python3 "$SKILL_ROOT/scripts/pixel_budget.py" \
+python3 “$SKILL_ROOT/scripts/pixel_budget.py” \
   --patch-size <WxH> \
-  --source-crop-size <WxH> \
-  --source-subject-size <WxH> \
-  --final-subject-size <WxH> \
+  --working-canvas <WxH> \
+  --delivery-canvas <WxH> \
+  --region-crop <x,y,w,h> \
+  --region-subject <x,y,w,h> \
   --region-type <face|hand|head|costume|prop|architecture|background|generic>
 ```
+
+**Both canvases are mandatory because they are different spaces.** WORKING CANVAS is
+the approved master the patch will be composited onto (usually the Image 2.5 result,
+often near 1024-1536 on a side). DELIVERY CANVAS is the size the file is finally
+delivered at (`source-width` means the source photograph's own size, which can be
+4.5x larger). Region boxes are always given in working-canvas coordinates — the
+script projects them into delivery space itself, so a plan cannot quietly grade
+itself against the smaller canvas. `delivery_scale` in the report is how much of
+the deliverable is interpolation.
 
 Default minimum effective detail ratios:
 
@@ -213,6 +237,8 @@ Default minimum effective detail ratios:
 - generic `0.50`
 
 If the budget fails, tighten the crop first. If it is already tight, request a larger patch or reduce the final local scale. Never call a large but low-information bitmap “recovered detail.”
+
+A passing budget here is what the delivery gate later checks against the real files, so the numbers you pass must be the numbers you intend to deliver.
 
 ### 8.3 Generate against both authorities
 
@@ -241,20 +267,28 @@ python3 "$SKILL_ROOT/scripts/record_patch_observation.py" <job.json> \
   --region-type <face|hand|head|costume|prop|architecture|background|generic> \
   --region-role <planner-region-role> \
   --requested-size <WxH> \
-  --source-crop-size <WxH> \
-  --final-region-size <WxH> \
+  --plan <detail-plan.json> \
   --planner-region-index <zero-based-index> \
   --attempt <generation-attempt>
 ```
 
 `record_patch_observation.py` opens the generated file itself with Pillow and writes the measured dimensions to `job.json.patch_observations[]`. The record includes requested size, actual size, file bytes/hash, region identity, normal-vs-creative detail mode, and requested-to-returned scale ratios.
 
+With `--plan` it also re-runs the Pixel Budget on the **measured** size against that
+region's real geometry and both canvases, and stores the result as
+`budget_recheck`. A patch that came back smaller than `patch_size_planned` therefore
+fails at record time instead of being composited and celebrated later. Pass the plan
+and the index together; region geometry is never retyped by hand, because a
+hand-entered size in the wrong canvas space is what let this Skill ship an
+interpolated file as recovered detail.
+
 Rules:
 
-- `requested_size` must be the dimensions actually sent to the client generation path, not merely `recommended_patch_size`.
+- `requested_size` must be the dimensions actually sent to the client generation path, not merely `patch_size_planned`.
 - `actual_size` must come from the returned image file. Never fill it from memory, documentation, API limits, or assumptions.
 - Record failed/retried generations as separate observations only when an image file was actually returned; increment `--attempt`.
-- A requested/actual mismatch is observational evidence, not an automatic failure. Pixel Budget and visual quality gates decide whether the patch remains useful.
+- A requested/actual mismatch is observational evidence; the `budget_recheck` verdict, not the mismatch itself, decides whether the patch remains usable.
+- When `budget_recheck.accepted` is false, do not blend that patch; retry once at the planned size, then report the region as unrecovered.
 - `original-assembly` and other jobs with `detail.mode = not-applicable` must not record local recovery patches.
 
 After several local tests, summarize observed client behavior without claiming a platform limit:
@@ -267,10 +301,17 @@ The summary reports requested→actual mappings, actual sizes grouped by normal/
 
 ## 8A. Adaptive tile planning and generation budgets
 
-Before local generation, v2.2 plans coarse detail regions with:
+Before local generation, plan coarse detail regions with the planner. Always pass
+both canvases plus the patch size this runtime has actually been observed to return
+(from `summarize_patch_observations.py` once a few jobs exist; otherwise the
+generator's documented maximum):
 
 ```bash
-python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" --image <look-master-or-source> ...
+python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
+  --image <look-master-or-source> \
+  --delivery-canvas <WxH> \
+  --observed-patch-size <WxH> \
+  --detail-budget <fast|balanced|max>
 ```
 
 When the visual analysis pass has identified the subject and important regions,
@@ -280,15 +321,77 @@ pass its result through the formal handoff contract:
 python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
   --image <look-master-or-source> \
   --vision-analysis <vision-analysis.json> \
+  --delivery-canvas <WxH> \
+  --observed-patch-size <WxH> \
   --detail-budget balanced
 
 # eligible single-source direct-effect creative work:
 python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
   --image <approved-creative-look-master> \
   --vision-analysis <vision-analysis.json> \
+  --delivery-canvas <WxH> \
+  --observed-patch-size <WxH> \
   --detail-budget balanced \
   --recovery-profile creative-safe
 ```
+
+The planner measures every candidate region in **delivery space**. Regions that
+cannot carry enough genuine detail at the requested delivery size are dropped
+before any generation and listed in `regions_dropped_for_budget`, while
+`max_native_delivery_scale` reports how large a delivery the kept patches could
+honestly serve. Planning an enlarged delivery without `--observed-patch-size` is
+refused: that omission is exactly how doomed patches get requested, generated,
+"accepted" and then stretched. An empty `regions` list is a valid plan — report the
+limit instead of burning generations.
+
+Each kept region carries `patch_size_planned`, already fitted to the observed return
+cap at that region's own aspect. Request exactly that size from the generator.
+
+### 8A.1 Routing by what the evidence can carry
+
+`delivery_feasibility.verdict` decides the route, so a wide delivery never quietly
+degrades into an interpolated file:
+
+- `native` — the requested delivery is inside what the planned patches can carry.
+  Proceed with the few broad patches as usual.
+- `needs-tiling` — the subject is too large for any single patch at this size. The
+  plan reports `max_honest_delivery_width` (the widest honest delivery for this
+  composition) and `tiling_requirement` with the tile count and
+  `estimated_generation_calls`. **Ask the user before proceeding**, quoting
+  `tiling_requirement.consent_prompt` verbatim: continue with the tile-redraw chain
+  at the requested size, or deliver at the honest width instead. Never silently
+  generate a few oversized patches, and never report an empty region list as success.
+
+The ceiling is a property of the composition, not of the toolchain: because the ratio
+is patch pixels over the region's delivered footprint, a half-frame subject at
+4672px wide needs tens of tiles, while the same subject delivered near the honest
+width needs two or three.
+
+### 8A.2 Tile execution plan after consent
+
+When the user accepts the tiling route, expand the count into concrete boxes. Tile the
+canvas that is actually being redrawn (usually the raised master at delivery size), and
+hand the plan to the tiler so it can rescale region boxes:
+
+```bash
+python3 "$SKILL_ROOT/scripts/plan_tile_redraw.py" \
+  --image <redraw-canvas.png> \
+  --observed-patch-size <WxH> \
+  --detail-plan <detail-plan.json> \
+  --output <tile-plan.json>
+```
+
+Use `--full-canvas` instead when the whole frame is being re-rendered, and
+`--region-box x,y,w,h` for an explicit area.
+
+The tiler cuts each tile at `observed cap / region threshold`, generates tiles for the
+strictest region type first, drops any tile already fully covered by an equal or
+finer neighbour, and fails (exit 2) if any requested area is left uncovered. Read
+`tile_count` as the real cost — it is lower than `tiling_requirement.tile_count`,
+which adds per-region boxes that overlap. Then for each tile in `tiles[]`: crop it
+from the reference canvas, generate at exactly `requested_size`, record the observed
+return with `record_patch_observation.py`, and blend in `blend_sequence` order so face
+tiles land last.
 
 The contract is documented in `references/vision-analysis-schema.md`. It accepts pixel or normalized boxes for the subject, face, hands, and props, plus optional `portrait_extent` and `detail_complexity` hints. The planner infers portrait extent from face-to-subject scale when the hint is omitted. The Vision pass remains responsible for detection; the planner remains responsible for value scoring, merging, and generation budgets. Manual box flags remain backward-compatible and override matching Vision fields.
 
@@ -349,7 +452,7 @@ Passing registration is **not** enough. Perform a separate visual SOURCE MASTER 
 
 ### Lightweight blend masks
 
-v2.2 may build an optional **lightweight geometric blend mask** with:
+An optional **lightweight geometric blend mask** may be built with:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/build_blend_mask.py" <patch-or-target> <mask.png> --region-type <type> [--focus-box x,y,w,h]
@@ -397,7 +500,7 @@ Reject regardless of numeric score for changed identity, face shape, feature spa
 
 Do not invent missing anatomy or scene content merely to complete a crop. If the source itself cuts off a chin/hand/object, preserve the approved LOOK MASTER and report the limitation.
 
-Face-embedding backends may be added as optional evidence later, but v2.2 does not require a heavyweight identity model. When source/candidate landmarks are available, run `$SKILL_ROOT/scripts/landmark_identity_gate.py` before accepting an identity-sensitive face patch. It similarity-aligns the landmark sets and rejects proportion/structure drift. This gate is supplementary; visual identity review remains required.
+Face-embedding backends may be added as optional evidence later, but this Skill does not require a heavyweight identity model. When source/candidate landmarks are available, run `$SKILL_ROOT/scripts/landmark_identity_gate.py` before accepting an identity-sensitive face patch. It similarity-aligns the landmark sets and rejects proportion/structure drift. This gate is supplementary; visual identity review remains required.
 
 ## 11. Batch consistency
 
@@ -421,27 +524,90 @@ python3 "$SKILL_ROOT/scripts/resize_output.py" <accepted> <final.jpg> --size <Wx
 
 Aspect-ratio mismatch rejects by default. Use `--fit cover` or `contain` only when confirmed; use `stretch` only on explicit request. Generative outpainting happens before deterministic resize.
 
+### 12.1 The delivery gate is mandatory
+
+`resize_output.py` reports the `scale` it applied. Enlarging the accepted composite
+by more than 1.05x is interpolation, not recovered detail, and the job cannot reach
+`completed` that way. Before requesting `--status completed`, run the gate on the
+real files:
+
+```bash
+python3 "$SKILL_ROOT/scripts/delivery_gate.py" <job.json> \
+  --master <accepted-composite> \
+  --final <delivered-file> \
+  --plan <detail-plan.json>
+```
+
+Exit 3 means the delivery is rejected. The report has two independent verdicts,
+because either one alone can be fooled:
+
+- `geometry` — compares the delivered size against **the image the user approved**
+  (`job.approved_preview`), raised only by recorded `adds_information: true` upscale
+  passes. Inflating a preview with Lanczos and passing it as `--master` therefore does
+  not help: an unrecorded or information-free pass raises nothing.
+- `budget` — fails when the plan dropped regions for the requested size, when
+  `delivery_feasibility.verdict` is `needs-tiling`, or when any blended patch has
+  `budget_recheck.accepted: false`. This is the check that catches a large subject at
+  a large delivery size even when the geometry looks reasonable.
+
+`required_action` then says what to do instead: raise the canvas with a real engine,
+deliver at or below `max_honest_delivery_width`, or switch to the tile-redraw chain.
+
+The gate also writes `preview_vs_final_diff.png` in the job directory: the approved
+preview resized into delivery space minus the delivered file, amplified 4x. Show it
+to the user whenever `diff.changed_pixel_share` is not negligible — "approved equals
+delivered" must be inspectable, not asserted.
+
+The gate binds to the measured size and hash of both files, so editing either one
+afterwards makes the stored verdict stale and `update_job.py` refuses it.
+
 Do not describe a resized Image 2.5 base as native high-resolution output. Report remaining non-native-upscaling areas honestly.
 
 Final report should include:
 
 - final path, dimensions, format, and size
+- `delivery_gate.delivery_scale` and verdict
 - selected preset/custom prompt and semantic style level
 - whether LOOK MASTER was explicitly approved
-- detail regions accepted/rejected
+- detail regions accepted/rejected, including any `regions_dropped_for_budget`
 - Pixel Budget ratios
 - registration model/metrics and retries
 - any identity, anatomy, texture, seam, or non-native-upscaling limitations
 
 ## 13. State discipline
 
-Use `update_job.py` for accepted state transitions:
+Advance every stage with `update_job.py --status`; that flag is the only way the
+ledger moves, and each accepted artifact is hashed into `job.json`:
+
+```bash
+python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --status prepared
+python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --status base_generated \
+  --artifact base_preview=<generated-base.png>
+python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --approve-base-preview --artifact base_preview=<approved-base.png>
+python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --status details_processed \
+  --artifact accepted_composite=<final-composite.png>
+python3 "$SKILL_ROOT/scripts/delivery_gate.py" <job.json> --master <accepted-composite> --final <delivered-file> \
+  --plan <detail-plan.json>
+python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --status completed \
+  --artifact final_jpg=<delivered-file>
+```
 
 ```text
 initialized → prepared → base_generated → details_processed → completed
+```
 
 `hd-master` creative chains insert `creative_generated` between `details_processed` and `completed`, gated by `--approve-creative-preview` after the user approves the creative draft; skipping it, or jumping `details_processed` → `completed`, is rejected by `update_job.py`.
+
+Batch jobs gate on the master frame instead of a base preview, and both flags are
+required together:
+
+```bash
+python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --approve-master --master-frame <job-dir/approved-master.png>
 ```
+
+Extraction of the exact LOOK MASTER / SOURCE MASTER crops for a region uses
+`crop_tile.py` (`--face-safe` keeps the forehead/jaw/chin margins §8.1 requires);
+`resolve_prompt.py` prints the frozen brief for a preset without starting a job.
 
 A `base-only` job may go directly from `base_generated` to `completed` after its required approval. Record `failed` only for a terminal failure, not for an optional tile rejection when the clean LOOK MASTER remains deliverable.
 

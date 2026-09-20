@@ -13,6 +13,28 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = SKILL_ROOT / "references" / "starryear" / "catalog.json"
 
 
+def write_approved_preview(job_json: Path, name="approved-preview.png", size=(32, 48)) -> Path:
+    """Approvals must bind the exact image the user was shown."""
+    path = job_json.parent / name
+    Image.new("RGB", size, (10, 20, 30)).save(path)
+    return path
+
+
+def pass_delivery_gate(job_json: Path, size=(32, 48)):
+    """Satisfy the delivery gate at native scale so these lifecycle tests keep
+    asserting the state machine instead of re-testing the resolution contract."""
+    job_dir = job_json.parent
+    master = job_dir / "gate-master.png"
+    final = job_dir / "gate-final.png"
+    Image.new("RGB", size, "white").save(master)
+    Image.new("RGB", size, "white").save(final)
+    subprocess.run(
+        [sys.executable, str(SKILL_ROOT / "scripts" / "delivery_gate.py"), str(job_json),
+         "--master", str(master), "--final", str(final)],
+        check=True, capture_output=True, text=True,
+    )
+
+
 class StarryearCreativeTranslationTests(unittest.TestCase):
     def test_catalog_paths_and_previews_are_complete(self):
         catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
@@ -242,7 +264,9 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             updater = [sys.executable, str(SKILL_ROOT / "scripts" / "update_job.py"), str(job)]
             subprocess.run(updater + ["--status", "prepared"], check=True, capture_output=True, text=True)
             subprocess.run(updater + ["--status", "base_generated"], check=True, capture_output=True, text=True)
-            subprocess.run(updater + ["--approve-base-preview"], check=True, capture_output=True, text=True)
+            subprocess.run(updater + ["--approve-base-preview", "--artifact",
+                                      f"base_preview={write_approved_preview(job)}"],
+                         check=True, capture_output=True, text=True)
             subprocess.run(updater + ["--status", "details_processed"], check=True, capture_output=True, text=True)
             skipped = subprocess.run(updater + ["--status", "completed"], capture_output=True, text=True)
             self.assertNotEqual(skipped.returncode, 0)
@@ -251,7 +275,10 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             unapproved = subprocess.run(updater + ["--status", "completed"], capture_output=True, text=True)
             self.assertNotEqual(unapproved.returncode, 0)
             self.assertIn("Approve the creative draft", unapproved.stderr)
-            subprocess.run(updater + ["--approve-creative-preview"], check=True, capture_output=True, text=True)
+            subprocess.run(updater + ["--approve-creative-preview", "--artifact",
+                                      f"creative_preview={write_approved_preview(job, 'creative-draft.png')}"],
+                         check=True, capture_output=True, text=True)
+            pass_delivery_gate(job)
             subprocess.run(updater + ["--status", "completed"], check=True, capture_output=True, text=True)
             m = json.loads(job.read_text(encoding="utf-8"))
             self.assertEqual(m["status"], "completed")
@@ -293,7 +320,10 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             updater = [sys.executable, str(SKILL_ROOT / "scripts" / "update_job.py"), str(job_path)]
             subprocess.run(updater + ["--status", "prepared"], check=True, capture_output=True, text=True)
             subprocess.run(updater + ["--status", "base_generated"], check=True, capture_output=True, text=True)
-            subprocess.run(updater + ["--approve-base-preview"], check=True, capture_output=True, text=True)
+            subprocess.run(updater + ["--approve-base-preview", "--artifact",
+                                      f"base_preview={write_approved_preview(job_path, size=(24, 32))}"],
+                         check=True, capture_output=True, text=True)
+            pass_delivery_gate(job_path, size=(24, 32))
             subprocess.run(updater + ["--status", "completed"], check=True, capture_output=True, text=True)
             manifest = json.loads(job_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest["workflow"], "batch")

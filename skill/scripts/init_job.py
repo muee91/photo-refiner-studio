@@ -6,6 +6,18 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from job_contract import (
+    PIXEL_BUDGET_THRESHOLDS,
+    RELEASE_VERSION,
+    PLANNER_CREATIVE_SAFE,
+    PLANNER_NORMAL,
+    PORTRAIT_EXTENTS,
+    SettingError,
+    creative_safe_budget,
+    creative_safe_ceiling,
+    normal_budget,
+    validated_panel_settings,
+)
 from resolve_prompt import resolve_prompt
 
 
@@ -207,13 +219,18 @@ def main() -> None:
     args = parser.parse_args()
 
     cli_detail_budget = args.detail_budget
+    settings: dict = {}
     confirmation = None
     if args.confirmation_file:
         confirmation = load_confirmation(args.confirmation_file)
         ui_config = confirmation["config"]
-        args.workflow = ui_config["workflow"]
+        try:
+            settings = validated_panel_settings(ui_config)
+        except SettingError as exc:
+            raise SystemExit(str(exc)) from exc
+        args.workflow = settings["workflow"]
         args.creative_recipe = ui_config.get("creativeRecipe", "none")
-        args.creative_assembly_mode = ui_config.get("creativeAssemblyMode", "direct-effect")
+        args.creative_assembly_mode = settings["creative_assembly_mode"] or "direct-effect"
         # The panel no longer carries a two-stage control; the choice is
         # offered conversationally, so an explicit CLI flag must survive a
         # confirmation whose config predates or omits the field.
@@ -221,19 +238,19 @@ def main() -> None:
         args.creative_hd_chain = args.creative_hd_chain or bool(ui_config.get("creativeHdChain", False))
         args.creative_upscale = args.creative_upscale or bool(ui_config.get("creativeUpscale", False))
         args.preset = ui_config["preset"]
-        args.custom_prompt = ui_config.get("customPrompt", "")
-        args.custom_avoid = ui_config.get("customAvoid", "")
-        args.aspect_ratio = ui_config["aspectRatio"]
-        args.framing = ui_config["framing"]
-        args.resolution = ui_config["resolution"]
-        delivery_mode = ui_config["deliveryMode"]
-        ui_mode = ui_config.get("uiMode", "simple")
-        args.output_format = ui_config["outputFormat"]
-        args.keep_intermediates = ui_config["keepIntermediates"]
-        args.consistency = ui_config["batch"]["consistency"]
-        args.detail_mode = ui_config["detail"]["mode"]
-        args.detail_budget = cli_detail_budget or ui_config["detail"].get("generationBudget", "balanced")
-        args.detail_regions = ui_config["detail"].get("regions", "")
+        args.custom_prompt = settings["custom_prompt"] or ""
+        args.custom_avoid = settings["custom_avoid"] or ""
+        args.aspect_ratio = settings["aspect_ratio"]
+        args.framing = settings["framing"]
+        args.resolution = settings["resolution"]
+        delivery_mode = settings["delivery_mode"]
+        ui_mode = settings["ui_mode"] or "simple"
+        args.output_format = settings["output_format"]
+        args.keep_intermediates = bool(settings["keep_intermediates"])
+        args.consistency = settings["consistency"]
+        args.detail_mode = settings["detail_mode"]
+        args.detail_budget = cli_detail_budget or settings["generation_budget"] or "balanced"
+        args.detail_regions = settings["detail_regions"] or ""
         resolved_prompt = {
             "preset": confirmation["resolvedPrompt"]["preset"],
             "label": confirmation["resolvedPrompt"]["label"],
@@ -323,12 +340,13 @@ def main() -> None:
     source_records = [
         {"path": str(item), "size": item.stat().st_size, "sha256": sha256_file(item)} for item in sources
     ]
-    budget_policy = {
-        "fast": {"soft": 1, "hard": 1},
-        "balanced": {"soft": 3, "hard": 6},
-        "max": {"soft": 5, "hard": 8},
+    normal_soft, normal_hard = normal_budget(args.detail_budget)
+    stage_budgets = {
+        extent: dict(zip(("soft", "hard"), creative_safe_budget(args.detail_budget, extent)))
+        for extent in sorted(PORTRAIT_EXTENTS)
     }
-    patch_scope = "head-and-face" if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face")
+    scene_soft, scene_hard = creative_safe_budget(args.detail_budget, "scene")
+    patch_scope = "head-and-face" if confirmation is None else (settings.get("patch_scope") or "head-and-face")
     hd_chain = (
         bool(getattr(args, "creative_hd_chain", False))
         and creative_output is not None
@@ -346,36 +364,22 @@ def main() -> None:
     normal_detail_manifest = {
         "mode": args.detail_mode,
         "generation_budget": args.detail_budget,
-        "soft_generated_patch_budget": budget_policy[args.detail_budget]["soft"],
-        "hard_generated_patch_ceiling": budget_policy[args.detail_budget]["hard"],
-        "max_generated_patches": budget_policy[args.detail_budget]["hard"],
+        "soft_generated_patch_budget": normal_soft,
+        "hard_generated_patch_ceiling": normal_hard,
+        "max_generated_patches": normal_hard,
         "adaptive_overflow": args.detail_budget != "fast",
-        "planner": "adaptive-value-merge-v2.2",
+        "planner": PLANNER_NORMAL,
         "mask_mode": "lightweight",
         "regions": detail_regions,
         "patch_scope": patch_scope,
         "head_patch": patch_scope == "head-and-face",
-        "pixel_budget_thresholds": {
-            "face": 0.85,
-            "hand": 0.75,
-            "head": 0.65,
-            "costume": 0.50,
-            "prop": 0.50,
-            "architecture": 0.50,
-            "background": 0.30,
-            "generic": 0.50,
-        },
+        "pixel_budget_thresholds": dict(PIXEL_BUDGET_THRESHOLDS),
     }
-    creative_soft_baseline = {"fast": 1, "balanced": 2, "max": 3}[args.detail_budget]
-    creative_hard_ceiling = {"fast": 2, "balanced": 5, "max": 5}[args.detail_budget]
     creative_safe_detail_manifest = {
         "mode": "creative-safe-adaptive",
         "generation_budget": args.detail_budget,
-        "soft_generated_patch_budget": creative_soft_baseline,
-        "hard_generated_patch_ceiling": creative_hard_ceiling,
-        "max_generated_patches": creative_hard_ceiling,
         "adaptive_overflow": args.detail_budget != "fast",
-        "planner": "adaptive-value-merge-v2.4-creative-safe",
+        "planner": PLANNER_CREATIVE_SAFE,
         "mask_mode": "lightweight",
         "regions": [],
         "patch_scope": "adaptive-subject",
@@ -384,21 +388,14 @@ def main() -> None:
         "background_generation": False,
         "look_authority": "CREATIVE_LOOK_MASTER",
         "identity_authority": "SOURCE_MASTER",
-        "portrait_budget_policy": {
-            "close": {"soft": 2, "hard": 3},
-            "half": {"soft": 2, "hard": 3},
-            "full": {"soft": 3, "hard": 4},
-            "complex-full": {"soft": 4, "hard": 5},
-        },
-        "scene_budget_policy": {"soft": 2, "hard": 3},
+        # The operative soft/hard ceilings depend on the portrait coverage the
+        # Vision pass reports, so the manifest carries the whole table instead of
+        # one permissive number an agent could read as permission to over-generate.
+        "portrait_budget_policy": stage_budgets,
+        "scene_budget_policy": {"soft": scene_soft, "hard": scene_hard},
+        "absolute_generated_patch_ceiling": creative_safe_ceiling(args.detail_budget),
         "pixel_budget_thresholds": {
-            "face": 0.85,
-            "hand": 0.75,
-            "head": 0.65,
-            "costume": 0.50,
-            "prop": 0.50,
-            "architecture": 0.50,
-            "generic": 0.50,
+            key: value for key, value in PIXEL_BUDGET_THRESHOLDS.items() if key != "background"
         },
         "frequency_policy": {
             "low_frequency": "creative-look-master-only",
@@ -435,7 +432,7 @@ def main() -> None:
 
     manifest = {
         "version": 2,
-        "release_version": "2.4",
+        "release_version": RELEASE_VERSION,
         "created_at": now.isoformat(),
         "confirmed_at": now.isoformat(),
         "confirmation": None

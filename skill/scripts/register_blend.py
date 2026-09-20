@@ -244,7 +244,7 @@ def main() -> None:
         print(json.dumps(report, indent=2))
         raise SystemExit(2)
 
-    # v2.2 multiband fusion: LOOK MASTER owns low frequency and most mid-frequency
+    # Multiband fusion: LOOK MASTER owns low frequency and most mid-frequency
     # appearance; the patch contributes a controlled amount of mid detail and the high
     # frequency texture. This reduces local re-grading and sharpness discontinuities.
     target_float = target.astype(np.float32)

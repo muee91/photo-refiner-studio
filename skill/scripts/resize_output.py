@@ -5,6 +5,8 @@ from pathlib import Path
 
 from PIL import Image, ImageCms, ImageOps
 
+from job_contract import MAX_HONEST_UPSCALE
+
 
 def parse_size(value: str) -> tuple[int, int]:
     try:
@@ -36,7 +38,7 @@ def main() -> None:
     parser.add_argument(
         "--icc-source",
         type=Path,
-        help="Deprecated compatibility flag. The v2.1 working/output space is sRGB; source ICC is never blindly reattached.",
+        help="Deprecated compatibility flag. The working and output space is sRGB; source ICC is never blindly reattached.",
     )
     args = parser.parse_args()
     source = args.input.expanduser().resolve()
@@ -54,7 +56,7 @@ def main() -> None:
         if not legacy.is_file():
             raise SystemExit(f"Missing ICC source: {legacy}")
         print(
-            "warning: --icc-source is deprecated; Photo Refiner v2.1 keeps the accepted composite in sRGB and will not reattach the source profile",
+            "warning: --icc-source is deprecated; the accepted composite stays in sRGB and the source profile is not reattached",
             file=sys.stderr,
         )
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -86,7 +88,17 @@ def main() -> None:
             resized.save(output, quality=args.jpeg_quality, subsampling=0, optimize=True, **save_options)
         else:
             resized.save(output, format="PNG", compress_level=4, **save_options)
-        print(f"{output} {resized.width}x{resized.height} colorspace=sRGB")
+        factor = max(resized.width / source_rgb.width, resized.height / source_rgb.height)
+        if factor > MAX_HONEST_UPSCALE:
+            print(
+                f"warning: enlarging the accepted composite by {factor:.2f}x interpolates pixels; "
+                "this is not recovered detail and the delivery gate will refuse to complete the job",
+                file=sys.stderr,
+            )
+        print(
+            f"{output} {resized.width}x{resized.height} colorspace=sRGB "
+            f"input={source_rgb.width}x{source_rgb.height} scale={factor:.4f}"
+        )
 
 
 if __name__ == "__main__":

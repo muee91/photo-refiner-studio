@@ -146,6 +146,7 @@ const DEFAULTS = {
     regions: "",
     patchScope: "head-and-face",
     headPatch: true,
+    generationBudget: "balanced",
   },
   batch: {
     consistency: "balanced",
@@ -318,6 +319,7 @@ function validateConfig(raw) {
     numberIn(config.background[key], 0, 100, `background.${key}`);
   }
   config.detail.mode = enumValue(config.detail.mode, ["base-only", "face", "adaptive", "explicit"], "detail.mode");
+  config.detail.generationBudget = enumValue(config.detail.generationBudget, ["fast", "balanced", "max"], "detail.generationBudget");
   config.detail.strength = numberIn(config.detail.strength, 0, 100, "detail.strength");
   config.detail.regions = cleanText(config.detail.regions, 1000, "detail.regions");
   config.detail.patchScope = enumValue(config.detail.patchScope, ["head-and-face", "face-only", "custom"], "detail.patchScope");

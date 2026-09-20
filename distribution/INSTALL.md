@@ -1,8 +1,12 @@
 # Photo Refiner 一次性安装
 
+发行包由 `python3 distribution/build_bundle.py` 从仓库生成（`--zip` 可一并产出可拖入聊天
+的 ZIP，`--dry-run` 只校验版本一致性）。不要手工复制目录：脚本会核对 `SKILL_VERSION`、
+`SKILL.md` 标题与 `config-schema.md` 是否一致，并写入带构建戳的插件版本。
+
 这个发行包包含两部分：
 
-- `photo-refiner/`：Photo Refiner v2.3 Skill，包含 15 个原版 Starryear 创意转译工作流与选择器缩略图；
+- `photo-refiner/`：Photo Refiner v2.4 Skill，包含 15 个原版 Starryear 创意转译工作流与选择器缩略图；
 - `photo-refiner-studio/`：负责弹出设置面板和保存确认结果的 MCP 插件。
 
 ## 拖入聊天框后的单行指令

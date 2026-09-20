@@ -12,7 +12,7 @@ downloads the Real-ESRGAN python stack and the 4x-UltraSharp weights into
   1. bundled ncnn model dir (~/.photo-refiner/upscaler, 4x-UltraSharp.param/bin)
   2. Upscayl app-bundle binary (macOS) with a compatible model
   3. realesrgan-ncnn-vulkan on PATH
-  4. python realesrgan package (installed by --install-engine)
+  4. spandrel + torch (installed by --install-engine), MPS when available
   5. Lanczos fallback — always succeeds, reported as `fallback-lanczos`
 
 Output is a JSON status line so callers can label delivery honestly.
@@ -20,17 +20,25 @@ Output is a JSON status line so callers can label delivery honestly.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
+
+from PIL import Image
+
+from job_contract import atomic_write_json
 
 UPSCALER_DIR = Path.home() / ".photo-refiner" / "upscaler"
 MODEL_NAME = "4x-UltraSharp"
 MODEL_PATH = UPSCALER_DIR / f"{MODEL_NAME}.pth"
+MODEL_DIGEST_PATH = UPSCALER_DIR / f"{MODEL_NAME}.pth.sha256"
 NCNN_DIRS = [UPSCALER_DIR, UPSCALER_DIR / "models"]
 MODEL_MIN_BYTES = 50_000_000
 MODEL_CANDIDATES = [
@@ -41,6 +49,23 @@ UPSCAYL_BINARIES = [
     Path("/Applications/Upscayl.app/Contents/Resources/resources/binaries/upscayl-bin"),
     Path.home() / "Applications/Upscayl.app/Contents/Resources/resources/binaries/upscayl-bin",
 ]
+
+
+FALLBACK_NOTE = (
+    "No AI upscaler engine installed; output is a plain Lanczos resize, not AI sharpening. "
+    "Run --install-engine to enable 4X-UltraSharp."
+)
+
+
+def _save_like(image, out: Path) -> None:
+    """Write the pixel format the output extension promises."""
+    suffix = out.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        image.save(out, "JPEG", quality=95, subsampling=0, optimize=True)
+    elif suffix == ".webp":
+        image.save(out, "WEBP", quality=95)
+    else:
+        image.save(out, "PNG")
 
 
 def _print(payload: dict) -> None:
@@ -66,8 +91,33 @@ def find_ncnn_binary() -> str | None:
     return on_path
 
 
+def cached_model_matches_digest() -> bool:
+    """False when the pinned sidecar exists and no longer matches the cached weights.
+
+    The mirrors are third party, so a cached model that changed underneath us must
+    not keep loading: the .pth is deserialized by torch, which makes it executable
+    input rather than plain data.
+    """
+    if not MODEL_DIGEST_PATH.is_file():
+        return True
+    try:
+        expected = MODEL_DIGEST_PATH.read_text(encoding="utf-8").split()[0].lower()
+    except (IndexError, OSError):
+        return False
+    digest = hashlib.sha256()
+    with MODEL_PATH.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest().lower() == expected
+
+
 def python_engine_ready() -> bool:
-    return importlib.util.find_spec("realesrgan") is not None and MODEL_PATH.is_file()
+    return (
+        importlib.util.find_spec("spandrel") is not None
+        and importlib.util.find_spec("torch") is not None
+        and MODEL_PATH.is_file()
+        and cached_model_matches_digest()
+    )
 
 
 def engine_status() -> dict:
@@ -78,6 +128,7 @@ def engine_status() -> dict:
         "ncnn_binary": find_ncnn_binary(),
         "python_engine": python_engine_ready(),
         "model_path": str(MODEL_PATH) if MODEL_PATH.is_file() else None,
+        "model_digest_matches": cached_model_matches_digest() if MODEL_PATH.is_file() else None,
         "model_candidates": MODEL_CANDIDATES,
         "upscaler_dir": str(UPSCALER_DIR),
     }
@@ -89,26 +140,78 @@ def run_ncnn(inp: Path, out: Path, scale: int, model_dir: Path, binary: str) -> 
          "-n", str(model_dir / MODEL_NAME), "-f", "png"],
         check=True, capture_output=True, timeout=1800,
     )
-    return {"engine": "4x-ultrasharp-ncnn"}
+    return {"engine": "4x-ultrasharp-ncnn", "adds_information": True}
+
+
+def _run_model(model, device, rgb_hwc, net_scale: int):
+    """One forward pass on float [0,1] HWC RGB, returning float [0,1] HWC RGB."""
+    import numpy as np
+    import torch
+
+    tensor = torch.from_numpy(np.ascontiguousarray(rgb_hwc.transpose(2, 0, 1))).unsqueeze(0).to(device)
+    with torch.no_grad():
+        output = model(tensor)
+    result = output.squeeze(0).permute(1, 2, 0).clamp_(0, 1).cpu().numpy().astype(np.float32)
+    return result
+
+
+def _enhance_tiled(model, device, rgb_hwc, net_scale: int, tile: int = 512, pad: int = 32):
+    """Tile so a 4x pass does not need gigabytes of activations on the full canvas."""
+    import numpy as np
+
+    height, width = rgb_hwc.shape[:2]
+    if max(height, width) <= tile:
+        return _run_model(model, device, rgb_hwc, net_scale)
+    canvas = np.zeros((height * net_scale, width * net_scale, 3), dtype=np.float32)
+    for y0 in range(0, height, tile):
+        y1 = min(height, y0 + tile)
+        for x0 in range(0, width, tile):
+            x1 = min(width, x0 + tile)
+            py0, px0 = max(0, y0 - pad), max(0, x0 - pad)
+            py1, px1 = min(height, y1 + pad), min(width, x1 + pad)
+            tile_out = _run_model(model, device, rgb_hwc[py0:py1, px0:px1], net_scale)
+            oy0, ox0 = (y0 - py0) * net_scale, (x0 - px0) * net_scale
+            piece = tile_out[oy0:oy0 + (y1 - y0) * net_scale, ox0:ox0 + (x1 - x0) * net_scale]
+            canvas[y0 * net_scale:y1 * net_scale, x0 * net_scale:x1 * net_scale] = piece
+    return canvas
 
 
 def run_python_engine(inp: Path, out: Path, scale: int) -> dict:
-    inference = (
-        "import sys, cv2\n"
-        "from basicsr.archs.rrdbnet import RRDBNet\n"
-        "from realesrgan import RealESRGANer\n"
-        "inp, out, scale, model_path = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]\n"
-        "model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)\n"
-        "upsampler = RealESRGANer(scale=4, model_path=model_path, tile=512, tile_pad=32, half=False)\n"
-        "image = cv2.imread(inp, cv2.IMREAD_COLOR)\n"
-        "output, _ = upsampler.enhance(image, outscale=scale)\n"
-        "cv2.imwrite(out, output)\n"
-    )
-    subprocess.run(
-        [sys.executable, "-c", inference, str(inp), str(out), str(scale), str(MODEL_PATH)],
-        check=True, capture_output=True, timeout=3600,
-    )
-    return {"engine": "4x-ultrasharp-realesrgan"}
+    """4x-UltraSharp through spandrel.
+
+    spandrel, not `realesrgan`: this checkpoint is a 24-block RRDB whose parameter
+    names (`model.N` / `.sub.N.RDB1.convK.0`) are not basicsr's RRDBNet layout, and
+    basicsr cannot build on modern Python. A hand-written architecture would load
+    with mismatched weights and produce plausible-looking mush, so the layout is
+    resolved by the loader instead of guessed here.
+    """
+    import numpy as np
+    from PIL import Image
+
+    from spandrel import ModelLoader
+    import torch
+
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    descriptor = ModelLoader(device=device).load_from_file(str(MODEL_PATH))
+    descriptor.model.eval()
+    net_scale = int(descriptor.scale)
+    with Image.open(inp) as image:
+        rgb = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    result = _enhance_tiled(descriptor.model, descriptor.device, rgb, net_scale)
+    if scale != net_scale:
+        factor = scale / net_scale
+        resized = Image.fromarray((result * 255.0).round().astype(np.uint8)).resize(
+            (round(result.shape[1] * factor), round(result.shape[0] * factor)),
+            Image.LANCZOS if factor < 1 else Image.BICUBIC,
+        )
+        result = np.asarray(resized, dtype=np.float32) / 255.0
+    _save_like(Image.fromarray((np.clip(result, 0, 1) * 255.0).round().astype(np.uint8)), out)
+    return {
+        "engine": "4x-ultrasharp-spandrel",
+        "adds_information": True,
+        "device": str(descriptor.device),
+        "architecture": type(descriptor.model).__name__,
+    }
 
 
 def run_fallback(inp: Path, out: Path, scale: int) -> dict:
@@ -118,8 +221,8 @@ def run_fallback(inp: Path, out: Path, scale: int) -> dict:
     image = image.convert("RGB").resize(
         (image.width * scale, image.height * scale), Image.LANCZOS
     )
-    image.save(out, "PNG")
-    return {"engine": "fallback-lanczos", "note": "No AI upscaler engine installed; output is a plain Lanczos resize, not AI sharpening. Run --install-engine to enable 4X-UltraSharp."}
+    _save_like(image, out)
+    return {"engine": "fallback-lanczos", "adds_information": False, "note": FALLBACK_NOTE}
 
 
 def upscale(inp: Path, out: Path, scale: int, engine: str) -> dict:
@@ -132,7 +235,7 @@ def upscale(inp: Path, out: Path, scale: int, engine: str) -> dict:
         binary = find_ncnn_binary()
         if model_dir and binary:
             return run_ncnn(inp, out, scale, model_dir, binary)
-    if engine in {"auto", "realesrgan"} and python_engine_ready():
+    if engine in {"auto", "spandrel"} and python_engine_ready():
         return run_python_engine(inp, out, scale)
     if engine == "fallback":
         return run_fallback(inp, out, scale)
@@ -146,27 +249,31 @@ def install_engine() -> dict:
     installed, failures = [], []
     try:
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "realesrgan==0.3.0"],
+            [sys.executable, "-m", "pip", "install", "--quiet", "spandrel"],
             check=True, capture_output=True, timeout=1800,
         )
-        installed.append("realesrgan (python engine)")
+        installed.append("spandrel + torch (python engine)")
     except subprocess.CalledProcessError as exc:
         failures.append(f"pip realesrgan failed: {exc.stderr[-400:] if exc.stderr else exc}")
     model_done = False
     for url in MODEL_CANDIDATES:
-        target = MODEL_PATH.with_suffix(".part")
+        descriptor, temp_name = tempfile.mkstemp(prefix=f"{MODEL_NAME}.", suffix=".part", dir=UPSCALER_DIR)
+        target = Path(temp_name)
         try:
-            with urllib.request.urlopen(url, timeout=120) as response, target.open("wb") as handle:
+            digest = hashlib.sha256()
+            with os.fdopen(descriptor, "wb") as handle, urllib.request.urlopen(url, timeout=120) as response:
                 total = 0
                 while chunk := response.read(1 << 20):
                     total += len(chunk)
+                    digest.update(chunk)
                     handle.write(chunk)
                     if total > 400_000_000:
                         raise ValueError("model download exceeds expected size")
             if target.stat().st_size < MODEL_MIN_BYTES:
                 raise ValueError(f"downloaded model too small ({target.stat().st_size} bytes)")
             target.replace(MODEL_PATH)
-            installed.append(f"{MODEL_NAME}.pth ({url})")
+            MODEL_DIGEST_PATH.write_text(f"{digest.hexdigest()}  {MODEL_NAME}.pth\n", encoding="utf-8")
+            installed.append(f"{MODEL_NAME}.pth ({url}, sha256 {digest.hexdigest()[:16]})")
             model_done = True
             break
         except Exception as exc:
@@ -183,12 +290,24 @@ def install_engine() -> dict:
     return result
 
 
+def record_upscale_pass(job_path: Path, entry: dict) -> None:
+    """The delivery gate counts only recorded information-adding passes, so an
+    upscale that is never recorded silently disappears from the evidence trail."""
+    job_path = job_path.expanduser().resolve()
+    if not job_path.is_file() or job_path.name != "job.json":
+        raise SystemExit(f"Missing job manifest: {job_path}")
+    data = json.loads(job_path.read_text(encoding="utf-8"))
+    data.setdefault("upscale_passes", []).append(entry)
+    atomic_write_json(job_path, data)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Upscale an image with 4X-UltraSharp (bundled engine) or an honest Lanczos fallback.")
     parser.add_argument("--input", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--scale", type=int, default=4)
-    parser.add_argument("--engine", choices=["auto", "ncnn", "realesrgan", "fallback"], default="auto")
+    parser.add_argument("--engine", choices=["auto", "ncnn", "spandrel", "fallback"], default="auto")
+    parser.add_argument("--job", type=Path, help="job.json to record this pass in; the delivery gate only counts recorded information-adding passes")
     parser.add_argument("--install-engine", action="store_true", help="Install the self-contained 4X-UltraSharp engine (no ComfyUI needed)")
     parser.add_argument("--status", action="store_true", help="Print detected engines as JSON")
     args = parser.parse_args()
@@ -200,8 +319,25 @@ def main() -> None:
         return
     if not args.input or not args.output:
         parser.error("--input and --output are required unless --status or --install-engine is used")
+    source = args.input.expanduser().resolve()
+    target = args.output.expanduser().resolve()
     result = upscale(args.input, args.output, max(1, min(8, args.scale)), args.engine)
-    result.update({"ok": True, "output": str(Path(args.output).expanduser().resolve()), "scale": args.scale})
+    with Image.open(source) as raw:
+        from_size = [raw.width, raw.height]
+    with Image.open(target) as made:
+        to_size = [made.width, made.height]
+    result.update({
+        "ok": True,
+        "output": str(target),
+        "scale": args.scale,
+        "from": from_size,
+        "to": to_size,
+        "adds_information": bool(result.get("adds_information", True)),
+    })
+    if args.job:
+        record_upscale_pass(args.job, {
+            key: result[key] for key in ("engine", "adds_information", "from", "to")
+        })
     _print(result)
 
 

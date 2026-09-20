@@ -1,0 +1,883 @@
+"""v2.4 delivery contract: the working canvas and the delivery canvas are different
+spaces, and every budget/upscale decision must be measured in the delivery space.
+
+Regression origin: real job DSC02304 delivered a 1024x1536 composite stretched to
+4672x7008 while the Pixel Budget gate reported "accept" for every patch.
+"""
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from PIL import Image
+
+
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = SKILL_ROOT / "scripts"
+
+# Measured in the failing job: source 4672x7008, approved creative preview 1024x1536,
+# face crop 245x370 with a 205x276 subject box, patch returned 1254x1254.
+REAL_WORKING_CANVAS = (1024, 1536)
+REAL_DELIVERY_CANVAS = (4672, 7008)
+REAL_FACE_CROP = "472,382,245,370"
+REAL_FACE_SUBJECT = "492,415,205,276"
+REAL_PATCH = (1254, 1254)
+
+
+def panel_config(**overrides):
+    """A settings-panel shaped config, mirroring plugin/mcp/server.cjs DEFAULTS."""
+    config = {
+        "sourceCount": 1,
+        "uiMode": "simple",
+        "workflow": "auto",
+        "creativeRecipe": "none",
+        "creativeAssemblyMode": "direct-effect",
+        "creativeFromBase": False,
+        "creativeHdChain": False,
+        "creativeUpscale": True,
+        "preset": "warm-gold-ancient",
+        "customPrompt": "",
+        "customAvoid": "",
+        "promptFavorite": False,
+        "aspectRatio": "original",
+        "framing": "preserve",
+        "resolution": "source-width",
+        "deliveryMode": "preview-first",
+        "outputFormat": "jpg",
+        "keepIntermediates": False,
+        "styleStrength": 68,
+        "global": {
+            "exposure": 0, "contrast": 0, "highlights": 0, "shadows": 0, "temperature": 0,
+            "tint": 0, "saturation": 0, "vibrance": 0, "clarity": 0, "dehaze": 0,
+            "denoise": 15, "sharpen": 15, "grain": 10,
+        },
+        "portrait": {"enabled": False},
+        "body": {"enabled": False},
+        "clothing": {"wrinkleReduction": 0, "preserveTexture": 90},
+        "background": {"cleanup": 0},
+        "detail": {
+            "mode": "adaptive",
+            "strength": 60,
+            "regions": "",
+            "patchScope": "head-and-face",
+            "headPatch": True,
+            "generationBudget": "balanced",
+        },
+        "batch": {"consistency": "balanced"},
+    }
+    config.update(overrides)
+    return config
+
+
+def write_confirmation(home: Path, config: dict) -> Path:
+    resolved_prompt = {
+        "preset": config["preset"],
+        "label": "Warm Gold Ancient",
+        "summary": "test",
+        "prompt": "muted amber sunset and lantern light",
+        "avoid": "orange skin",
+        "defaultStrength": config["styleStrength"],
+        "presetVersion": 2,
+    }
+    record = {
+        "confirmationId": "cid-v24",
+        "confirmedAt": "2026-09-21T00:00:00.000Z",
+        "confirmedBy": "photo-refiner-studio",
+        "config": config,
+        "executionMode": "photo-refinement",
+        "resolvedCreativeRecipe": None,
+        "creativeOutput": None,
+        "resolvedPrompt": resolved_prompt,
+        "promptHash": hashlib.sha256(
+            json.dumps(resolved_prompt, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+    directory = home / ".codex" / "photo-refiner" / "confirmed"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "cid-v24.json"
+    path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return path
+
+
+class ConfirmationFieldValidationTests(unittest.TestCase):
+    """The confirmation file is treated as authoritative by SKILL.md, so every field it
+    supplies must pass the same validators the command line enforces."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self._tmp.name) / "home"
+        self.work = Path(self._tmp.name) / "work"
+        self.work.mkdir(parents=True)
+        self.source = self.work / "src.jpg"
+        Image.new("RGB", (4672, 7008), (90, 120, 150)).save(self.source)
+        self.env = {**os.environ, "HOME": str(self.home)}
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def init_with(self, config):
+        confirmation = write_confirmation(self.home, config)
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS / "init_job.py"), str(self.source),
+             "--confirmation-file", str(confirmation)],
+            capture_output=True, text=True, env=self.env,
+        )
+
+    def assert_rejects(self, config, field_label):
+        result = self.init_with(config)
+        self.assertNotEqual(result.returncode, 0, f"{field_label} should not be accepted")
+        combined = result.stdout + result.stderr
+        self.assertNotIn("Traceback", combined, f"{field_label} must fail cleanly, not crash")
+        self.assertIn(field_label, combined, f"{field_label} should be named in the error")
+
+    def test_rejects_output_format_outside_the_supported_set(self):
+        config = panel_config(outputFormat="webp")
+        self.assert_rejects(config, "output_format")
+
+    def test_rejects_unknown_detail_mode(self):
+        config = panel_config()
+        config["detail"]["mode"] = "teleport"
+        self.assert_rejects(config, "detail.mode")
+
+    def test_rejects_unknown_batch_consistency(self):
+        config = panel_config()
+        config["batch"]["consistency"] = "loose"
+        self.assert_rejects(config, "batch.consistency")
+
+    def test_rejects_unknown_generation_budget_without_traceback(self):
+        config = panel_config()
+        config["detail"]["generationBudget"] = "ultra"
+        self.assert_rejects(config, "generationBudget")
+
+    def test_accepts_a_wellformed_panel_confirmation(self):
+        result = self.init_with(panel_config())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        job_path = Path(result.stdout.strip().splitlines()[-1]).joinpath("job.json")
+        job = json.loads(job_path.read_text(encoding="utf-8"))
+        self.assertEqual(job["output_format"], "jpg")
+        self.assertEqual(job["detail"]["generation_budget"], "balanced")
+
+    def test_panel_generation_budget_reaches_the_manifest(self):
+        # fast/max were unreachable from Studio: the panel carried no such field.
+        config = panel_config()
+        config["detail"]["generationBudget"] = "max"
+        result = self.init_with(config)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        job = json.loads(Path(result.stdout.strip().splitlines()[-1]).joinpath("job.json").read_text(encoding="utf-8"))
+        self.assertEqual(job["detail"]["generation_budget"], "max")
+        self.assertEqual(job["detail"]["soft_generated_patch_budget"], 5)
+        self.assertEqual(job["detail"]["hard_generated_patch_ceiling"], 8)
+
+
+class BudgetTableSingleSourceTests(unittest.TestCase):
+    """Soft/hard ceilings were stated three times and already disagreed: init_job wrote
+    balanced creative-safe as soft 2 / hard 5 while the planner narrows a close portrait
+    to 2 / 3, so job.json overstated what an agent may generate."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = Path(self._tmp.name)
+        self.master = tmp / "master.png"
+        Image.new("RGB", (1024, 1536), (90, 120, 150)).save(self.master)
+        self.analysis = tmp / "vision.json"
+        self.analysis.write_text(json.dumps({
+            "schema_version": 1,
+            "coordinate_space": "pixel",
+            "subject_type": "classical-portrait",
+            "portrait_extent": "close",
+            "detail_complexity": "normal",
+            "regions": {
+                "subject": {"x": 100, "y": 100, "width": 800, "height": 1300},
+                "face": {"x": 472, "y": 382, "width": 245, "height": 370},
+            },
+        }), encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def plan(self, profile):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "plan_detail_tiles.py"), "--image", str(self.master),
+             "--vision-analysis", str(self.analysis), "--detail-budget", "balanced",
+             "--recovery-profile", profile],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return json.loads(result.stdout)
+
+    def test_normal_budgets_match_between_planner_and_job_contract(self):
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import job_contract
+        finally:
+            sys.path.pop(0)
+        for budget in ("fast", "balanced", "max"):
+            self.assertEqual(
+                (job_contract.BUDGET_POLICY[budget]["soft"], job_contract.BUDGET_POLICY[budget]["hard"]),
+                job_contract.normal_budget(budget),
+                f"normal {budget} budget must have one source",
+            )
+
+    def test_creative_safe_manifest_never_overstates_the_operative_ceiling(self):
+        plan = self.plan("creative-safe")
+        self.assertEqual((plan["soft_generated_patch_budget"], plan["hard_generated_patch_ceiling"]), (2, 3))
+        ceiling = plan["hard_generated_patch_ceiling"]
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import job_contract
+        finally:
+            sys.path.pop(0)
+        # The manifest must expose the stage table rather than a single permissive number.
+        self.assertEqual(job_contract.creative_safe_budget("balanced", "close"), (2, 3))
+        self.assertEqual(job_contract.creative_safe_budget("balanced", "complex-full"), (4, 5))
+        self.assertLessEqual(ceiling, job_contract.creative_safe_ceiling("balanced"))
+
+    def test_init_job_creative_manifest_uses_the_stage_table(self):
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import job_contract
+        finally:
+            sys.path.pop(0)
+        source = self.master.with_suffix(".jpg")
+        Image.new("RGB", (4672, 7008), (90, 120, 150)).save(source)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "init_job.py"), str(source),
+             "--preset", "warm-gold-ancient", "--creative-recipe", "s015-diffuse-gradient",
+             "--creative-assembly-mode", "direct-effect", "--confirmed"],
+            capture_output=True, text=True, cwd=self._tmp.name,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        job = json.loads(Path(result.stdout.strip().splitlines()[-1]).joinpath("job.json").read_text(encoding="utf-8"))
+        detail = job["detail"]
+        self.assertEqual(detail["mode"], "creative-safe-adaptive")
+        self.assertNotIn("hard_generated_patch_ceiling", detail,
+                         "a flat creative ceiling invites over-generation; the stage table is authoritative")
+        self.assertEqual(detail["portrait_budget_policy"]["close"], dict(zip(("soft", "hard"), job_contract.creative_safe_budget("balanced", "close"))))
+        self.assertEqual(detail["portrait_budget_policy"]["complex-full"], dict(zip(("soft", "hard"), job_contract.creative_safe_budget("balanced", "complex-full"))))
+        self.assertEqual(detail["absolute_generated_patch_ceiling"], job_contract.creative_safe_ceiling("balanced"))
+
+
+class PixelBudgetCanvasSpaceTests(unittest.TestCase):
+    def run_budget(self, *args):
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS / "pixel_budget.py"), *args],
+            capture_output=True, text=True,
+        )
+
+    def test_working_canvas_numbers_cannot_be_mistaken_for_delivery_numbers(self):
+        result = self.run_budget(
+            "--patch-size", f"{REAL_PATCH[0]}x{REAL_PATCH[1]}",
+            "--working-canvas", f"{REAL_WORKING_CANVAS[0]}x{REAL_WORKING_CANVAS[1]}",
+            "--delivery-canvas", f"{REAL_DELIVERY_CANVAS[0]}x{REAL_DELIVERY_CANVAS[1]}",
+            "--region-crop", REAL_FACE_CROP,
+            "--region-subject", REAL_FACE_SUBJECT,
+            "--region-type", "face",
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        report = json.loads(result.stdout)
+        self.assertFalse(report["accepted"])
+        self.assertLess(report["detail_ratio"]["minimum"], report["threshold"])
+        self.assertAlmostEqual(report["delivery_scale"], 4.5625, places=4)
+
+    def test_same_numbers_at_scale_one_are_accepted(self):
+        result = self.run_budget(
+            "--patch-size", f"{REAL_PATCH[0]}x{REAL_PATCH[1]}",
+            "--working-canvas", f"{REAL_WORKING_CANVAS[0]}x{REAL_WORKING_CANVAS[1]}",
+            "--delivery-canvas", f"{REAL_WORKING_CANVAS[0]}x{REAL_WORKING_CANVAS[1]}",
+            "--region-crop", REAL_FACE_CROP,
+            "--region-subject", REAL_FACE_SUBJECT,
+            "--region-type", "face",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(json.loads(result.stdout)["accepted"])
+
+    def test_rejects_mismatched_canvas_aspect(self):
+        result = self.run_budget(
+            "--patch-size", "1254x1254",
+            "--working-canvas", "1024x1536",
+            "--delivery-canvas", "4672x4672",
+            "--region-crop", REAL_FACE_CROP,
+            "--region-subject", REAL_FACE_SUBJECT,
+            "--region-type", "face",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("aspect", result.stdout + result.stderr)
+
+
+class DeliveryGateTests(unittest.TestCase):
+    """The delivered file may not be a larger copy of a smaller approved image.
+
+    Regression origin: DSC02304 recorded "Final sRGB JPG delivered at source
+    dimensions" for a 4672x7008 file that was a 1024x1536 composite stretched by
+    resize_output.py, and reached status completed with no gate objecting.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.source = self.root / "source.jpg"
+        Image.new("RGB", REAL_DELIVERY_CANVAS, (90, 120, 150)).save(self.source, quality=95)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_script(self, script, *args, ok=True):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / script), *[str(a) for a in args]],
+            capture_output=True, text=True,
+        )
+        if ok:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def start_job(self):
+        result = self.run_script(
+            "init_job.py", self.source, "--preset", "warm-gold-ancient", "--confirmed",
+            "--output-root", self.root / "jobs",
+        )
+        return Path(result.stdout.strip().splitlines()[-1])
+
+    def drive_to_details_processed(self, job_dir: Path, master_size):
+        master = job_dir / "master.png"
+        Image.new("RGB", master_size, (90, 120, 150)).save(master)
+        self.run_script("update_job.py", job_dir / "job.json", "--status", "prepared")
+        self.run_script("update_job.py", job_dir / "job.json", "--status", "base_generated")
+        self.run_script("update_job.py", job_dir / "job.json", "--approve-base-preview",
+                        "--artifact", f"base_preview={master}")
+        self.run_script("update_job.py", job_dir / "job.json", "--status", "details_processed")
+        return master
+
+    def test_completed_is_refused_when_the_final_is_an_upscaled_master(self):
+        job_dir = self.start_job()
+        master = self.drive_to_details_processed(job_dir, REAL_WORKING_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).resize(REAL_DELIVERY_CANVAS, Image.LANCZOS).save(final, quality=95)
+        self.run_script(
+            "update_job.py", job_dir / "job.json", "--artifact", f"final_jpg={final}",
+        )
+        gate = self.run_script(
+            "delivery_gate.py", job_dir / "job.json", "--master", master, "--final", final,
+            ok=False,
+        )
+        self.assertEqual(gate.returncode, 3, gate.stdout + gate.stderr)
+        report = json.loads(gate.stdout)
+        self.assertEqual(report["verdict"], "fail")
+        self.assertAlmostEqual(report["delivery_scale"], 4.5625, places=4)
+        self.assertIn("upscale_image.py", report["required_action"])
+
+        refused = self.run_script(
+            "update_job.py", job_dir / "job.json", "--status", "completed", ok=False,
+        )
+        combined = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("delivery gate", combined)
+        self.assertEqual(json.loads((job_dir / "job.json").read_text())["status"], "details_processed")
+
+    def test_completed_is_allowed_when_delivery_is_native_scale(self):
+        job_dir = self.start_job()
+        master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).save(final, quality=95)
+        self.run_script("update_job.py", job_dir / "job.json", "--artifact", f"final_jpg={final}")
+        gate = self.run_script("delivery_gate.py", job_dir / "job.json", "--master", master, "--final", final)
+        self.assertEqual(json.loads(gate.stdout)["verdict"], "pass")
+        self.run_script("update_job.py", job_dir / "job.json", "--status", "completed")
+        self.assertEqual(json.loads((job_dir / "job.json").read_text())["status"], "completed")
+
+    def test_completed_is_refused_without_running_the_gate(self):
+        job_dir = self.start_job()
+        master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).save(final, quality=95)
+        self.run_script("update_job.py", job_dir / "job.json", "--artifact", f"final_jpg={final}")
+        refused = self.run_script("update_job.py", job_dir / "job.json", "--status", "completed", ok=False)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("delivery gate", refused.stdout + refused.stderr)
+
+    def test_gate_result_is_invalidated_when_the_final_changes_afterwards(self):
+        job_dir = self.start_job()
+        master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).save(final, quality=95)
+        self.run_script("update_job.py", job_dir / "job.json", "--artifact", f"final_jpg={final}")
+        self.run_script("delivery_gate.py", job_dir / "job.json", "--master", master, "--final", final)
+        Image.new("RGB", (REAL_DELIVERY_CANVAS[0] // 2, REAL_DELIVERY_CANVAS[1] // 2)).save(final, quality=95)
+        refused = self.run_script("update_job.py", job_dir / "job.json", "--status", "completed", ok=False)
+        self.assertIn("stale", (refused.stdout + refused.stderr).lower())
+
+
+class PlannerRefusesDoomedRegionsTests(unittest.TestCase):
+    """The planner recommended 1536x1536 patches while the client returned 1254x1254,
+    so five doomed patches were generated, "accepted", and then stretched 4.56x.
+    Planning must happen in delivery space against the observed return size."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = Path(self._tmp.name)
+        self.master = tmp / "master.png"
+        Image.new("RGB", REAL_WORKING_CANVAS, (90, 120, 150)).save(self.master)
+        self.analysis = tmp / "vision.json"
+        self.analysis.write_text(json.dumps({
+            "schema_version": 1,
+            "coordinate_space": "pixel",
+            "subject_type": "classical-portrait",
+            "portrait_extent": "complex-full",
+            "detail_complexity": "complex",
+            "regions": {
+                "subject": {"x": 116, "y": 249, "width": 812, "height": 1205},
+                "face": {"x": 472, "y": 382, "width": 245, "height": 370},
+                "hands": [{"x": 377, "y": 534, "width": 250, "height": 376}],
+            },
+        }), encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def plan(self, *extra):
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS / "plan_detail_tiles.py"), "--image", str(self.master),
+             "--vision-analysis", str(self.analysis), "--detail-budget", "balanced", *extra],
+            capture_output=True, text=True,
+        )
+
+    def test_doomed_regions_are_dropped_before_generation(self):
+        result = self.plan("--recovery-profile", "creative-safe",
+                           "--delivery-canvas", f"{REAL_DELIVERY_CANVAS[0]}x{REAL_DELIVERY_CANVAS[1]}",
+                           "--observed-patch-size", "1254x1254")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        plan = json.loads(result.stdout)
+        self.assertEqual(plan["working_canvas"], list(REAL_WORKING_CANVAS))
+        self.assertEqual(plan["delivery_canvas"], list(REAL_DELIVERY_CANVAS))
+        self.assertAlmostEqual(plan["delivery_scale"], 4.5625, places=4)
+        self.assertEqual(plan["regions"], [], "no 1254px patch can serve a 4.56x larger delivery")
+        self.assertTrue(plan["regions_dropped_for_budget"])
+        for dropped in plan["regions_dropped_for_budget"]:
+            self.assertLess(dropped["detail_ratio"], dropped["threshold"])
+        self.assertLess(plan["delivery_feasibility"]["max_honest_delivery_width"], plan["delivery_canvas"][0])
+
+    def test_regions_survive_when_delivery_is_native_scale(self):
+        result = self.plan("--recovery-profile", "creative-safe",
+                           "--delivery-canvas", f"{REAL_WORKING_CANVAS[0]}x{REAL_WORKING_CANVAS[1]}",
+                           "--observed-patch-size", "1254x1254")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        plan = json.loads(result.stdout)
+        self.assertGreater(len(plan["regions"]), 0)
+        self.assertEqual(plan["regions_dropped_for_budget"], [])
+        self.assertEqual(plan["delivery_scale"], 1.0)
+
+    def test_observed_patch_size_is_required_when_delivery_is_enlarged(self):
+        result = self.plan("--recovery-profile", "creative-safe",
+                           "--delivery-canvas", f"{REAL_DELIVERY_CANVAS[0]}x{REAL_DELIVERY_CANVAS[1]}")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--observed-patch-size", result.stdout + result.stderr)
+
+
+class PatchObservationBudgetRecheckTests(unittest.TestCase):
+    """A patch that comes back smaller than the planner budgeted must fail at
+    record time. DSC02304 requested 1536x1536, got 1254x1254 ten times over, and
+    nothing recomputed the budget from the measured return."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.source = self.root / "source.jpg"
+        Image.new("RGB", REAL_WORKING_CANVAS, (90, 120, 150)).save(self.source, quality=95)
+        self.analysis = self.root / "vision.json"
+        self.analysis.write_text(json.dumps({
+            "schema_version": 1,
+            "coordinate_space": "pixel",
+            "subject_type": "classical-portrait",
+            "portrait_extent": "close",
+            "regions": {
+                "subject": {"x": 100, "y": 100, "width": 800, "height": 1300},
+                "face": {"x": 472, "y": 382, "width": 245, "height": 370},
+            },
+        }), encoding="utf-8")
+        job = self.invoke("init_job.py", self.source, "--preset", "warm-gold-ancient",
+                       "--confirmed", "--output-root", self.root / "jobs")
+        self.job_dir = Path(job.stdout.strip().splitlines()[-1])
+        self.plan_result = self.invoke(
+            "plan_detail_tiles.py", "--image", self.source, "--vision-analysis", self.analysis,
+            "--detail-budget", "balanced",
+            "--delivery-canvas", f"{REAL_WORKING_CANVAS[0]}x{REAL_WORKING_CANVAS[1]}",
+            "--observed-patch-size", f"{REAL_PATCH[0]}x{REAL_PATCH[1]}",
+        )
+        self.plan_path = self.job_dir / "detail-plan.json"
+        self.plan_path.write_text(self.plan_result.stdout, encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def invoke(self, script, *args, ok=True):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / script), *[str(a) for a in args]],
+            capture_output=True, text=True,
+        )
+        if ok:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def face_region_index(self):
+        plan = json.loads(self.plan_path.read_text(encoding="utf-8"))
+        for index, region in enumerate(plan["regions"]):
+            if region["region_type"] == "face":
+                return index, region
+        self.fail(f"planner produced no face region: {sorted(r['region_type'] for r in plan['regions'])}")
+
+    def record(self, patch_size, index):
+        patch = self.job_dir / "intermediates" / "patches" / f"p-{index}-{patch_size[0]}.png"
+        patch.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", patch_size, (10, 20, 30)).save(patch)
+        result = self.invoke(
+            "record_patch_observation.py", self.job_dir / "job.json",
+            "--patch", patch, "--region-type", "face", "--region-role", "face",
+            "--requested-size", f"{REAL_PATCH[0]}x{REAL_PATCH[1]}",
+            "--planner-region-index", index, "--plan", self.plan_path,
+        )
+        return json.loads(result.stdout)
+
+    def test_smaller_than_planned_patch_fails_the_budget_recheck(self):
+        index, region = self.face_region_index()
+        observation = self.record((40, 40), index)
+        self.assertFalse(observation["budget_recheck"]["accepted"])
+        self.assertLess(observation["budget_recheck"]["detail_ratio"], observation["budget_recheck"]["threshold"])
+        self.assertEqual(observation["budget_recheck"]["planned_patch_size"], region["patch_size_planned"])
+
+    def test_patch_matching_the_plan_passes_the_recheck(self):
+        index, region = self.face_region_index()
+        planned = region["patch_size_planned"]
+        observation = self.record(tuple(planned), index)
+        self.assertTrue(observation["budget_recheck"]["accepted"])
+
+
+class DeliveryFeasibilityRoutingTests(unittest.TestCase):
+    """Route by subject coverage instead of silently returning an empty plan:
+    tell the caller the widest delivery the evidence can honestly carry, and how
+    many tiles would be needed to reach the requested size."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = Path(self._tmp.name)
+        self.master = tmp / "master.png"
+        Image.new("RGB", REAL_WORKING_CANVAS, (90, 120, 150)).save(self.master)
+        self.analysis = tmp / "vision.json"
+        self.analysis.write_text(json.dumps({
+            "schema_version": 1,
+            "coordinate_space": "pixel",
+            "subject_type": "classical-portrait",
+            "portrait_extent": "complex-full",
+            "detail_complexity": "complex",
+            "regions": {
+                "subject": {"x": 116, "y": 249, "width": 812, "height": 1205},
+                "face": {"x": 472, "y": 382, "width": 245, "height": 370},
+                "hands": [{"x": 377, "y": 534, "width": 250, "height": 376}],
+            },
+        }), encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def plan(self, delivery):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "plan_detail_tiles.py"), "--image", str(self.master),
+             "--vision-analysis", str(self.analysis), "--detail-budget", "balanced",
+             "--recovery-profile", "creative-safe",
+             "--delivery-canvas", delivery, "--observed-patch-size", "1254x1254"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return json.loads(result.stdout)
+
+    def test_reports_honest_ceiling_and_tile_route_for_an_large_subject(self):
+        plan = self.plan(f"{REAL_DELIVERY_CANVAS[0]}x{REAL_DELIVERY_CANVAS[1]}")
+        verdict = plan["delivery_feasibility"]
+        self.assertEqual(verdict["verdict"], "needs-tiling")
+        # Measured: the full-body costume block is the binding region at ~0.50.
+        self.assertLess(verdict["max_honest_delivery_width"], 3200)
+        self.assertGreater(verdict["max_honest_delivery_width"], 1800)
+        self.assertEqual(verdict["requested_delivery_width"], REAL_DELIVERY_CANVAS[0])
+        tiling = plan["tiling_requirement"]
+        self.assertGreater(tiling["tile_count"], 4, "a half-frame subject needs many tiles")
+        self.assertEqual(tiling["tile_size"][0], 1254)
+        self.assertEqual(tiling["estimated_generation_calls"], tiling["tile_count"])
+        self.assertIn("4672", tiling["consent_prompt"])
+
+    def test_native_delivery_needs_no_tiling(self):
+        plan = self.plan("2048x3072")
+        self.assertEqual(plan["delivery_feasibility"]["verdict"], "native")
+        self.assertEqual(plan["tiling_requirement"], None)
+        self.assertGreater(len(plan["regions"]), 0)
+        self.assertEqual(plan["regions_dropped_for_budget"], [])
+
+
+class GateReadsBudgetNotGeometryTests(unittest.TestCase):
+    """The hole: a Lanczos-inflated master makes the geometry ratio look fine while
+    the subject regions are still starved, so the gate must consult the plan."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.source = self.root / "source.jpg"
+        Image.new("RGB", REAL_DELIVERY_CANVAS, (90, 120, 150)).save(self.source, quality=95)
+        job = self.invoke("init_job.py", self.source, "--preset", "warm-gold-ancient",
+                          "--confirmed", "--output-root", self.root / "jobs")
+        self.job_dir = Path(job.stdout.strip().splitlines()[-1])
+        self.job = self.job_dir / "job.json"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def invoke(self, script, *args, ok=True):
+        result = subprocess.run([sys.executable, str(SCRIPTS / script), *[str(a) for a in args]],
+                                capture_output=True, text=True)
+        if ok:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def gate(self, *extra):
+        return self.invoke("delivery_gate.py", self.job, *extra, ok=False)
+
+    def make(self, path, size):
+        Image.new("RGB", size, (90, 120, 150)).save(path)
+        return path
+
+    def test_budget_failure_rejects_even_when_geometry_looks_native(self):
+        # Master and final are the same size, so the old geometry-only gate passed.
+        master = self.make(self.job_dir / "master.png", (4672, 7008))
+        final = self.make(self.job_dir / "final.jpg", (4672, 7008))
+        plan = self.job_dir / "detail-plan.json"
+        plan.write_text(json.dumps({
+            "working_canvas": [4096, 6144], "delivery_canvas": [4672, 7008],
+            "regions": [], "region_count": 0,
+            "regions_dropped_for_budget": [{
+                "region_type": "face", "region_role": "face", "planned_patch_size": [830, 1254],
+                "detail_ratio": 0.743, "threshold": 0.85, "reason": "cannot serve the delivery canvas",
+            }],
+        }), encoding="utf-8")
+        result = self.gate("--master", master, "--final", final, "--plan", plan)
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["verdict"], "fail")
+        self.assertEqual(report["geometry"]["verdict"], "pass")
+        self.assertEqual(report["budget"]["verdict"], "fail")
+        self.assertIn("tile", report["required_action"].lower())
+
+    def test_lanczos_inflation_does_not_count_as_raising_the_canvas(self):
+        approved = self.make(self.job_dir / "approved.png", (1024, 1536))
+        final = self.make(self.job_dir / "final.jpg", (4672, 7008))
+        data = json.loads(self.job.read_text(encoding="utf-8"))
+        # A recorded Lanczos pass must not license the 4.56x geometry claim.
+        data["upscale_passes"] = [{"engine": "fallback-lanczos", "adds_information": False,
+                                   "from": [1024, 1536], "to": [4096, 6144]}]
+        self.job.write_text(json.dumps(data), encoding="utf-8")
+        result = self.gate("--master", approved, "--final", final)
+        self.assertEqual(json.loads(result.stdout)["geometry"]["effective_scale"], 4.5625)
+        self.assertEqual(result.returncode, 3)
+
+    def test_real_engine_pass_licenses_a_smaller_geometry_scale(self):
+        approved = self.make(self.job_dir / "approved.png", (1024, 1536))
+        final = self.make(self.job_dir / "final.jpg", (4672, 7008))
+        data = json.loads(self.job.read_text(encoding="utf-8"))
+        data["upscale_passes"] = [{"engine": "4x-ultrasharp-ncnn", "adds_information": True,
+                                   "from": [1024, 1536], "to": [4096, 6144]}]
+        data["delivery_gate"] = None
+        self.job.write_text(json.dumps(data), encoding="utf-8")
+        result = self.gate("--master", approved, "--final", final)
+        self.assertEqual(json.loads(result.stdout)["geometry"]["effective_scale"], 1.140625)
+
+
+class ApprovalBindingTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.source = self.root / "source.jpg"
+        Image.new("RGB", REAL_WORKING_CANVAS, (90, 120, 150)).save(self.source, quality=95)
+        job = self.invoke("init_job.py", self.source, "--preset", "warm-gold-ancient",
+                          "--confirmed", "--output-root", self.root / "jobs")
+        self.job_dir = Path(job.stdout.strip().splitlines()[-1])
+        self.job = self.job_dir / "job.json"
+        self.invoke("update_job.py", self.job, "--status", "prepared")
+        self.invoke("update_job.py", self.job, "--status", "base_generated")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def invoke(self, script, *args, ok=True):
+        result = subprocess.run([sys.executable, str(SCRIPTS / script), *[str(a) for a in args]],
+                                capture_output=True, text=True)
+        if ok:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def test_approval_without_an_artifact_is_refused(self):
+        result = self.invoke("update_job.py", self.job, "--approve-base-preview", ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--artifact", result.stdout + result.stderr)
+
+    def test_approval_binds_path_size_and_hash_of_the_approved_image(self):
+        preview = self.job_dir / "intermediates" / "approved-preview.png"
+        preview.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", REAL_WORKING_CANVAS, (90, 120, 150)).save(preview)
+        self.invoke("update_job.py", self.job, "--approve-base-preview", "--artifact", f"base_preview={preview}")
+        record = json.loads(self.job.read_text(encoding="utf-8"))["approved_preview"]
+        self.assertEqual(record["size"], list(REAL_WORKING_CANVAS))
+        self.assertEqual(len(record["sha256"]), 64)
+        self.assertEqual(Path(record["path"]), preview.resolve())
+
+    def test_gate_writes_a_diff_image_against_the_approved_preview(self):
+        preview = self.job_dir / "intermediates" / "approved-preview.png"
+        preview.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", REAL_WORKING_CANVAS, (90, 120, 150)).save(preview)
+        self.invoke("update_job.py", self.job, "--approve-base-preview", "--artifact", f"base_preview={preview}")
+        composite = self.job_dir / "composite.png"
+        Image.new("RGB", REAL_WORKING_CANVAS, (140, 120, 150)).save(composite)
+        final = self.job_dir / "final.jpg"
+        Image.open(composite).save(final, quality=95)
+        self.invoke("delivery_gate.py", self.job, "--master", composite, "--final", final)
+        report = json.loads(self.job.read_text(encoding="utf-8"))["delivery_gate"]
+        diff = Path(report["diff"]["path"])
+        self.assertTrue(diff.is_file(), "preview_vs_final_diff.png must exist for the user to inspect")
+        self.assertGreater(report["diff"]["changed_pixel_share"], 0)
+        self.assertEqual(report["diff"]["compared_at_size"], list(REAL_WORKING_CANVAS))
+
+
+class VersionConsistencyTests(unittest.TestCase):
+    """The version was restated in five places and had drifted (docs said v2.3
+    while the code wrote 2.4), so the constants and the prose are now pinned."""
+
+    def setUp(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import job_contract
+        self.job_contract = job_contract
+        self.root = SKILL_ROOT.parent
+
+    def test_skill_heading_matches_the_constant(self):
+        heading = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8").splitlines()[5]
+        self.assertEqual(heading, f"# Photo Refiner v{self.job_contract.SKILL_VERSION}")
+
+    def test_config_schema_matches_the_constant(self):
+        schema = (SKILL_ROOT / "references" / "config-schema.md").read_text(encoding="utf-8")
+        self.assertIn(f'release_version: "{self.job_contract.SKILL_VERSION}"', schema)
+        self.assertNotIn("Version 2.3", schema)
+
+    def test_manifest_release_version_is_the_constant(self):
+        source = (SCRIPTS / "init_job.py").read_text(encoding="utf-8")
+        self.assertIn('"release_version": RELEASE_VERSION', source)
+        self.assertNotIn('"release_version": "', source)
+
+    def test_no_script_still_calls_itself_an_older_version(self):
+        stale = []
+        for path in SCRIPTS.glob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if path.name != "job_contract.py" and "Photo Refiner v" in text:
+                stale.append(path.name)
+        self.assertEqual(stale, [], "script docstrings must not hardcode the product version")
+
+    def test_plugin_prose_does_not_carry_the_skill_version(self):
+        manifest = json.loads((self.root / "plugin" / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        blob = json.dumps(manifest, ensure_ascii=False)
+        import re
+        found = re.findall(r"Photo Refiner v\d+\.\d+", blob)
+        self.assertEqual(found, [], f"plugin text must not duplicate the skill version: {found}")
+        self.assertRegex(manifest["version"], r"^\d+\.\d+\.\d+$",
+                         "repo manifest holds the base version; the build step adds the +codex stamp")
+
+
+class TileRedrawPlannerTests(unittest.TestCase):
+    """needs-tiling must become real tile boxes, not a number the agent guesses at.
+
+    Tiles are cut at `observed cap / region threshold` so each generated patch meets
+    its own budget, gaps are rejected, and overlapping region boxes must not produce
+    duplicate generations.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        # A canvas already raised to the delivery size: tiling happens in delivery space.
+        self.canvas = self.root / "canvas.png"
+        Image.new("RGB", (4672, 7008), (90, 120, 150)).save(self.canvas)
+        self.analysis = self.root / "vision.json"
+        self.analysis.write_text(json.dumps({
+            "schema_version": 1,
+            "coordinate_space": "pixel",
+            "subject_type": "classical-portrait",
+            "portrait_extent": "complex-full",
+            "detail_complexity": "complex",
+            "regions": {
+                "subject": {"x": 620, "y": 1140, "width": 3704, "height": 5500},
+                "face": {"x": 2150, "y": 1740, "width": 1118, "height": 1688},
+                "hands": [{"x": 1720, "y": 2435, "width": 1141, "height": 1716}],
+            },
+        }), encoding="utf-8")
+        plan = self.invoke(
+            "plan_detail_tiles.py", "--image", self.canvas, "--vision-analysis", self.analysis,
+            "--detail-budget", "balanced", "--recovery-profile", "creative-safe",
+            "--delivery-canvas", "4672x7008", "--observed-patch-size", "1254x1254",
+        )
+        self.plan_path = self.root / "detail-plan.json"
+        self.plan_path.write_text(plan.stdout, encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def invoke(self, script, *args, ok=True):
+        result = subprocess.run([sys.executable, str(SCRIPTS / script), *[str(a) for a in args]],
+                                capture_output=True, text=True)
+        if ok:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def tile_plan(self, *extra):
+        result = self.invoke("plan_tile_redraw.py", "--image", self.canvas,
+                             "--observed-patch-size", "1254x1254", *extra)
+        return json.loads(result.stdout)
+
+    def test_no_gaps_and_no_unreachable_tiles(self):
+        plan = self.tile_plan("--detail-plan", self.plan_path)
+        self.assertEqual(plan["verdict"], "pass")
+        self.assertEqual(plan["coverage"]["uncovered_area"], 0, "every planned region must be fully covered")
+        self.assertGreater(plan["tile_count"], 0)
+        self.assertEqual(plan["estimated_generation_calls"], plan["tile_count"])
+        for tile in plan["tiles"]:
+            self.assertGreaterEqual(tile["budget_ratio"], tile["threshold"],
+                                    f"tile {tile['index']} cannot be served at its own threshold")
+            self.assertLessEqual(tile["requested_size"][0], 1254)
+            self.assertLessEqual(tile["requested_size"][1], 1254)
+            box = tile["box"]
+            self.assertLessEqual(box["x"] + box["width"], plan["canvas"][0])
+            self.assertLessEqual(box["y"] + box["height"], plan["canvas"][1])
+
+    def test_overlapping_region_boxes_do_not_duplicate_tiles(self):
+        plan = self.tile_plan("--detail-plan", self.plan_path)
+        boxes = [(t["box"]["x"], t["box"]["y"], t["box"]["width"], t["box"]["height"]) for t in plan["tiles"]]
+        self.assertEqual(len(boxes), len(set(boxes)), "the same tile must not be generated twice")
+        naive = sum(entry["tiles"] for entry in (plan["source_tiling_request"] or {}).get("regions", []))
+        self.assertLess(plan["tile_count"], naive, "dedupe must lower the naive per-region sum")
+        self.assertEqual(plan["deduplicated_tiles"], naive - plan["tile_count"])
+
+    def test_face_tiles_are_blended_last(self):
+        plan = self.tile_plan("--detail-plan", self.plan_path)
+        ordered = sorted(plan["tiles"], key=lambda tile: tile["blend_order"])
+        self.assertEqual(ordered[-1]["region_type"], "face")
+        self.assertEqual(ordered[0]["blend_order"], min(t["blend_order"] for t in plan["tiles"]))
+
+    def test_full_canvas_mode_covers_the_whole_canvas(self):
+        plan = self.tile_plan("--full-canvas")
+        self.assertEqual(plan["coverage"]["uncovered_area"], 0)
+        self.assertEqual(plan["coverage"]["target_area"], 4672 * 7008)
+
+    def test_refuses_missing_observed_patch_size(self):
+        result = self.invoke("plan_tile_redraw.py", "--image", self.canvas,
+                            "--detail-plan", self.plan_path, ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--observed-patch-size", result.stdout + result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -264,12 +264,25 @@ class ScriptTests(unittest.TestCase):
         self.assertTrue(any("person-priority detail plan" in item for item in brief["requested_adjustments"]))
         self.assertTrue(any("costume-and-body-structure" in item for item in brief["requested_adjustments"]))
 
+    def pass_delivery_gate(self, job: Path, size=(12, 8)) -> None:
+        """Satisfy the delivery gate at native scale so these tests keep exercising
+        the approval state machine rather than the delivery resolution contract."""
+        master = job / "gate-master.png"
+        final = job / "gate-final.png"
+        Image.new("RGB", size, "white").save(master)
+        Image.new("RGB", size, "white").save(final)
+        self.run_script("delivery_gate.py", job / "job.json", "--master", master, "--final", final)
+
     def test_preview_first_requires_base_approval_but_one_click_does_not(self) -> None:
         preview_job = self.init_job()
         self.run_script("update_job.py", preview_job / "job.json", "--status", "prepared")
         self.run_script("update_job.py", preview_job / "job.json", "--status", "base_generated")
         self.run_script("update_job.py", preview_job / "job.json", "--status", "completed", ok=False)
-        self.run_script("update_job.py", preview_job / "job.json", "--approve-base-preview")
+        approved_preview = preview_job / "approved-preview.png"
+        Image.new("RGB", (12, 8), "white").save(approved_preview)
+        self.run_script("update_job.py", preview_job / "job.json", "--approve-base-preview",
+                        "--artifact", f"base_preview={approved_preview}")
+        self.pass_delivery_gate(preview_job)
         self.run_script("update_job.py", preview_job / "job.json", "--status", "completed")
 
         one_click_job = self.init_job()
@@ -280,6 +293,7 @@ class ScriptTests(unittest.TestCase):
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         self.run_script("update_job.py", manifest_path, "--status", "prepared")
         self.run_script("update_job.py", manifest_path, "--status", "base_generated")
+        self.pass_delivery_gate(one_click_job)
         self.run_script("update_job.py", manifest_path, "--status", "completed")
 
     def test_batch_requires_master_approval(self) -> None:
@@ -308,6 +322,7 @@ class ScriptTests(unittest.TestCase):
             "--master-frame",
             master,
         )
+        self.pass_delivery_gate(job)
         self.run_script("update_job.py", job / "job.json", "--status", "completed")
 
     def test_registration_checks_target_and_coverage(self) -> None:

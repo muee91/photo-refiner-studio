@@ -384,6 +384,7 @@
           <div class="grid">
             <div class="wide strategy"><strong>人物恢复策略：</strong>优先合并大区域，默认不拆细碎 Mask。古风人物通常按服装结构 → 头发/发饰 → 完整人脸（含下巴）处理；只有高价值手部/道具才增加额外 Patch。</div>
             <div class="field"><label for="detailMode">细节模式</label><select id="detailMode" data-path="detail.mode"><option value="adaptive">自动识别</option><option value="base-only">仅整体处理</option><option value="face">优先人脸</option><option value="explicit">指定区域</option></select></div>
+            <div class="field"><label for="generationBudget">细节生成预算</label><select id="generationBudget" data-path="detail.generationBudget"><option value="fast">省时间（最多 1 块）</option><option value="balanced">平衡（默认）</option><option value="max">高投入（更多局部生成）</option></select><div class="hint">这是上限而非配额：交付分辨率越大，需要的有效细节越多，预算不足时规划器会直接拒绝规划这些补丁。</div></div>
             <div class="field"><label for="patchScope">人物细节恢复范围</label><select id="patchScope" data-path="detail.patchScope"><option value="head-and-face">头部 + 人脸（推荐）</option><option value="face-only">仅人脸</option><option value="custom">自定义范围</option></select><div class="hint">头发/发饰与完整人脸按大块处理，不按五官拆分。</div></div>
             <div class="field"><label>细节强度</label><div class="range"><input type="range" min="0" max="100" data-path="detail.strength" aria-label="细节强度" /><output></output></div></div>
             <div class="field"><label for="consistency">批量一致性</label><select id="consistency" data-path="batch.consistency"><option value="strict">严格一致</option><option value="balanced">平衡</option><option value="creative">允许环境变化</option></select></div>

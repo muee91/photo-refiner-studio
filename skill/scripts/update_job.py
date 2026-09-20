@@ -5,6 +5,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from delivery_gate import measure
+from job_contract import atomic_write_json
+
 
 TRANSITIONS = {
     "initialized": {"prepared", "failed"},
@@ -32,6 +35,55 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def approval_artifact(args, job_dir: Path, allowed_kinds: set[str], flag: str) -> dict:
+    """Bind an approval to the exact image the user was shown.
+
+    Without this the ledger records only a boolean, so nothing later can tell
+    whether the delivered file descends from what was actually approved.
+    """
+    matches = [(kind, path) for kind, path in args.artifact if kind in allowed_kinds]
+    if not matches:
+        raise SystemExit(
+            f"{flag} must carry the approved image: add --artifact {' or '.join(sorted(allowed_kinds))}=<file inside the job directory>"
+        )
+    kind, raw_path = matches[-1]
+    path = raw_path.expanduser().resolve()
+    if not path.is_file() or not path.is_relative_to(job_dir):
+        raise SystemExit(f"{flag} image must be an existing file inside the job directory: {path}")
+    return {"kind": kind, **measure(path)}
+
+
+def creative_binding(data: dict) -> str:
+    """`creative_output` is null for ordinary refinement jobs."""
+    return (data.get("creative_output") or {}).get("upstream_binding") or ""
+
+
+def verify_delivery_gate(data: dict) -> None:
+    """A delivery may not be an interpolated copy of a smaller approved image."""
+    gate = data.get("delivery_gate")
+    if not isinstance(gate, dict):
+        raise SystemExit(
+            "Refusing to complete: the job has no delivery gate result. "
+            "Run delivery_gate.py --master <approved image> --final <delivered file> first."
+        )
+    if gate.get("verdict") != "pass":
+        raise SystemExit(
+            "Refusing to complete: the delivery gate failed. "
+            + str(gate.get("required_action") or "").strip()
+        )
+    for role in ("master", "final"):
+        recorded = gate.get(role) or {}
+        path = Path(recorded.get("path", ""))
+        if not path.is_file():
+            raise SystemExit(f"stale delivery gate result: the {role} file {path} is gone; re-run delivery_gate.py")
+        measured = measure(path)
+        if measured["size"] != recorded.get("size") or measured["sha256"] != recorded.get("sha256"):
+            raise SystemExit(
+                f"stale delivery gate result: the {role} image changed after the gate passed; "
+                "re-run delivery_gate.py before completing"
+            )
 
 
 def main() -> None:
@@ -76,10 +128,11 @@ def main() -> None:
         data.setdefault("history", []).append(event)
 
     if args.approve_creative_preview:
-        if data.get("execution_mode") != "creative-translation" or data.get("creative_output", {}).get("upstream_binding") != "hd-master":
+        if data.get("execution_mode") != "creative-translation" or creative_binding(data) != "hd-master":
             raise SystemExit("Creative-draft approval applies only to hd-master creative chains")
         if current != "creative_generated":
             raise SystemExit("Creative draft can be approved only after status creative_generated")
+        data["approved_preview"] = approval_artifact(args, job_dir, {"creative_preview"}, "--approve-creative-preview")
         data.setdefault("creative_preview", {})["approved"] = True
         event = {"status": current, "event": "creative_preview_approved", "at": now}
         if args.note.strip():
@@ -92,6 +145,9 @@ def main() -> None:
             raise SystemExit("Base-preview approval applies only to single-image or creative-translation preview-first jobs")
         if current != "base_generated":
             raise SystemExit("Base preview can be approved only after status base_generated")
+        data["approved_preview"] = approval_artifact(
+            args, job_dir, {"base_preview", "look_master"}, "--approve-base-preview"
+        )
         data.setdefault("base_preview", {})["approved"] = True
         event = {"status": current, "event": "base_preview_approved", "at": now}
         if args.note.strip():
@@ -101,12 +157,12 @@ def main() -> None:
     if args.status and args.status != current:
         if args.status not in TRANSITIONS[current]:
             raise SystemExit(f"Invalid status transition: {current} -> {args.status}")
-        if args.status == "creative_generated" and data.get("creative_output", {}).get("upstream_binding") != "hd-master":
+        if args.status == "creative_generated" and creative_binding(data) != "hd-master":
             raise SystemExit("creative_generated applies only to hd-master creative chains")
         if (
             current == "details_processed"
             and args.status == "completed"
-            and data.get("creative_output", {}).get("upstream_binding") == "hd-master"
+            and creative_binding(data) == "hd-master"
         ):
             raise SystemExit("hd-master creative chains must pass through creative_generated")
         if (
@@ -131,6 +187,8 @@ def main() -> None:
             and not data.get("base_preview", {}).get("approved")
         ):
             raise SystemExit("Approve the base preview before continuing")
+        if args.status == "completed":
+            verify_delivery_gate(data)
         data["status"] = args.status
         event = {"status": args.status, "at": now}
         if args.note.strip():
@@ -154,9 +212,7 @@ def main() -> None:
         )
 
     data["updated_at"] = now
-    temporary = job_path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    temporary.replace(job_path)
+    atomic_write_json(job_path, data)
     print(json.dumps({"job": str(job_path), "status": data["status"], "artifacts": len(data["artifacts"])}, ensure_ascii=False))
 
 
