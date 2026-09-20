@@ -1,9 +1,9 @@
 interface:
-  display_name: "Photo Refiner"
-  short_description: "Photo refinement and source-faithful creative translation"
-  default_prompt: "Use $photo-refiner and first call the Photo Refiner Studio interactive settings tool before any image generation."
+  display_name: "Photo Refiner Flow"
+  short_description: "Node-based photo refinement with A/B creative stages and high-resolution recovery"
+  default_prompt: "Use $photo-refiner-flow and open the Photo Refiner Flow node canvas before image generation."
 dependencies:
   tools:
     - type: "mcp"
-      value: "photoRefinerStudio"
-      description: "Interactive Photo Refiner settings and explicit user confirmation"
+      value: "photoRefinerFlowStudio"
+      description: "Photo Refiner Flow node canvas and explicit graph confirmation"
