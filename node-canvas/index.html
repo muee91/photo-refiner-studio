@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Photo Refiner · Node Canvas</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="aurora"></div>
+  <header class="topbar glass">
+    <div class="brand">
+      <span class="brand-mark">PR</span>
+      <div><b>Photo Refiner · Node Canvas</b><small>feat/node-canvas-v3 · graph v1</small></div>
+    </div>
+    <div class="toolbar">
+      <label class="file-btn">导入配置<input id="importConfig" type="file" accept="application/json,.json"></label>
+      <button id="validateBtn">校验</button>
+      <button id="exportBtn" class="primary">导出 graph.json</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="summary glass">
+      <div><span>执行链</span><strong id="planLine">—</strong></div>
+      <div class="summary-actions"><span id="validationBadge" class="badge ok">Graph OK</span><button id="resetBtn" class="ghost">恢复默认</button></div>
+    </section>
+
+    <section id="canvas" class="canvas glass" aria-label="Node workflow canvas">
+      <svg id="edges" class="edges" aria-hidden="true"></svg>
+      <div id="nodes"></div>
+      <div class="canvas-hint">节点可以拖动；v1 连线顺序受控，暂不允许任意接线。</div>
+    </section>
+
+    <section class="plan-panel glass">
+      <div class="panel-head"><div><b>执行计划</b><small>浏览器预览；Python compiler 是最终权威</small></div><span id="planHash" class="mono">—</span></div>
+      <ol id="planSteps"></ol>
+    </section>
+  </main>
+
+  <template id="nodeTemplate">
+    <article class="node glass-node">
+      <header class="node-head"><span class="node-index"></span><div class="node-title"><b></b><small></small></div><span class="node-state"></span></header>
+      <div class="node-body"></div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
