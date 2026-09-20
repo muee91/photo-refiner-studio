@@ -43,7 +43,7 @@ class PhotoRefinerV22Tests(unittest.TestCase):
             "--preset", "natural-cinematic", "--detail-budget", "fast", "--confirmed",
         )
         manifest = json.loads((Path(result.stdout.strip()) / "job.json").read_text())
-        self.assertEqual(manifest["release_version"], "2.3")
+        self.assertEqual(manifest["release_version"], "2.4")
         self.assertEqual(manifest["detail"]["generation_budget"], "fast")
         self.assertEqual(manifest["detail"]["soft_generated_patch_budget"], 1)
         self.assertEqual(manifest["detail"]["hard_generated_patch_ceiling"], 1)
@@ -51,6 +51,73 @@ class PhotoRefinerV22Tests(unittest.TestCase):
         self.assertEqual(manifest["detail"]["planner"], "adaptive-value-merge-v2.2")
         self.assertEqual(manifest["detail"]["mask_mode"], "lightweight")
         self.assertEqual(manifest["quality_gate"]["landmark_identity_gate"]["mode"], "optional-when-landmarks-available")
+
+    def test_single_source_direct_effect_creative_enables_adaptive_hd_recovery(self):
+        result = self.run_script(
+            "init_job.py", self.source, "--output-root", self.root / "creative-jobs",
+            "--preset", "natural-cinematic",
+            "--creative-recipe", "s001-abstract-quartet",
+            "--creative-assembly-mode", "direct-effect",
+            "--detail-budget", "balanced", "--confirmed",
+        )
+        manifest = json.loads((Path(result.stdout.strip()) / "job.json").read_text())
+        self.assertEqual(manifest["release_version"], "2.4")
+        self.assertEqual(manifest["execution_mode"], "creative-translation")
+        self.assertEqual(manifest["detail"]["mode"], "creative-safe-adaptive")
+        self.assertEqual(manifest["detail"]["planner"], "adaptive-value-merge-v2.4-creative-safe")
+        self.assertEqual(manifest["detail"]["patch_scope"], "adaptive-subject")
+        self.assertEqual(manifest["detail"]["hard_generated_patch_ceiling"], 5)
+        self.assertEqual(manifest["detail"]["look_authority"], "CREATIVE_LOOK_MASTER")
+        self.assertEqual(manifest["detail"]["identity_authority"], "SOURCE_MASTER")
+        self.assertEqual(manifest["authority_model"]["creative_look_master"][0], "approved_creative_canvas")
+
+    def test_original_assembly_keeps_local_recovery_disabled(self):
+        result = self.run_script(
+            "init_job.py", self.source, "--output-root", self.root / "assembly-jobs",
+            "--preset", "natural-cinematic",
+            "--creative-recipe", "s001-abstract-quartet",
+            "--creative-assembly-mode", "original-assembly",
+            "--detail-budget", "balanced", "--confirmed",
+        )
+        manifest = json.loads((Path(result.stdout.strip()) / "job.json").read_text())
+        self.assertEqual(manifest["detail"]["mode"], "not-applicable")
+        self.assertEqual(manifest["detail"]["max_generated_patches"], 0)
+
+    def test_creative_safe_full_body_splits_upper_and_lower_costume_with_capped_budget(self):
+        plan = build_plan(
+            1500, 2000,
+            subject_type="classical-portrait", detail_budget="balanced",
+            subject_box=Box(330, 120, 840, 1760), face_box=Box(620, 230, 210, 250),
+            hand_boxes=[Box(430, 900, 160, 220), Box(850, 900, 160, 220)],
+            prop_boxes=[],
+            recovery_profile="creative-safe",
+            portrait_extent="full",
+            detail_complexity="normal",
+        )
+        self.assertEqual(plan["recovery_profile"], "creative-safe")
+        self.assertEqual(plan["portrait_extent"], "full")
+        self.assertEqual(plan["soft_generated_patch_budget"], 3)
+        self.assertEqual(plan["hard_generated_patch_ceiling"], 4)
+        self.assertLessEqual(plan["estimated_generated_patches"], 4)
+        roles = {item["region_role"] for item in plan["regions"]}
+        self.assertIn("upper-costume", roles)
+        self.assertIn("lower-costume", roles)
+
+    def test_creative_safe_complex_full_body_caps_at_five(self):
+        plan = build_plan(
+            1500, 2000,
+            subject_type="portrait", detail_budget="balanced",
+            subject_box=Box(300, 100, 900, 1800), face_box=Box(620, 220, 200, 240),
+            hand_boxes=[Box(390, 920, 180, 240), Box(900, 920, 180, 240)],
+            prop_boxes=[Box(1000, 500, 300, 1100)],
+            recovery_profile="creative-safe",
+            portrait_extent="full",
+            detail_complexity="complex",
+        )
+        self.assertEqual(plan["portrait_extent"], "complex-full")
+        self.assertEqual(plan["soft_generated_patch_budget"], 4)
+        self.assertEqual(plan["hard_generated_patch_ceiling"], 5)
+        self.assertLessEqual(plan["estimated_generated_patches"], 5)
 
     def test_balanced_planner_prefers_three_coarse_patches_for_large_portrait(self):
         plan = build_plan(
