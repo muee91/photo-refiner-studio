@@ -15,7 +15,7 @@ DIST_SOURCE = REPO_ROOT / "distribution"
 SKILL_NAME = "photo-refiner-flow"
 PLUGIN_NAME = "photo-refiner-flow-studio"
 INSTALLER = "install_photo_refiner_flow.py"
-TOP_FILES = (INSTALLER, "INSTALL.md", "CODEX_INSTALL_PROMPT.txt")
+TOP_FILES = (INSTALLER, "verify_flow_release.py", "INSTALL.md", "CODEX_INSTALL_PROMPT.txt")
 
 
 def ignore(_, names: list[str]) -> set[str]:
