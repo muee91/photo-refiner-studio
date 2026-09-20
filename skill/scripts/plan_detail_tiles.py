@@ -583,7 +583,7 @@ def build_plan(
         "region_count": len(regions),
         "regions": regions,
         "skipped_candidates": skipped,
-        "planner": "adaptive-value-merge-v2.2",
+        "planner": "adaptive-value-merge-v2.4-creative-safe" if recovery_profile == "creative-safe" else "adaptive-value-merge-v2.2",
         "value_threshold": threshold,
         "overflow_value_threshold": overflow_threshold,
         "principle": "soft_budget_is_normal; high_value_regions_may_overflow_to_hard_ceiling; prefer_merging_over_splitting",
