@@ -8,7 +8,7 @@ const path = require("node:path");
 const readline = require("node:readline");
 
 const ROOT = path.resolve(__dirname, "..");
-const smokeHome = fs.mkdtempSync(path.join(os.tmpdir(), "photo-refiner-smoke-"));
+const smokeHome = fs.mkdtempSync(path.join(os.tmpdir(), "photo-refiner-flow-smoke-"));
 const server = childProcess.spawn(process.execPath, [path.join(ROOT, "mcp", "server.cjs"), "--stdio"], {
   stdio: ["pipe", "pipe", "inherit"],
   env: {...process.env, HOME: smokeHome},
@@ -34,22 +34,22 @@ function rpc(method, params = {}) {
   // A user-authored prompt containing `$&`-style sequences must survive the
   // Widget payload serialization verbatim instead of being interpreted as a
   // String.replace replacement pattern.
-  fs.mkdirSync(path.join(smokeHome, ".codex", "photo-refiner"), {recursive: true});
+  fs.mkdirSync(path.join(smokeHome, ".codex", "photo-refiner-flow"), {recursive: true});
   fs.writeFileSync(
-    path.join(smokeHome, ".codex", "photo-refiner", "preferences.json"),
+    path.join(smokeHome, ".codex", "photo-refiner-flow", "preferences.json"),
     `${JSON.stringify({customPrompts: [{id: "dollar-guard", kind: "custom", label: "dollar guard", prompt: "keep $& and $' and $$ intact", avoid: "old text stays $` put", savedAt: "2026-01-01T00:00:00.000Z"}]})}\n`,
   );
 
   const initialized = await rpc("initialize", {protocolVersion: "2024-11-05"});
-  assert.equal(initialized.serverInfo.name, "photo-refiner-studio");
+  assert.equal(initialized.serverInfo.name, "photo-refiner-flow-studio");
 
   const listed = await rpc("tools/list");
   assert.deepEqual(listed.tools.map((item) => item.name), [
-    "open_photo_refiner_settings",
-    "open_photo_refiner_node_canvas",
-    "submit_photo_refiner_graph",
-    "submit_photo_refiner_settings",
-    "delete_photo_refiner_prompt",
+    "open_photo_refiner_flow_settings",
+    "open_photo_refiner_flow",
+    "submit_photo_refiner_flow_graph",
+    "submit_photo_refiner_flow_settings",
+    "delete_photo_refiner_flow_prompt",
   ]);
   assert.deepEqual(listed.tools[0].inputSchema.required, ["sourceCount"]);
   assert.equal(listed.tools[0].inputSchema.properties.sourceCount.minimum, 1);
@@ -67,11 +67,11 @@ function rpc(method, params = {}) {
   assert.deepEqual(listed.tools[2].outputSchema.required, ["ok", "kind", "graphId", "graphPath", "confirmedAt"]);
   assert.deepEqual(listed.tools[3].outputSchema.required, ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt"]);
 
-  const noSource = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 0}});
+  const noSource = await rpc("tools/call", {name: "open_photo_refiner_flow_settings", arguments: {sourceCount: 0}});
   assert.equal(noSource.isError, true);
   assert.match(noSource.structuredContent.error, /source photograph is required/);
 
-  const opened = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 2}});
+  const opened = await rpc("tools/call", {name: "open_photo_refiner_flow_settings", arguments: {sourceCount: 2}});
   assert.equal(opened.structuredContent.schemaVersion, 3);
   assert.equal(opened.structuredContent.defaults.workflow, "batch");
   assert.equal(opened.structuredContent.defaults.sourceCount, 2);
@@ -117,7 +117,7 @@ function rpc(method, params = {}) {
   assert.equal(openedPayload._photoRefinerFallback, undefined);
 
   const recommended = await rpc("tools/call", {
-    name: "open_photo_refiner_settings",
+    name: "open_photo_refiner_flow_settings",
     arguments: {
       sourceCount: 1,
       suggestedPreset: "natural-landscape",
@@ -135,8 +135,8 @@ function rpc(method, params = {}) {
 
   const resources = await rpc("resources/list");
   assert.equal(resources.resources.length, 2);
-  assert.match(resources.resources[0].uri, /photo-refiner-settings/);
-  assert.match(resources.resources[1].uri, /photo-refiner-node-canvas/);
+  assert.match(resources.resources[0].uri, /photo-refiner-flow-settings/);
+  assert.match(resources.resources[1].uri, /photo-refiner-flow/);
   const resource = await rpc("resources/read", {uri: resources.resources[0].uri});
   assert.equal(resource.contents[0].mimeType, "text/html;profile=mcp-app");
   const resourceHtml = resource.contents[0].text;
@@ -188,7 +188,7 @@ function rpc(method, params = {}) {
   assert.match(resourceHtml, /addEventListener\('change',handleFieldChange\)/);
   assert.match(resourceHtml, /未收到初始设置/);
   assert.match(resourceHtml, /不要再次打开设置面板/);
-  assert.match(resourceHtml, /PHOTO_REFINER_PANEL_SUBMITTED/);
+  assert.match(resourceHtml, /PHOTO_REFINER_FLOW_SETTINGS_SUBMITTED/);
   assert.match(resourceHtml, /creativeRecipe/);
   // Every element id the Widget script resolves must exist in the markup — a
   // missing id throws during load() and leaves the panel stuck on "loading".
@@ -200,19 +200,19 @@ function rpc(method, params = {}) {
   }
 
   const nodeOpened = await rpc("tools/call", {
-    name: "open_photo_refiner_node_canvas",
+    name: "open_photo_refiner_flow",
     arguments: {sourceCount: 1, suggestedPreset: "natural-landscape", suggestedCreativeRecipe: "s001-abstract-quartet"},
   });
-  assert.equal(nodeOpened.structuredContent.kind, "photo-refiner-node-canvas");
+  assert.equal(nodeOpened.structuredContent.kind, "photo-refiner-flow");
   assert.equal(nodeOpened.structuredContent.schemaVersion, 1);
   assert.equal(nodeOpened.structuredContent.defaults.sourceCount, 1);
   assert.equal(nodeOpened.structuredContent.defaults.preset, "natural-landscape");
   assert.equal(nodeOpened.structuredContent.defaults.creativeRecipe, "s001-abstract-quartet");
-  assert.match(nodeOpened._meta.ui.resourceUri, /photo-refiner-node-canvas/);
+  assert.match(nodeOpened._meta.ui.resourceUri, /photo-refiner-flow/);
   assert.equal(nodeOpened.content[1].type, "resource");
   assert.match(nodeOpened.content[1].resource.text, /Photo Refiner · Node Canvas/);
-  assert.match(nodeOpened.content[1].resource.text, /submit_photo_refiner_graph/);
-  assert.match(nodeOpened.content[1].resource.text, /PHOTO_REFINER_NODE_GRAPH_SUBMITTED/);
+  assert.match(nodeOpened.content[1].resource.text, /submit_photo_refiner_flow_graph/);
+  assert.match(nodeOpened.content[1].resource.text, /PHOTO_REFINER_FLOW_GRAPH_SUBMITTED/);
   assert.doesNotMatch(nodeOpened.content[1].resource.text, /href="styles\.css"/);
   assert.doesNotMatch(nodeOpened.content[1].resource.text, /src="app\.js"/);
 
@@ -242,20 +242,20 @@ function rpc(method, params = {}) {
     ],
   };
   const submittedGraph = await rpc("tools/call", {
-    name: "submit_photo_refiner_graph",
+    name: "submit_photo_refiner_flow_graph",
     arguments: {userConfirmed: true, graph},
   });
   assert.equal(submittedGraph.structuredContent.ok, true);
   assert.equal(submittedGraph.structuredContent.graphId, "smoke-node-graph");
   assert.ok(fs.existsSync(submittedGraph.structuredContent.graphPath));
   const graphRecord = JSON.parse(fs.readFileSync(submittedGraph.structuredContent.graphPath, "utf8"));
-  assert.equal(graphRecord.confirmedBy, "photo-refiner-node-canvas");
+  assert.equal(graphRecord.confirmedBy, "photo-refiner-flow-studio");
   assert.equal(graphRecord.graph.graphId, "smoke-node-graph");
 
   const defaults = recommended.structuredContent.defaults;
   defaults.clothing.wrinkleReduction = 35;
   const submitted = await rpc("tools/call", {
-    name: "submit_photo_refiner_settings",
+    name: "submit_photo_refiner_flow_settings",
     arguments: {userConfirmed: true, config: defaults},
   });
   assert.equal(submitted.structuredContent.ok, true);
@@ -274,16 +274,16 @@ function rpc(method, params = {}) {
   // Same-preset saved user tuning must win over the catalog default.
   const tuned = JSON.parse(JSON.stringify(defaults));
   tuned.styleStrength = 42;
-  await rpc("tools/call", {name: "submit_photo_refiner_settings", arguments: {userConfirmed: true, config: tuned}});
+  await rpc("tools/call", {name: "submit_photo_refiner_flow_settings", arguments: {userConfirmed: true, config: tuned}});
   const reopened = await rpc("tools/call", {
-    name: "open_photo_refiner_settings",
+    name: "open_photo_refiner_flow_settings",
     arguments: {sourceCount: 1, suggestedPreset: "natural-landscape"},
   });
   assert.equal(reopened.structuredContent.defaults.styleStrength, 42);
 
   // A different recommendation must adopt that preset's own default strength.
   const switched = await rpc("tools/call", {
-    name: "open_photo_refiner_settings",
+    name: "open_photo_refiner_flow_settings",
     arguments: {sourceCount: 1, suggestedPreset: "clean-architecture"},
   });
   assert.equal(switched.structuredContent.defaults.preset, "clean-architecture");
@@ -293,14 +293,14 @@ function rpc(method, params = {}) {
   unsafe.body.enabled = true;
   unsafe.body.waistSlim = 80;
   const rejected = await rpc("tools/call", {
-    name: "submit_photo_refiner_settings",
+    name: "submit_photo_refiner_flow_settings",
     arguments: {userConfirmed: true, config: unsafe},
   });
   assert.equal(rejected.isError, true);
   assert.match(rejected.structuredContent.error, /0 to 40/);
 
   const creativeOpened = await rpc("tools/call", {
-    name: "open_photo_refiner_settings",
+    name: "open_photo_refiner_flow_settings",
     arguments: {sourceCount: 1, suggestedCreativeRecipe: "s001-abstract-quartet"},
   });
   assert.equal(creativeOpened.structuredContent.defaults.creativeRecipe, "s001-abstract-quartet");
@@ -308,7 +308,7 @@ function rpc(method, params = {}) {
   creativeConfig.uiMode = "pro";
   creativeConfig.creativeFromBase = true;
   const creativeSubmitted = await rpc("tools/call", {
-    name: "submit_photo_refiner_settings",
+    name: "submit_photo_refiner_flow_settings",
     arguments: {userConfirmed: true, config: creativeConfig},
   });
   assert.equal(creativeSubmitted.structuredContent.ok, true);
@@ -325,7 +325,7 @@ function rpc(method, params = {}) {
   const originalAssembly = JSON.parse(JSON.stringify(creativeConfig));
   originalAssembly.creativeAssemblyMode = "original-assembly";
   const originalSubmitted = await rpc("tools/call", {
-    name: "submit_photo_refiner_settings",
+    name: "submit_photo_refiner_flow_settings",
     arguments: {userConfirmed: true, config: originalAssembly},
   });
   assert.equal(originalSubmitted.structuredContent.summary.creativeAssemblyMode, "original-assembly");
@@ -334,7 +334,7 @@ function rpc(method, params = {}) {
 
   // A completed collage must not become the next job's implicit output mode.
   const freshAfterAssembly = await rpc("tools/call", {
-    name: "open_photo_refiner_settings",
+    name: "open_photo_refiner_flow_settings",
     arguments: {sourceCount: 1},
   });
   assert.equal(freshAfterAssembly.structuredContent.defaults.creativeRecipe, "none");
@@ -344,18 +344,18 @@ function rpc(method, params = {}) {
   const incompatible = JSON.parse(JSON.stringify(creativeConfig));
   incompatible.creativeRecipe = "s008-logo";
   const incompatibleResult = await rpc("tools/call", {
-    name: "submit_photo_refiner_settings",
+    name: "submit_photo_refiner_flow_settings",
     arguments: {userConfirmed: true, config: incompatible},
   });
   assert.equal(incompatibleResult.isError, true);
   assert.match(incompatibleResult.structuredContent.error, /requires 2-5 source photographs/);
 
   const vesak = await rpc("tools/call", {
-    name: "open_photo_refiner_settings",
+    name: "open_photo_refiner_flow_settings",
     arguments: {sourceCount: 3, suggestedCreativeRecipe: "s013-vesak"},
   });
   const mix = await rpc("tools/call", {
-    name: "open_photo_refiner_settings",
+    name: "open_photo_refiner_flow_settings",
     arguments: {sourceCount: 3, suggestedCreativeRecipe: "s014-mix"},
   });
   assert.equal(vesak.structuredContent.defaults.creativeRecipe, "s013-vesak");
