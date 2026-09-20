@@ -678,7 +678,7 @@ function callTool(name, args) {
     const graphId = graph.graphId || crypto.randomUUID();
     fs.mkdirSync(GRAPH_DIR, {recursive: true, mode: 0o700});
     const graphPath = path.join(GRAPH_DIR, `${graphId}.json`);
-    const record = {schemaVersion: 1, graphId, confirmedAt: now, confirmedBy: "photo-refiner-flow", graph};
+    const record = {schemaVersion: 1, graphId, confirmedAt: now, confirmedBy: "photo-refiner-flow-studio", graph};
     fs.writeFileSync(graphPath, `${JSON.stringify(record, null, 2)}\n`, {encoding: "utf8", mode: 0o600});
     return toolResult({ok: true, kind: "photo-refiner-node-graph", graphId, graphPath, confirmedAt: now});
   }
