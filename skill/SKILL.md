@@ -53,10 +53,10 @@ Never flatten a bundled creative recipe into a color preset or append its name t
 1. Read [references/starryear/catalog.md](references/starryear/catalog.md) and [references/starryear/catalog.json](references/starryear/catalog.json).
 2. Validate the actual source count against the selected catalog entry.
 3. Read the selected `recipePath/SKILL.md` completely, then read every prompt, reference, and script that recipe requires.
-4. Resolve `creative_assembly_mode` from the confirmed settings. It defaults to `direct-effect`; `original-assembly` is an explicit alternative. Direct-effect generates one complete creative effect image using the frozen normal preset as its upstream visual direction plus the recipe's theme, prompt semantics, references, source-derived motifs, and visual grammar; it must not attach an unchanged source-evidence strip, place the original beside/below the artwork, crop an original assembly, or act as a simple filter. Original-assembly follows the recipe literally: preserve its evidence regions with actual source pixels, generate only its translated regions, and use its compositor. For single-source direct-effect jobs the creative canvas follows the confirmed panel aspect ratio (`original` means the source photograph's own ratio) instead of the recipe's documented output ratio; original-assembly and multi-photo recipes keep the recipe's documented output structure. `creative_output.aspect_ratio_source` / `effective_aspect_ratio` in `job.json` record the resolved choice. When `creative_output.upstream_binding` is `look-master` (`--creative-from-base`, offered conversationally: for a single-source direct-effect creative job in preview-first mode, ask once whether to 直接开始创意 or 先按预设出主图、确认后再创意), first run the Section 7 base pass with the frozen preset, show that main image, and continue only after explicit approval; the creative pass then anchors identity and motifs to the original source photograph and uses the approved main image only as its look reference, and the formal base-preview gate still applies to the creative artwork itself.
+4. Resolve `creative_assembly_mode` from the confirmed settings. It defaults to `direct-effect`; `original-assembly` is an explicit alternative. Direct-effect generates one complete creative effect image using the frozen normal preset as its upstream visual direction plus the recipe's theme, prompt semantics, references, source-derived motifs, and visual grammar; it must not attach an unchanged source-evidence strip, place the original beside/below the artwork, crop an original assembly, or act as a simple filter. Original-assembly follows the recipe literally: preserve its evidence regions with actual source pixels, generate only its translated regions, and use its compositor. For single-source direct-effect jobs the creative canvas follows the confirmed Flow graph aspect ratio (`original` means the source photograph's own ratio) instead of the recipe's documented output ratio; original-assembly and multi-photo recipes keep the recipe's documented output structure. `creative_output.aspect_ratio_source` / `effective_aspect_ratio` in `job.json` record the resolved choice. When `creative_output.upstream_binding` is `look-master` (`--creative-from-base`, offered conversationally: for a single-source direct-effect creative job in preview-first mode, ask once whether to 直接开始创意 or 先按预设出主图、确认后再创意), first run the Section 7 base pass with the frozen preset, show that main image, and continue only after explicit approval; the creative pass then anchors identity and motifs to the original source photograph and uses the approved main image only as its look reference, and the formal base-preview gate still applies to the creative artwork itself.
 5. Default to preview-first. Present the generated direct effect preview or assembled original preview and stop for approval when the confirmed delivery mode is `preview-first`; one-click may continue without that pause.
 6. Retry only failed generated regions. For direct-effect, retry the complete creative image; for original-assembly, retry only failed generated regions.
-7. Do not run the ordinary face, head, garment, environment, or whole-image DETAIL PATCH stage over a completed creative collage. It can overwrite the translated art and create mixed-sharpness seams.
+7. For `original-assembly`, disable ordinary recovery completely. For single-source `direct-effect`, Flow may run only `creative-safe` recovery after the A+B result is approved: use fewer low-impact patches, keep LOOK_AB authoritative for appearance, keep SOURCE MASTER authoritative for identity/structure, and never regenerate the background.
 
 Effect images are selection aids, not visual source material. Never copy their people, places, wording, palette, or exact composition. If a catalog entry says its preview is missing, show that state honestly instead of substituting an unrelated image.
 
@@ -96,9 +96,17 @@ If Flow UI tools are genuinely unavailable, show a compact text summary and requ
 
 Every job gets its own directory and immutable source hashes. Never overwrite, move, or delete source photographs.
 
+For graph-driven jobs, `job.json.flow.steps` is the execution-state authority. Update each compiled step with:
+
+```bash
+python3 "$SKILL_ROOT/scripts/update_flow_state.py" <job.json> --step <step-id> --state <pending|running|waiting-approval|approved|completed|failed|skipped>
+```
+
+Do not start a later Flow step while an earlier step is still pending, running, or waiting for approval.
+
 ## 5. Subject-aware starting settings
 
-Inspect the source before opening the panel. Use `$SKILL_ROOT/references/subject-routing.md` and `$SKILL_ROOT/references/presets.yaml`.
+Inspect the source before opening Photo Refiner Flow. Use `$SKILL_ROOT/references/subject-routing.md` and `$SKILL_ROOT/references/presets.yaml`.
 
 - There is **no global cinematic preset default**.
 - Use the observed subject/light recommendation as the initial preset.
@@ -106,7 +114,7 @@ Inspect the source before opening the panel. Use `$SKILL_ROOT/references/subject
 - Use each preset's `default_strength` as the starting strength.
 - The 0–100 strength is a UI/audit value only. It does **not** claim linear Image 2.5 control. `build_edit_prompt.py` maps it to `minimal`, `subtle`, `visible`, `strong`, or `transformative` before generation.
 
-Core defaults unless the confirmed panel says otherwise:
+Core defaults unless the confirmed Flow graph/settings say otherwise:
 
 ```text
 workflow: infer single/batch from source count
