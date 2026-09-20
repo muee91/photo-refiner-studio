@@ -309,10 +309,107 @@ def main() -> None:
         "balanced": {"soft": 3, "hard": 6},
         "max": {"soft": 5, "hard": 8},
     }
+    patch_scope = "head-and-face" if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face")
+    creative_recovery_eligible = (
+        creative_recipe is not None
+        and creative_output is not None
+        and creative_output["mode"] == "direct-effect"
+        and len(sources) == 1
+    )
+
+    normal_detail_manifest = {
+        "mode": args.detail_mode,
+        "generation_budget": args.detail_budget,
+        "soft_generated_patch_budget": budget_policy[args.detail_budget]["soft"],
+        "hard_generated_patch_ceiling": budget_policy[args.detail_budget]["hard"],
+        "max_generated_patches": budget_policy[args.detail_budget]["hard"],
+        "adaptive_overflow": args.detail_budget != "fast",
+        "planner": "adaptive-value-merge-v2.2",
+        "mask_mode": "lightweight",
+        "regions": detail_regions,
+        "patch_scope": patch_scope,
+        "head_patch": patch_scope == "head-and-face",
+        "pixel_budget_thresholds": {
+            "face": 0.85,
+            "hand": 0.75,
+            "head": 0.65,
+            "costume": 0.50,
+            "prop": 0.50,
+            "architecture": 0.50,
+            "background": 0.30,
+            "generic": 0.50,
+        },
+    }
+    creative_soft_baseline = {"fast": 1, "balanced": 2, "max": 3}[args.detail_budget]
+    creative_hard_ceiling = {"fast": 2, "balanced": 5, "max": 5}[args.detail_budget]
+    creative_safe_detail_manifest = {
+        "mode": "creative-safe-adaptive",
+        "generation_budget": args.detail_budget,
+        "soft_generated_patch_budget": creative_soft_baseline,
+        "hard_generated_patch_ceiling": creative_hard_ceiling,
+        "max_generated_patches": creative_hard_ceiling,
+        "adaptive_overflow": args.detail_budget != "fast",
+        "planner": "adaptive-value-merge-v2.4-creative-safe",
+        "mask_mode": "lightweight",
+        "regions": [],
+        "patch_scope": "adaptive-subject",
+        "head_patch": True,
+        "allowed_region_types": ["face", "head", "hand", "costume", "prop", "architecture", "generic"],
+        "background_generation": False,
+        "look_authority": "CREATIVE_LOOK_MASTER",
+        "identity_authority": "SOURCE_MASTER",
+        "portrait_budget_policy": {
+            "close": {"soft": 2, "hard": 3},
+            "half": {"soft": 2, "hard": 3},
+            "full": {"soft": 3, "hard": 4},
+            "complex-full": {"soft": 4, "hard": 5},
+        },
+        "scene_budget_policy": {"soft": 2, "hard": 3},
+        "pixel_budget_thresholds": {
+            "face": 0.85,
+            "hand": 0.75,
+            "head": 0.65,
+            "costume": 0.50,
+            "prop": 0.50,
+            "architecture": 0.50,
+            "generic": 0.50,
+        },
+        "frequency_policy": {
+            "low_frequency": "creative-look-master-only",
+            "mid_frequency": "creative-look-master-dominant",
+            "high_frequency": "registered-detail-patch",
+        },
+        "note": "Single-source direct-effect creative work must run adaptive high-resolution recovery after approval. Preserve the approved creative look; use SOURCE MASTER only for identity, anatomy, factual geometry and construction.",
+    }
+    creative_disabled_detail_manifest = {
+        "mode": "not-applicable",
+        "generation_budget": "recipe-controlled",
+        "soft_generated_patch_budget": 0,
+        "hard_generated_patch_ceiling": 0,
+        "max_generated_patches": 0,
+        "adaptive_overflow": False,
+        "planner": "creative-recipe",
+        "mask_mode": "recipe-controlled",
+        "regions": [],
+        "patch_scope": "none",
+        "head_patch": False,
+        "note": (
+            "Do not run ordinary recovery over original assembled creative artwork."
+            if args.creative_assembly_mode == "original-assembly"
+            else "Multi-source creative recovery is disabled until region ownership can be preserved safely."
+        ),
+    }
+    detail_manifest = (
+        normal_detail_manifest
+        if creative_recipe is None
+        else creative_safe_detail_manifest
+        if creative_recovery_eligible
+        else creative_disabled_detail_manifest
+    )
 
     manifest = {
         "version": 2,
-        "release_version": "2.3",
+        "release_version": "2.4",
         "created_at": now.isoformat(),
         "confirmed_at": now.isoformat(),
         "confirmation": None
@@ -335,11 +432,15 @@ def main() -> None:
             "source_evidence": ["unchanged_source_pixels", "identity", "factual_scene_truth"],
             "generated_panels": ["recipe_specific_visual_translation"],
             "deterministic_assembly": ["layout", "source_pixel_placement", "final_dimensions"],
-        } if args.creative_assembly_mode == "original-assembly" else {
+        } if args.creative_assembly_mode == "original-assembly" else ({
+            "source_master": ["identity", "anatomy", "factual_geometry", "construction", "authentic_material_reference"],
+            "creative_look_master": ["approved_creative_canvas", "color", "lighting", "tone", "materials", "visual_grammar"],
+            "creative_detail_patch": ["registered_mid_frequency_detail", "registered_high_frequency_detail"],
+        } if creative_recovery_eligible else {
             "source_reference": ["identity", "theme", "source-derived motifs"],
             "generated_artwork": ["complete creative canvas", "recipe visual grammar"],
             "deterministic_assembly": [],
-        }),
+        })),
         "creative_output": creative_output,
         "workflow": workflow,
         "ui_mode": ui_mode,
@@ -361,42 +462,7 @@ def main() -> None:
             "shared_prompt": creative_recipe is None,
             "master_frame_approved": None if workflow == "single" or creative_recipe is not None else False,
         },
-        "detail": {
-            "mode": args.detail_mode,
-            "generation_budget": args.detail_budget,
-            "soft_generated_patch_budget": budget_policy[args.detail_budget]["soft"],
-            "hard_generated_patch_ceiling": budget_policy[args.detail_budget]["hard"],
-            "max_generated_patches": budget_policy[args.detail_budget]["hard"],
-            "adaptive_overflow": args.detail_budget != "fast",
-            "planner": "adaptive-value-merge-v2.2",
-            "mask_mode": "lightweight",
-            "regions": detail_regions,
-            "patch_scope": "head-and-face" if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face"),
-            "head_patch": True if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face") == "head-and-face",
-            "pixel_budget_thresholds": {
-                "face": 0.85,
-                "hand": 0.75,
-                "head": 0.65,
-                "costume": 0.50,
-                "prop": 0.50,
-                "architecture": 0.50,
-                "background": 0.30,
-                "generic": 0.50,
-            },
-        } if creative_recipe is None else {
-            "mode": "not-applicable",
-            "generation_budget": "recipe-controlled",
-            "soft_generated_patch_budget": 0,
-            "hard_generated_patch_ceiling": 0,
-            "max_generated_patches": 0,
-            "adaptive_overflow": False,
-            "planner": "creative-recipe",
-            "mask_mode": "recipe-controlled",
-            "regions": [],
-            "patch_scope": "none",
-            "head_patch": False,
-            "note": ("Do not run ordinary face, head, costume, or environment detail patches over the original assembled creative artwork." if args.creative_assembly_mode == "original-assembly" else "Do not run ordinary face, head, costume, or environment detail patches over the complete direct-effect creative artwork."),
-        },
+        "detail": detail_manifest,
         "retouch": {
             "style_strength": resolved_prompt.get("default_strength", 50),
             "detail_strength": 60,
