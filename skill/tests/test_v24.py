@@ -915,5 +915,35 @@ class TileRedrawPlannerTests(unittest.TestCase):
         self.assertIn("--observed-patch-size", result.stdout + result.stderr)
 
 
+    def test_estimator_and_grid_agree_on_every_framing(self):
+        """tiling_requirement's count is what the user consents to; it must match what
+        the tiler actually emits, or the consent is for a different job."""
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            from job_contract import tiles_for_span
+            from plan_tile_redraw import grid_tiles
+        finally:
+            sys.path.pop(0)
+        threshold = 0.85  # the face bar the user chose to keep
+        cases = [(888, 1191), (1308, 1475), (1475, 1475), (2056, 2943), (2900, 1689), (1962, 2497)]
+        for width, height in cases:
+            reach = int(1254 / threshold)
+            estimated = tiles_for_span((width, height), (1254, 1254), threshold)
+            gridded = len(grid_tiles({"x": 0, "y": 0, "width": width, "height": height},
+                                     reach, reach, 0.15, 4672, 7008))
+            self.assertEqual(estimated, gridded, f"{width}x{height} estimate/grid mismatch")
+
+    def test_face_bar_of_085_scales_the_count_with_framing(self):
+        """Kept at 0.85 on purpose: a close-up must cost more generations than a wide
+        shot rather than be allowed to coarsen, so quality stays framing-independent."""
+        wide = self.tile_plan("--region-box", "2150,1741,888,1191", "--region-type", "face")
+        close = self.tile_plan("--region-box", "1308,841,2056,2943", "--region-type", "face")
+        self.assertEqual(wide["tile_count"], 1)
+        self.assertGreater(close["tile_count"], wide["tile_count"] + 2)
+        for plan in (wide, close):
+            for tile in plan["tiles"]:
+                self.assertGreaterEqual(tile["budget_ratio"], 0.85)
+
+
 if __name__ == "__main__":
     unittest.main()
