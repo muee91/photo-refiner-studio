@@ -24,10 +24,26 @@ lines.on("line", (line) => {
   message.error ? callbacks.reject(new Error(message.error.message)) : callbacks.resolve(message.result);
 });
 
-function rpc(method, params = {}) {
+// A dead server must fail the smoke loudly, never pass it vacuously.
+let finished = false;
+server.on("exit", (code) => {
+  if (!finished) {
+    console.error(`server exited prematurely with code ${code}`);
+    process.exit(1);
+  }
+});
+function rpc(method, params = {}, timeoutMs = 15000) {
   const id = ++nextId;
-  server.stdin.write(`${JSON.stringify({jsonrpc: "2.0", id, method, params})}\n`);
-  return new Promise((resolve, reject) => pending.set(id, {resolve, reject}));
+  return new Promise((resolve, reject) => {
+    pending.set(id, {resolve, reject});
+    const timer = setTimeout(() => {
+      if (pending.has(id)) {
+        pending.delete(id);
+        reject(new Error(`rpc timeout waiting for ${method}`));
+      }
+    }, timeoutMs);
+    server.stdin.write(`${JSON.stringify({jsonrpc: "2.0", id, method, params})}\n`);
+  });
 }
 
 (async () => {
@@ -44,7 +60,7 @@ function rpc(method, params = {}) {
   assert.equal(initialized.serverInfo.name, "photo-refiner-studio");
 
   const listed = await rpc("tools/list");
-  assert.deepEqual(listed.tools.map((item) => item.name), ["open_photo_refiner_settings", "submit_photo_refiner_settings", "delete_photo_refiner_prompt"]);
+  assert.deepEqual(listed.tools.map((item) => item.name), ["open_photo_refiner_settings", "submit_photo_refiner_settings", "delete_photo_refiner_prompt", "get_photo_refiner_recipe_preview", "set_photo_refiner_recipe_preview"]);
   assert.deepEqual(listed.tools[0].inputSchema.required, ["sourceCount"]);
   assert.equal(listed.tools[0].inputSchema.properties.sourceCount.minimum, 1);
   // Broker-envelope tolerance: widget-originated calls must accept extra
@@ -66,6 +82,7 @@ function rpc(method, params = {}) {
   assert.equal(opened.structuredContent.defaults.creativeRecipe, "none");
   assert.equal(opened.structuredContent.defaults.creativeAssemblyMode, "direct-effect");
   assert.equal(opened.structuredContent.defaults.creativeFromBase, false);
+  assert.equal(opened.structuredContent.defaults.creativeHdChain, false);
   assert.equal(opened.structuredContent.defaults.preset, "natural-cinematic");
   assert.equal(opened.structuredContent.defaults.styleStrength, 45);
   assert.equal(opened.structuredContent.presets.presets["natural-cinematic"].defaultStrength, 45);
@@ -135,6 +152,11 @@ function rpc(method, params = {}) {
   assert.match(resourceHtml, /提示词工作台/);
   assert.match(resourceHtml, /提示词库/);
   assert.match(resourceHtml, /自定义宽高/);
+  assert.match(resourceHtml, /使用此配方/);
+  assert.match(resourceHtml, /高清创意链/);
+  assert.match(resourceHtml, /替换效果图/);
+  assert.match(resourceHtml, /恢复默认图/);
+  assert.match(resourceHtml, /lightbox/);
   assert.match(resourceHtml, /recipe-grid/);
   assert.match(resourceHtml, /preset-list/);
   assert.match(resourceHtml, /先选择风格和强度/);
@@ -248,6 +270,7 @@ function rpc(method, params = {}) {
   assert.equal(creativeSubmitted.structuredContent.summary.creativeRecipe, "s001-abstract-quartet");
   assert.equal(creativeSubmitted.structuredContent.summary.creativeAssemblyMode, "direct-effect");
   assert.equal(creativeSubmitted.structuredContent.summary.creativeFromBase, true);
+  assert.equal(creativeSubmitted.structuredContent.summary.creativeHdChain, false);
   const creativeConfirmation = JSON.parse(fs.readFileSync(creativeSubmitted.structuredContent.confirmationPath, "utf8"));
   assert.equal(creativeConfirmation.resolvedCreativeRecipe.sourceCommit, "b71ad7b187d00a72378a15f32181b655907d32a9");
   assert.equal(creativeConfirmation.config.creativeAssemblyMode, "direct-effect");
@@ -293,6 +316,27 @@ function rpc(method, params = {}) {
   assert.equal(vesak.structuredContent.defaults.creativeRecipe, "s013-vesak");
   assert.equal(mix.structuredContent.defaults.creativeRecipe, "s014-mix");
 
+  // recipe lightbox tooling: large fetch, user replacement, reset-to-default
+  const previewGet = await rpc("tools/call", {name: "get_photo_refiner_recipe_preview", arguments: {recipeId: "s001-abstract-quartet"}});
+  assert.equal(previewGet.structuredContent.ok, true);
+  assert.equal(previewGet.structuredContent.source, "original");
+  const inlineLen = opened.structuredContent.creativeRecipes.recipes.find((item) => item.id === "s001-abstract-quartet").preview.dataUri.length;
+  assert.ok(previewGet.structuredContent.dataUri.length > inlineLen, "large preview must exceed the inline thumbnail");
+  const tinyPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const previewSet = await rpc("tools/call", {name: "set_photo_refiner_recipe_preview", arguments: {recipeId: "s001-abstract-quartet", dataUri: tinyPng}});
+  assert.equal(previewSet.structuredContent.ok, true);
+  assert.equal(previewSet.structuredContent.source, "user");
+  const afterOverride = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 1}});
+  assert.equal(afterOverride.structuredContent.creativeRecipes.recipes.find((item) => item.id === "s001-abstract-quartet").preview.overridden, true);
+  const previewGetUser = await rpc("tools/call", {name: "get_photo_refiner_recipe_preview", arguments: {recipeId: "s001-abstract-quartet"}});
+  assert.equal(previewGetUser.structuredContent.source, "user");
+  const previewReset = await rpc("tools/call", {name: "set_photo_refiner_recipe_preview", arguments: {recipeId: "s001-abstract-quartet", reset: true}});
+  assert.equal(previewReset.structuredContent.reset, true);
+  assert.equal(previewReset.structuredContent.source, "bundled");
+  const invalidSet = await rpc("tools/call", {name: "set_photo_refiner_recipe_preview", arguments: {recipeId: "s001-abstract-quartet", dataUri: "data:text/html;base64,PGI+"}});
+  assert.equal(invalidSet.isError, true);
+
+  finished = true;
   server.stdin.end();
   fs.rmSync(smokeHome, {recursive: true, force: true});
   console.log(JSON.stringify({ok: true, confirmationPath: submitted.structuredContent.confirmationPath}));

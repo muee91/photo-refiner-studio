@@ -111,7 +111,7 @@ def main() -> None:
     creative_output = data.get("creative_output") or {}
     two_stage_look_master = (
         execution_mode == "creative-translation"
-        and creative_output.get("upstream_binding") == "look-master"
+        and creative_output.get("upstream_binding") in ("look-master", "hd-master")
     )
     creative_direct = execution_mode == "creative-translation" and not two_stage_look_master
 
@@ -181,7 +181,7 @@ def main() -> None:
         instructions.append("restore only the complete face outline and chin; do not infer or sharpen hair outside the face patch")
     if two_stage_look_master:
         instructions.append(
-            "two-stage creative translation, stage 1: render the confirmed preset as the main image for explicit user approval; run the creative pass only after that approval, keeping identity anchored to the original source photograph"
+            "two-stage creative translation, stage 1: render the confirmed preset as the main image and pass it through ordinary high-resolution recovery; run the creative pass only after the user approves that finished HD master, keeping identity anchored to the original source photograph"
         )
 
     invariants = (

@@ -189,6 +189,7 @@ def main() -> None:
     parser.add_argument("--creative-recipe", default="none", help="Confirmed Starryear recipe id or none for text-only fallback")
     parser.add_argument("--creative-assembly-mode", choices=["direct-effect", "original-assembly"], default="direct-effect", help="Creative output: complete effect image by default, or the original evidence/assembly layout")
     parser.add_argument("--creative-from-base", action="store_true", help="Two-stage: first render the confirmed preset as an approved main image, then translate creatively from it (single-source direct-effect only)")
+    parser.add_argument("--creative-hd-chain", action="store_true", help="Full HD creative chain: ordinary refinement to an approved HD master, creative draft on it, then style-faithful tiled redraw to native resolution (single-source direct-effect only)")
     parser.add_argument("--custom-prompt", default="")
     parser.add_argument("--custom-avoid", default="")
     parser.add_argument("--aspect-ratio", type=validate_aspect_ratio, default="original")
@@ -216,6 +217,7 @@ def main() -> None:
         # offered conversationally, so an explicit CLI flag must survive a
         # confirmation whose config predates or omits the field.
         args.creative_from_base = args.creative_from_base or bool(ui_config.get("creativeFromBase", False))
+        args.creative_hd_chain = args.creative_hd_chain or bool(ui_config.get("creativeHdChain", False))
         args.preset = ui_config["preset"]
         args.custom_prompt = ui_config.get("customPrompt", "")
         args.custom_avoid = ui_config.get("customAvoid", "")
@@ -273,11 +275,21 @@ def main() -> None:
         # Opt-in two-stage flow: stage 1 renders the confirmed preset as an
         # approved main image; stage 2 translates creatively with that image
         # as look reference while identity stays anchored to the source.
-        creative_output["upstream_binding"] = (
-            "look-master"
-            if args.creative_from_base and creative_output["mode"] == "direct-effect" and len(sources) == 1
-            else "direction-only"
+        hd_chain = (
+            bool(args.creative_hd_chain)
+            and creative_output["mode"] == "direct-effect"
+            and len(sources) == 1
         )
+        creative_output["upstream_binding"] = (
+            "hd-master"
+            if hd_chain
+            else (
+                "look-master"
+                if args.creative_from_base and creative_output["mode"] == "direct-effect" and len(sources) == 1
+                else "direction-only"
+            )
+        )
+        creative_output["hd_chain"] = hd_chain
     workflow = args.workflow
     if workflow == "auto":
         workflow = "batch" if len(sources) > 1 else "single"
@@ -310,11 +322,18 @@ def main() -> None:
         "max": {"soft": 5, "hard": 8},
     }
     patch_scope = "head-and-face" if confirmation is None else ui_config.get("detail", {}).get("patchScope", "head-and-face")
+    hd_chain = (
+        bool(getattr(args, "creative_hd_chain", False))
+        and creative_output is not None
+        and creative_output["mode"] == "direct-effect"
+        and len(sources) == 1
+    )
     creative_recovery_eligible = (
         creative_recipe is not None
         and creative_output is not None
         and creative_output["mode"] == "direct-effect"
         and len(sources) == 1
+        and not hd_chain
     )
 
     normal_detail_manifest = {
@@ -401,7 +420,7 @@ def main() -> None:
     }
     detail_manifest = (
         normal_detail_manifest
-        if creative_recipe is None
+        if creative_recipe is None or hd_chain
         else creative_safe_detail_manifest
         if creative_recovery_eligible
         else creative_disabled_detail_manifest
@@ -453,6 +472,7 @@ def main() -> None:
         "resolution": args.resolution,
         "delivery_mode": delivery_mode,
         "base_preview": {"required": delivery_mode == "preview-first" and (workflow == "single" or creative_recipe is not None), "approved": False},
+        "creative_preview": {"required": hd_chain, "approved": False},
         "output_format": args.output_format,
         "batch": {
             "consistency": args.consistency,

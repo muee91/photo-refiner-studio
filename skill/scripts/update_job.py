@@ -10,7 +10,8 @@ TRANSITIONS = {
     "initialized": {"prepared", "failed"},
     "prepared": {"base_generated", "failed"},
     "base_generated": {"details_processed", "completed", "failed"},
-    "details_processed": {"completed", "failed"},
+    "details_processed": {"completed", "creative_generated", "failed"},
+    "creative_generated": {"completed", "failed"},
     "completed": set(),
     "failed": set(),
 }
@@ -42,6 +43,7 @@ def main() -> None:
     parser.add_argument("--approve-master", action="store_true")
     parser.add_argument("--master-frame", type=Path)
     parser.add_argument("--approve-base-preview", action="store_true")
+    parser.add_argument("--approve-creative-preview", action="store_true")
     args = parser.parse_args()
 
     job_path = args.job.expanduser().resolve()
@@ -73,6 +75,17 @@ def main() -> None:
             event["note"] = args.note.strip()
         data.setdefault("history", []).append(event)
 
+    if args.approve_creative_preview:
+        if data.get("execution_mode") != "creative-translation" or data.get("creative_output", {}).get("upstream_binding") != "hd-master":
+            raise SystemExit("Creative-draft approval applies only to hd-master creative chains")
+        if current != "creative_generated":
+            raise SystemExit("Creative draft can be approved only after status creative_generated")
+        data.setdefault("creative_preview", {})["approved"] = True
+        event = {"status": current, "event": "creative_preview_approved", "at": now}
+        if args.note.strip():
+            event["note"] = args.note.strip()
+        data.setdefault("history", []).append(event)
+
     if args.approve_base_preview:
         preview_eligible = data.get("workflow") == "single" or data.get("execution_mode") == "creative-translation"
         if data.get("delivery_mode") != "preview-first" or not preview_eligible:
@@ -88,6 +101,20 @@ def main() -> None:
     if args.status and args.status != current:
         if args.status not in TRANSITIONS[current]:
             raise SystemExit(f"Invalid status transition: {current} -> {args.status}")
+        if args.status == "creative_generated" and data.get("creative_output", {}).get("upstream_binding") != "hd-master":
+            raise SystemExit("creative_generated applies only to hd-master creative chains")
+        if (
+            current == "details_processed"
+            and args.status == "completed"
+            and data.get("creative_output", {}).get("upstream_binding") == "hd-master"
+        ):
+            raise SystemExit("hd-master creative chains must pass through creative_generated")
+        if (
+            current == "creative_generated"
+            and args.status == "completed"
+            and not data.get("creative_preview", {}).get("approved")
+        ):
+            raise SystemExit("Approve the creative draft before the final redraw pass")
         if (
             data.get("workflow") == "batch"
             and data.get("execution_mode") != "creative-translation"

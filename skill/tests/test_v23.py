@@ -214,6 +214,54 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             manifest = json.loads((Path(assembly.stdout.strip()) / "job.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["creative_output"]["upstream_binding"], "direction-only")
 
+    def test_hd_creative_chain_states_and_gates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.jpg"
+            Image.new("RGB", (32, 48), (10, 20, 30)).save(source)
+            base = [sys.executable, str(SKILL_ROOT / "scripts" / "init_job.py"), str(source),
+                    "--output-root", str(root / "jobs"), "--preset", "natural-cinematic",
+                    "--creative-recipe", "s001-abstract-quartet", "--confirmed"]
+
+            single = subprocess.run(base, check=True, capture_output=True, text=True)
+            job = Path(single.stdout.strip()) / "job.json"
+            m = json.loads(job.read_text(encoding="utf-8"))
+            self.assertEqual(m["creative_output"]["upstream_binding"], "direction-only")
+            self.assertFalse(m["creative_preview"]["required"])
+
+            hd = subprocess.run(base + ["--creative-hd-chain"], check=True, capture_output=True, text=True)
+            job = Path(hd.stdout.strip()) / "job.json"
+            m = json.loads(job.read_text(encoding="utf-8"))
+            self.assertEqual(m["creative_output"]["upstream_binding"], "hd-master")
+            self.assertTrue(m["creative_output"]["hd_chain"])
+            self.assertTrue(m["creative_preview"]["required"])
+            self.assertFalse(m["creative_preview"]["approved"])
+            self.assertEqual(m["detail"]["mode"], "adaptive")
+
+            updater = [sys.executable, str(SKILL_ROOT / "scripts" / "update_job.py"), str(job)]
+            subprocess.run(updater + ["--status", "prepared"], check=True, capture_output=True, text=True)
+            subprocess.run(updater + ["--status", "base_generated"], check=True, capture_output=True, text=True)
+            subprocess.run(updater + ["--approve-base-preview"], check=True, capture_output=True, text=True)
+            subprocess.run(updater + ["--status", "details_processed"], check=True, capture_output=True, text=True)
+            skipped = subprocess.run(updater + ["--status", "completed"], capture_output=True, text=True)
+            self.assertNotEqual(skipped.returncode, 0)
+            self.assertIn("must pass through creative_generated", skipped.stderr)
+            subprocess.run(updater + ["--status", "creative_generated"], check=True, capture_output=True, text=True)
+            unapproved = subprocess.run(updater + ["--status", "completed"], capture_output=True, text=True)
+            self.assertNotEqual(unapproved.returncode, 0)
+            self.assertIn("Approve the creative draft", unapproved.stderr)
+            subprocess.run(updater + ["--approve-creative-preview"], check=True, capture_output=True, text=True)
+            subprocess.run(updater + ["--status", "completed"], check=True, capture_output=True, text=True)
+            m = json.loads(job.read_text(encoding="utf-8"))
+            self.assertEqual(m["status"], "completed")
+            self.assertTrue(m["creative_preview"]["approved"])
+
+            assembly = subprocess.run(
+                base + ["--creative-assembly-mode", "original-assembly", "--creative-hd-chain"],
+                check=True, capture_output=True, text=True)
+            m = json.loads((Path(assembly.stdout.strip()) / "job.json").read_text(encoding="utf-8"))
+            self.assertEqual(m["creative_output"]["upstream_binding"], "direction-only")
+
     def test_multi_photo_creative_recipe_uses_effect_preview_not_batch_master(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

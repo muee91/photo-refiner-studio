@@ -12,12 +12,28 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE = REPO_ROOT / "skill" / "references" / "starryear" / "catalog.json"
 TARGET = REPO_ROOT / "plugin" / "config" / "creative-recipes.json"
+LARGE_TARGET = REPO_ROOT / "plugin" / "config" / "creative-previews-large.json"
 # Selector previews are embedded into every open_photo_refiner_settings tool
 # result and every resources/read response. Full-size images make one response
 # several megabytes, which some Codex brokers truncate or drop, leaving the
 # settings panel unable to mount. The Skill catalog keeps the originals.
 PREVIEW_MAX_SIDE = 320
 PREVIEW_JPEG_QUALITY = 70
+
+
+def original_data_uri(path: Path) -> str:
+    """Full-size preview for the on-demand lightbox. Never embedded in the
+    settings payload — served one image at a time via a dedicated tool."""
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise SystemExit(
+            "Pillow is required to encode selector previews: python3 -m pip install pillow"
+        ) from exc
+    with Image.open(path) as image:
+        buffer = BytesIO()
+        image.convert("RGB").save(buffer, "JPEG", quality=74, optimize=True)
+    return f"data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode('ascii')}"
 
 
 def preview_data_uri(path: Path) -> str:
@@ -85,7 +101,16 @@ def main() -> None:
     }
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     TARGET.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    large_payload = {
+        "version": payload["version"],
+        "recipes": [
+            {"id": r["id"], "dataUri": original_data_uri(SOURCE.parent / str(r["preview"]["path"]))}
+            for r in recipes if r["preview"]["status"] == "available"
+        ],
+    }
+    LARGE_TARGET.write_text(json.dumps(large_payload, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"Synced {len(output_recipes)} creative recipes to {TARGET}")
+    print(f"Synced {len(large_payload['recipes'])} large previews to {LARGE_TARGET}")
 
 
 if __name__ == "__main__":

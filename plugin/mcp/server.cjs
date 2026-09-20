@@ -11,6 +11,38 @@ const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "pl
 const PRESETS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "presets.json"), "utf8"));
 const CREATIVE_RECIPES = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "creative-recipes.json"), "utf8"));
 const CREATIVE_RECIPE_BY_ID = Object.fromEntries(CREATIVE_RECIPES.recipes.map((recipe) => [recipe.id, recipe]));
+const CREATIVE_PREVIEWS_LARGE_PATH = path.join(ROOT, "config", "creative-previews-large.json");
+let LARGE_PREVIEWS_BY_ID = null;
+function largePreviewsById() {
+  if (LARGE_PREVIEWS_BY_ID) return LARGE_PREVIEWS_BY_ID;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(CREATIVE_PREVIEWS_LARGE_PATH, "utf8"));
+    LARGE_PREVIEWS_BY_ID = Object.fromEntries((parsed.recipes || []).map((item) => [item.id, item.dataUri]));
+  } catch (_) {
+    LARGE_PREVIEWS_BY_ID = {};
+  }
+  return LARGE_PREVIEWS_BY_ID;
+}
+// User-replaced previews live outside the plugin tree and win over bundled ones.
+function previewOverrides() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(RECIPE_OVERRIDES_PATH, "utf8"));
+    return isObject(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+function creativeRecipesForClient() {
+  const overrides = previewOverrides();
+  const recipes = clone(CREATIVE_RECIPES);
+  for (const recipe of recipes.recipes) {
+    const override = overrides[recipe.id];
+    if (override?.dataUri) {
+      recipe.preview = { ...recipe.preview, dataUri: override.dataUri, overridden: true };
+    }
+  }
+  return recipes;
+}
 const WIDGET_TEMPLATE_HTML = fs.readFileSync(path.join(ROOT, "assets", "settings.html"), "utf8");
 // Use the slash-scoped URI shape accepted by Codex MCP App hosts. A flat URI
 // containing an encoded `+` can return a successful tool call while failing to
@@ -22,6 +54,7 @@ const INITIAL_PAYLOAD_TOKEN = "__PHOTO_REFINER_INITIAL_PAYLOAD__";
 // Respect an injected HOME for isolated plugin sessions and smoke tests. macOS
 // os.homedir() resolves from the account database and can ignore HOME.
 const USER_HOME = process.env.HOME || os.homedir();
+const RECIPE_OVERRIDES_PATH = path.join(USER_HOME, ".codex", "photo-refiner", "recipe-previews.json");
 const CONFIRMATION_DIR = path.join(USER_HOME, ".codex", "photo-refiner", "confirmed");
 const PREFERENCES_PATH = path.join(USER_HOME, ".codex", "photo-refiner", "preferences.json");
 
@@ -36,6 +69,9 @@ const DEFAULTS = {
   // Opt-in two-stage flow: render the confirmed preset as an approved main
   // image first, then translate creatively with that image as look reference.
   creativeFromBase: false,
+  // Full HD creative chain: ordinary refinement to an approved HD master,
+  // creative draft on it, then style-faithful tiled redraw.
+  creativeHdChain: false,
   // Neutral fallback only; normal jobs pass a subject-aware suggestedPreset.
   preset: "natural-cinematic",
   customPrompt: "",
@@ -123,7 +159,7 @@ const FALLBACK_WIDGET_PAYLOAD = {
   schemaVersion: 3,
   _photoRefinerFallback: true,
   presets: PRESETS,
-  creativeRecipes: CREATIVE_RECIPES,
+  creativeRecipes: creativeRecipesForClient(),
   defaults: clone(DEFAULTS),
   promptLibrary: {custom: []},
   recommendation: "",
@@ -218,6 +254,7 @@ function validateConfig(raw) {
   config.creativeRecipe = cleanText(config.creativeRecipe, 80, "creativeRecipe") || "none";
   config.creativeAssemblyMode = enumValue(config.creativeAssemblyMode, ["direct-effect", "original-assembly"], "creativeAssemblyMode");
   config.creativeFromBase = booleanValue(config.creativeFromBase, "creativeFromBase");
+  config.creativeHdChain = booleanValue(config.creativeHdChain, "creativeHdChain");
   if (config.creativeRecipe !== "none") {
     const recipe = CREATIVE_RECIPE_BY_ID[config.creativeRecipe];
     if (!recipe) throw new Error(`Unknown creative recipe: ${config.creativeRecipe}`);
@@ -454,6 +491,37 @@ function toolDefinitions() {
       annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
       _meta: {"openai/widgetAccessible": true, ui: {visibility: ["app"]}},
     },
+    {
+      name: "get_photo_refiner_recipe_preview",
+      title: "Fetch large creative recipe preview",
+      description: "Return the large preview image of one Starryear creative recipe for the settings panel lightbox. Call only from the panel when the user views a recipe large.",
+      inputSchema: {
+        type: "object",
+        required: ["recipeId"],
+        properties: {recipeId: {type: "string", minLength: 1}},
+        additionalProperties: true,
+      },
+      annotations: {readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false},
+      _meta: {"openai/widgetAccessible": true, ui: {visibility: ["app"]}},
+    },
+    {
+      name: "set_photo_refiner_recipe_preview",
+      title: "Replace creative recipe preview",
+      description: "Store a user-provided preview image (base64 JPEG/PNG data URI) for one Starryear creative recipe, or reset it to the bundled default. Only call from an explicit panel action.",
+      inputSchema: {
+        type: "object",
+        required: ["recipeId"],
+        properties: {
+          recipeId: {type: "string", minLength: 1},
+          dataUri: {type: "string"},
+          reset: {type: "boolean"},
+        },
+        // Broker-envelope tolerance, same rationale as submit.
+        additionalProperties: true,
+      },
+      annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
+      _meta: {"openai/widgetAccessible": true, ui: {visibility: ["app"]}},
+    },
   ];
 }
 
@@ -510,6 +578,7 @@ function callTool(name, args) {
     defaults.creativeRecipe = "none";
     defaults.creativeAssemblyMode = "direct-effect";
     defaults.creativeFromBase = false;
+    defaults.creativeHdChain = false;
     if (typeof args.suggestedPreset === "string" && PRESETS.presets[args.suggestedPreset]) {
       defaults.preset = args.suggestedPreset;
       const presetDefault = PRESETS.presets[args.suggestedPreset].defaultStrength;
@@ -530,7 +599,7 @@ function callTool(name, args) {
       ...(typeof item?.preset === "string" && PRESETS.presets[item.preset] ? {preset: item.preset} : {}),
       ...(typeof item?.styleStrength === "number" && item.styleStrength >= 0 && item.styleStrength <= 100 ? {styleStrength: item.styleStrength} : {}),
     })).filter((item) => item.prompt) : [];
-    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 3, presets: PRESETS, creativeRecipes: CREATIVE_RECIPES, defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
+    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 3, presets: PRESETS, creativeRecipes: creativeRecipesForClient(), defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
   }
   if (name === "submit_photo_refiner_settings") {
     if (args.userConfirmed !== true) throw new Error("Explicit user confirmation is required");
@@ -589,6 +658,7 @@ function callTool(name, args) {
         creativeAssemblyMode: creativeRecipe ? creativeRecipe.creativeAssemblyMode : null,
         creativeAssemblyLabelZh: creativeRecipe ? creativeRecipe.creativeAssemblyLabelZh : null,
         creativeFromBase: config.creativeFromBase,
+        creativeHdChain: config.creativeHdChain,
         aspectRatio: config.aspectRatio,
         resolution: config.resolution,
         deliveryMode: config.deliveryMode,
@@ -607,6 +677,41 @@ function callTool(name, args) {
     preferences.customPrompts = before.filter((item) => item.id !== entryId);
     savePreferences(preferences);
     return toolResult({ok: true, kind: "photo-refiner-prompt-library", promptLibrary: promptLibrary(preferences)});
+  }
+  if (name === "get_photo_refiner_recipe_preview") {
+    const recipeId = cleanText(args.recipeId, 80, "recipeId");
+    const recipe = CREATIVE_RECIPE_BY_ID[recipeId];
+    if (!recipe) throw new Error(`Unknown creative recipe: ${recipeId}`);
+    const override = previewOverrides()[recipeId];
+    if (override?.dataUri) {
+      return toolResult({ok: true, kind: "photo-refiner-recipe-preview", recipeId, dataUri: override.dataUri, source: "user"});
+    }
+    const large = largePreviewsById()[recipeId];
+    if (large) {
+      return toolResult({ok: true, kind: "photo-refiner-recipe-preview", recipeId, dataUri: large, source: "original"});
+    }
+    return toolResult({ok: true, kind: "photo-refiner-recipe-preview", recipeId, dataUri: recipe.preview?.dataUri || "", source: "inline"});
+  }
+  if (name === "set_photo_refiner_recipe_preview") {
+    const recipeId = cleanText(args.recipeId, 80, "recipeId");
+    const recipe = CREATIVE_RECIPE_BY_ID[recipeId];
+    if (!recipe) throw new Error(`Unknown creative recipe: ${recipeId}`);
+    const overrides = previewOverrides();
+    if (args.reset === true) {
+      delete overrides[recipeId];
+      fs.mkdirSync(path.dirname(RECIPE_OVERRIDES_PATH), {recursive: true, mode: 0o700});
+      fs.writeFileSync(RECIPE_OVERRIDES_PATH, `${JSON.stringify(overrides, null, 2)}\n`, {encoding: "utf-8", mode: 0o600});
+      return toolResult({ok: true, kind: "photo-refiner-recipe-preview", recipeId, reset: true, dataUri: recipe.preview?.dataUri || "", source: "bundled"});
+    }
+    const dataUri = cleanText(args.dataUri, 900000, "dataUri");
+    if (!/^data:image\/(jpeg|png);base64,[A-Za-z0-9+\/=]+$/.test(dataUri)) {
+      throw new Error("Preview must be a base64 JPEG or PNG data URI");
+    }
+    if (dataUri.length > 800000) throw new Error("Preview image is too large; keep it under ~600 KB");
+    overrides[recipeId] = {dataUri, savedAt: new Date().toISOString()};
+    fs.mkdirSync(path.dirname(RECIPE_OVERRIDES_PATH), {recursive: true, mode: 0o700});
+    fs.writeFileSync(RECIPE_OVERRIDES_PATH, `${JSON.stringify(overrides, null, 2)}\n`, {encoding: "utf-8", mode: 0o600});
+    return toolResult({ok: true, kind: "photo-refiner-recipe-preview", recipeId, dataUri, source: "user"});
   }
   throw new Error(`Unknown tool: ${name}`);
 }
