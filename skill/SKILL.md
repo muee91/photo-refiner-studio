@@ -3,11 +3,11 @@ name: photo-refiner
 description: Refine photographs with an approved Image 2.5 look and high-resolution detail recovery, or run an explicitly selected bundled Starryear source-faithful creative translation recipe with effect-image selection and deterministic assembly.
 ---
 
-# Photo Refiner v2.3
+# Photo Refiner v2.4
 
 Photo Refiner is a **photographic refinement workflow**, not a generic image-redesign skill. Image 2.5 establishes the approved visual look; deterministic scripts and localized generation recover useful detail without pretending that a low-resolution generation is native high resolution.
 
-Version 2.3 keeps the v2.2 SOURCE / LOOK / DETAIL refinement model and adds an explicitly selected **creative translation** branch. That branch can run the bundled Starryear recipes without flattening their multi-stage workflows into ordinary filter presets.
+Version 2.4 keeps the SOURCE / LOOK / DETAIL refinement model and makes high-resolution recovery the normal final stage for both ordinary refinement and eligible creative translation. Single-source `direct-effect` creative work uses a creative-safe adaptive recovery profile; `original-assembly` and multi-source creative layouts remain excluded from ordinary patching because region ownership is not yet safe.
 
 ## 1. Intent gate
 
@@ -30,19 +30,25 @@ Never flatten a bundled creative recipe into a color preset or append its name t
 4. Resolve `creative_assembly_mode` from the confirmed settings. It defaults to `direct-effect`; `original-assembly` is an explicit alternative. Direct-effect generates one complete creative effect image using the frozen normal preset as its upstream visual direction plus the recipe's theme, prompt semantics, references, source-derived motifs, and visual grammar; it must not attach an unchanged source-evidence strip, place the original beside/below the artwork, crop an original assembly, or act as a simple filter. Original-assembly follows the recipe literally: preserve its evidence regions with actual source pixels, generate only its translated regions, and use its compositor. For single-source direct-effect jobs the creative canvas follows the confirmed panel aspect ratio (`original` means the source photograph's own ratio) instead of the recipe's documented output ratio; original-assembly and multi-photo recipes keep the recipe's documented output structure. `creative_output.aspect_ratio_source` / `effective_aspect_ratio` in `job.json` record the resolved choice. When `creative_output.upstream_binding` is `look-master` (`--creative-from-base`, offered conversationally: for a single-source direct-effect creative job in preview-first mode, ask once whether to 直接开始创意 or 先按预设出主图、确认后再创意), first run the Section 7 base pass with the frozen preset, show that main image, and continue only after explicit approval; the creative pass then anchors identity and motifs to the original source photograph and uses the approved main image only as its look reference, and the formal base-preview gate still applies to the creative artwork itself.
 5. Default to preview-first. Present the generated direct effect preview or assembled original preview and stop for approval when the confirmed delivery mode is `preview-first`; one-click may continue without that pause.
 6. Retry only failed generated regions. For direct-effect, retry the complete creative image; for original-assembly, retry only failed generated regions.
-7. Do not run the ordinary face, head, garment, environment, or whole-image DETAIL PATCH stage over a completed creative collage. It can overwrite the translated art and create mixed-sharpness seams.
+7. For a **single-source `direct-effect`** result, the approved creative image becomes **CREATIVE LOOK MASTER** and must continue through the creative-safe adaptive high-resolution recovery in Section 8/8A before final delivery. Do not run the ordinary recovery profile over it. For `original-assembly` or multi-source creative layouts, keep local recovery disabled because ordinary patches can cross evidence/generated/layout boundaries and overwrite the translated art.
 
 Effect images are selection aids, not visual source material. Never copy their people, places, wording, palette, or exact composition. If a catalog entry says its preview is missing, show that state honestly instead of substituting an unrelated image.
 
 ## 3. Three authorities
 
-Every job has three explicit authorities:
+Ordinary refinement has three explicit authorities:
 
 - **SOURCE MASTER** — the original high-resolution photograph. It owns identity, anatomy, factual scene geometry, garment/object construction, and authentic material reference.
 - **LOOK MASTER** — the user-approved Image 2.5 base result. It owns approved color, lighting, tone, atmosphere, and visual style.
 - **DETAIL PATCH** — a localized generated patch. It may add registered mid/high-frequency detail, but it must not redefine SOURCE MASTER identity/structure or LOOK MASTER color/light/tone.
 
-The high-resolution stage is therefore **controlled information recovery on top of an approved look**, not a second global redesign.
+Eligible single-source `direct-effect` creative work uses the same separation with a different visual authority:
+
+- **SOURCE MASTER** still owns identity, anatomy, factual geometry and construction.
+- **CREATIVE LOOK MASTER** is the approved complete creative result. It owns color, lighting, tone, materials, visual grammar and all approved creative transformations.
+- **CREATIVE DETAIL PATCH** may recover registered mid/high-frequency detail only. It must not turn the creative region back into an ordinary photograph or invent a new style.
+
+The high-resolution stage is therefore **controlled information recovery on top of the approved ordinary or creative look**, not a second global redesign.
 
 ## 4. Source and initialization gate
 
@@ -210,10 +216,12 @@ If the budget fails, tighten the crop first. If it is already tight, request a l
 
 ### 8.3 Generate against both authorities
 
-For each accepted region, extract:
+For ordinary refinement, extract for each accepted region:
 
 - an exact LOOK MASTER target crop for approved color/light/tone/placement;
 - a SOURCE MASTER crop when available for identity/anatomy/construction/material truth.
+
+For eligible single-source `direct-effect` creative recovery, use the approved **CREATIVE LOOK MASTER** crop as the appearance target and SOURCE MASTER only as the structural/identity reference. The patch instruction must preserve the current creative style, materials, lighting and transformation while increasing effective detail. Never ask the patch to "restore the original photographic look."
 
 Generate the patch under both constraints. If dual-reference generation causes structural drift, allow one geometry-locked target-only retry. Maximum two generation attempts per tile unless the user explicitly asks for more.
 
@@ -233,21 +241,33 @@ python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
   --image <look-master-or-source> \
   --vision-analysis <vision-analysis.json> \
   --detail-budget balanced
+
+# eligible single-source direct-effect creative work:
+python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
+  --image <approved-creative-look-master> \
+  --vision-analysis <vision-analysis.json> \
+  --detail-budget balanced \
+  --recovery-profile creative-safe
 ```
 
-The contract is documented in `references/vision-analysis-schema.md`. It accepts
-pixel or normalized boxes for the subject, face, hands, and props. The Vision
-pass remains responsible for detection; the planner remains responsible for
-value scoring, merging, and generation budgets. Manual box flags remain
-backward-compatible and override matching Vision fields.
+The contract is documented in `references/vision-analysis-schema.md`. It accepts pixel or normalized boxes for the subject, face, hands, and props, plus optional `portrait_extent` and `detail_complexity` hints. The planner infers portrait extent from face-to-subject scale when the hint is omitted. The Vision pass remains responsible for detection; the planner remains responsible for value scoring, merging, and generation budgets. Manual box flags remain backward-compatible and override matching Vision fields.
 
 This planner is intentionally conservative. The generation budget is a **ceiling, never a quota**. It scores candidate regions by visual value and final-image scale, prefers one broad region over several fine ones, and may return fewer patches—or zero patches—when local generation is not worth the latency.
 
-Default generated-patch policy:
+Ordinary generated-patch policy:
 
 - `fast` → soft 1 / hard 1
 - `balanced` → soft 3 / hard 6
 - `max` → soft 5 / hard 8
+
+Creative-safe adaptive portrait policy under the normal `balanced` setting:
+
+- close / half-body → soft 2 / hard 3
+- full-body → soft 3 / hard 4
+- complex full-body → soft 4 / hard 5
+- non-portrait creative scenes → soft 2 / hard 3
+
+The creative-safe planner uses broad regions only. Full-body portraits may split costume recovery into **upper-costume** and **lower-costume** coverage so long skirts, robes, trousers or lower-body texture are not silently omitted. Hands and important props are added only when they remain high-value and pass Pixel Budget. The absolute creative-safe hard ceiling is 5 generated patches.
 
 The **soft budget** is the normal operating envelope. It is not a quota. A complex scene may exceed it only when the remaining regions are still high-value, visually large enough, and able to pass Pixel Budget. The **hard ceiling** prevents runaway generation time.
 
@@ -301,12 +321,12 @@ This is **not semantic segmentation**. It creates a coarse, soft-edged geometric
 
 ### Multiband frequency fusion
 
-LOOK MASTER remains authoritative for low-frequency appearance and most mid-frequency structure. v2.2 uses three bands:
+LOOK MASTER remains authoritative for low-frequency appearance and most mid-frequency structure in ordinary refinement. For creative-safe recovery, **CREATIVE LOOK MASTER** takes the same role. The fusion model uses three bands:
 
 ```text
-LOOK MASTER low frequency
+LOOK/CREATIVE LOOK MASTER low frequency
 +
-mostly LOOK MASTER mid frequency + controlled PATCH mid detail
+mostly LOOK/CREATIVE LOOK MASTER mid frequency + controlled PATCH mid detail
 +
 registered DETAIL PATCH high frequency
 ```
