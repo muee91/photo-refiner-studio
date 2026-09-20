@@ -12,7 +12,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE = REPO_ROOT / "skill" / "references" / "starryear" / "catalog.json"
 TARGET = REPO_ROOT / "plugin" / "config" / "creative-recipes.json"
-# Selector previews are embedded into every open_photo_refiner_settings tool
+# Selector previews are embedded into every open_photo_refiner_flow_settings tool
 # result and every resources/read response. Full-size images make one response
 # several megabytes, which some Codex brokers truncate or drop, leaving the
 # settings panel unable to mount. The Skill catalog keeps the originals.
