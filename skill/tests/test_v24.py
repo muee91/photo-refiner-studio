@@ -838,10 +838,45 @@ class TileRedrawPlannerTests(unittest.TestCase):
                              "--observed-patch-size", "1254x1254", *extra)
         return json.loads(result.stdout)
 
+    def test_a_thin_overhang_does_not_force_a_near_duplicate_tile(self):
+        """A box 2% wider than one tile's reach must not cost a second full tile.
+
+        The remainder is a thin strip that the already-raised base canvas serves;
+        emitting a 98%-identical generation for it is waste the user pays in latency.
+        """
+        from job_contract import tiles_for_span
+        self.assertEqual(tiles_for_span((1962, 1962), (1254, 1254), 0.65), 4)
+        plan = self.tile_plan("--region-box", "1729,1135,1962,2497", "--region-type", "head",
+                              "--sliver-margin", "0.05")
+        head = [t for t in plan["tiles"] if t["region_type"] == "head"]
+        self.assertEqual(len(head), 2, "both near-duplicate columns should be dropped")
+        self.assertGreater(plan["coverage"]["uncovered_area"], 0)
+        self.assertLessEqual(plan["coverage"]["largest_sliver_fraction"], 0.05)
+        self.assertEqual(plan["verdict"], "pass")
+
+    def test_tiles_sit_where_the_regions_actually_are(self):
+        """Guards against rebuilding dropped regions at the canvas origin, which makes
+        every grid overlap in one corner and fakes a lower tile count."""
+        plan = json.loads(self.plan_path.read_text(encoding="utf-8"))
+        face = next((r for r in (plan.get("regions") or []) + (plan.get("regions_dropped_for_budget") or [])
+                     if r["region_type"] == "face"), None)
+        self.assertIsNotNone(face, "the plan must still report the face region")
+        origin = (face.get("crop") or {}).get("x")
+        size = face.get("crop_size") or [face["crop"]["width"], face["crop"]["height"]]
+        expected = (origin if origin is not None else 0, size)
+        tile_plan = self.tile_plan("--detail-plan", self.plan_path)
+        face_tiles = [t for t in tile_plan["tiles"] if t["region_type"] == "face"]
+        self.assertTrue(face_tiles)
+        # The face is mid-frame in this fixture, so no face tile may start at (0,0).
+        for tile in face_tiles:
+            self.assertGreater(tile["box"]["x"] + tile["box"]["y"], 1000,
+                               f"face tile landed at the origin: {tile['box']} (expected near {expected})")
+
     def test_no_gaps_and_no_unreachable_tiles(self):
         plan = self.tile_plan("--detail-plan", self.plan_path)
         self.assertEqual(plan["verdict"], "pass")
-        self.assertEqual(plan["coverage"]["uncovered_area"], 0, "every planned region must be fully covered")
+        self.assertEqual(plan["coverage"]["hole_area"], 0,
+                         "no real hole may remain; thin remainders are tracked separately")
         self.assertGreater(plan["tile_count"], 0)
         self.assertEqual(plan["estimated_generation_calls"], plan["tile_count"])
         for tile in plan["tiles"]:
@@ -868,8 +903,9 @@ class TileRedrawPlannerTests(unittest.TestCase):
         self.assertEqual(ordered[0]["blend_order"], min(t["blend_order"] for t in plan["tiles"]))
 
     def test_full_canvas_mode_covers_the_whole_canvas(self):
-        plan = self.tile_plan("--full-canvas")
+        plan = self.tile_plan("--full-canvas", "--sliver-margin", "0")
         self.assertEqual(plan["coverage"]["uncovered_area"], 0)
+        self.assertEqual(plan["coverage"]["hole_area"], 0)
         self.assertEqual(plan["coverage"]["target_area"], 4672 * 7008)
 
     def test_refuses_missing_observed_patch_size(self):

@@ -384,11 +384,17 @@ python3 "$SKILL_ROOT/scripts/plan_tile_redraw.py" \
 Use `--full-canvas` instead when the whole frame is being re-rendered, and
 `--region-box x,y,w,h` for an explicit area.
 
-The tiler cuts each tile at `observed cap / region threshold`, generates tiles for the
-strictest region type first, drops any tile already fully covered by an equal or
-finer neighbour, and fails (exit 2) if any requested area is left uncovered. Read
-`tile_count` as the real cost — it is lower than `tiling_requirement.tile_count`,
-which adds per-region boxes that overlap. Then for each tile in `tiles[]`: crop it
+The tiler cuts each tile at `observed cap / region threshold` (bounded by area,
+because the generator caps total pixels), generates tiles for the strictest region
+type first, and drops a candidate when an equal or finer neighbour already covers it.
+Two drops are reported separately: `deduplicated_tiles` for fully covered boxes and
+`sliver_tiles_dropped` for boxes that would add less than `--sliver-margin` (default
+0.05) of new coverage — a region that overshoots one tile's reach by 2% must not cost
+a 98%-identical second generation, and that thin remainder goes to the raised base
+canvas. `coverage.hole_area` must stay 0; a nonzero hole fails the plan.
+
+Read `tile_count` as the real cost. It is lower than `tiling_requirement.tile_count`,
+which naively adds overlapping per-region grids. Then for each tile in `tiles[]`: crop it
 from the reference canvas, generate at exactly `requested_size`, record the observed
 return with `record_patch_observation.py`, and blend in `blend_sequence` order so face
 tiles land last.

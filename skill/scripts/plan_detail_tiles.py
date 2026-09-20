@@ -597,6 +597,10 @@ def build_plan(
                     "region_role": region.get("region_role", region["region_type"]),
                     "planned_patch_size": list(patch),
                     "crop_size": [crop["width"], crop["height"]],
+                    # Position travels with the box: a tiler that only knows the size
+                    # would rebuild the region at the canvas origin.
+                    "crop_box": {"x": crop["x"], "y": crop["y"],
+                                 "width": crop["width"], "height": crop["height"]},
                     "detail_ratio": round(ratio.minimum, 4),
                     "threshold": ratio.threshold,
                     "max_honest_delivery_width": round(delivery_headroom_width(

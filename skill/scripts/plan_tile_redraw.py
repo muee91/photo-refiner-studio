@@ -86,14 +86,18 @@ def regions_from_plan(plan: dict, canvas_w: int, canvas_h: int) -> tuple[list[di
             },
         })
     for item in plan.get("regions_dropped_for_budget") or []:
-        crop_w, crop_h = item.get("crop_size") or [0, 0]
-        if not crop_w or not crop_h:
-            continue
+        box = item.get("crop_box")
+        if not isinstance(box, dict) or not {"x", "y", "width", "height"} <= set(box):
+            raise SystemExit(
+                f"detail plan dropped region {item.get('region_role')!r} without a crop_box; "
+                "re-run plan_detail_tiles.py so tiling knows where the region was"
+            )
         regions.append({
             "region_type": item["region_type"],
             "region_role": item.get("region_role", item["region_type"]),
-            "box": {"x": 0, "y": 0, "width": max(1, round(crop_w * scale_x)),
-                    "height": max(1, round(crop_h * scale_y))},
+            "box": {"x": round(box["x"] * scale_x), "y": round(box["y"] * scale_y),
+                    "width": max(1, round(box["width"] * scale_x)),
+                    "height": max(1, round(box["height"] * scale_y))},
         })
     return regions, {"plan_working_canvas": working, "applied_scale": round(scale_x, 6)}
 
@@ -156,11 +160,15 @@ def main() -> None:
     parser.add_argument("--region-type", choices=sorted(PIXEL_BUDGET_THRESHOLDS), default="generic")
     parser.add_argument("--full-canvas", action="store_true", help="Tile the entire canvas")
     parser.add_argument("--overlap", type=float, default=0.15, help="Linear tile overlap fraction (default 0.15)")
+    parser.add_argument("--sliver-margin", type=float, default=0.05,
+                        help="Drop a tile whose own area adds less than this fraction of new coverage; the thin remainder is left to the raised base canvas")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
     if not 0 <= args.overlap < 0.6:
         raise SystemExit("--overlap must be between 0 and 0.6")
+    if not 0 <= args.sliver_margin < 0.5:
+        raise SystemExit("--sliver-margin must be between 0 and 0.5")
     image = args.image.expanduser().resolve()
     if not image.is_file():
         raise SystemExit(f"Missing canvas image: {image}")
@@ -193,6 +201,7 @@ def main() -> None:
         raise SystemExit("Nothing to tile: pass --detail-plan, --region-box or --full-canvas")
 
     covered = np.zeros((math.ceil(canvas_h / CELL), math.ceil(canvas_w / CELL)), dtype=bool)
+    slivers = np.zeros_like(covered)
     target = np.zeros_like(covered)
     for region in regions:
         mark(target, region["box"], True)
@@ -200,15 +209,23 @@ def main() -> None:
     # Strictest first: a finer grid satisfies a looser region, but never the reverse.
     tiles: list[dict] = []
     dropped_duplicates = 0
+    dropped_slivers = 0
+    largest_sliver = 0.0
     for region in sorted(regions, key=lambda item: -pixel_budget_threshold(item["region_type"])):
         threshold = pixel_budget_threshold(region["region_type"])
         reach = max(1, math.floor(max(args.observed_patch_size) / threshold))
         reach_area = int(args.observed_patch_size[0] * args.observed_patch_size[1] / threshold ** 2)
         for box in grid_tiles(region["box"], reach, reach, args.overlap, canvas_w, canvas_h, reach_area):
-            # Only a fully covered tile may be skipped; a 1% threshold would leave a
-            # thin uncovered sliver behind, which is exactly the gap this must not do.
-            if coverage_fraction(covered, box) >= 1.0:
+            already = coverage_fraction(covered, box)
+            if already >= 1.0:
                 dropped_duplicates += 1
+                continue
+            if already >= 1.0 - args.sliver_margin:
+                # The box adds only a hair of new coverage: a near-duplicate
+                # generation. Leave the thin remainder to the raised base canvas.
+                mark(slivers, box, True)
+                dropped_slivers += 1
+                largest_sliver = max(largest_sliver, 1.0 - already)
                 continue
             box = shrink_to_budget(box, args.observed_patch_size, threshold)
             requested = fit_patch_size(box["width"], box["height"], args.observed_patch_size)
@@ -235,21 +252,30 @@ def main() -> None:
         "source_tiling_request": source_tiling,
         "tile_count": len(tiles),
         "deduplicated_tiles": dropped_duplicates,
+        "sliver_tiles_dropped": dropped_slivers,
         "estimated_generation_calls": len(tiles),
         "tiles": tiles,
         "coverage": {
             "target_area": int(np.count_nonzero(target)) * CELL * CELL,
             "covered_area": int(np.count_nonzero(target & covered)) * CELL * CELL,
             "uncovered_area": uncovered_cells * CELL * CELL,
+            "sliver_area": int(np.count_nonzero(target & ~covered & slivers)) * CELL * CELL,
+            "largest_sliver_fraction": round(largest_sliver, 4),
+            "sliver_margin": args.sliver_margin,
         },
         "blend_sequence": [tile["index"] for tile in sorted(tiles, key=lambda item: (item["blend_order"], item["index"]))],
     }
+    # Anything the target wanted, that no tile covered and that is not an accepted
+    # thin remainder, is a real hole.
+    hole_cells = int(np.count_nonzero(target & ~covered & ~slivers))
     weakest = min((tile["budget_ratio"] for tile in tiles), default=0.0)
-    report["verdict"] = "pass" if tiles and uncovered_cells == 0 and weakest > 0 else "fail"
+    report["verdict"] = "pass" if tiles and hole_cells == 0 and weakest > 0 else "fail"
+    report["coverage"]["hole_area"] = hole_cells * CELL * CELL
     if report["verdict"] == "fail":
         report["required_action"] = (
-            "Uncovered area or an unfillable tile was found; re-check --observed-patch-size "
-            "against a recorded patch observation and the region boxes."
+            "A real gap remains (hole_area > 0) or a tile could not meet its own threshold; "
+            "re-check --observed-patch-size against a recorded patch observation, or lower "
+            "--sliver-margin to 0 so no remainder is delegated to the base canvas."
         )
 
     rendered = json.dumps(report, indent=2, ensure_ascii=False)

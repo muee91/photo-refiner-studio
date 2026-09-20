@@ -193,9 +193,16 @@ schema_version: 1
 canvas: [4672, 7008]              # the canvas being redrawn, in its own pixels
 observed_patch_size: [1254, 1254]
 tile_overlap: 0.15
-tile_count: 12                     # after dedupe; the real cost
-deduplicated_tiles: 4             # tiles already covered by a finer neighbour
-coverage: {target_area: ..., covered_area: ..., uncovered_area: 0}
+tile_count: 11                     # after both drop rules; the real cost
+deduplicated_tiles: 2              # fully covered by an equal or finer tile
+sliver_tiles_dropped: 3            # added < --sliver_margin (default 0.05) of new area
+coverage:
+  target_area: ...
+  covered_area: ...
+  uncovered_area: ...              # includes delegated thin remainders
+  sliver_area: ...                 # remainder intentionally left to the base canvas
+  hole_area: 0                     # must be 0: anything else is a real gap
+  largest_sliver_fraction: 0.024
 estimated_generation_calls: 12
 verdict: pass                      # fail (exit 2) on any gap or unfillable tile
 tiles:
