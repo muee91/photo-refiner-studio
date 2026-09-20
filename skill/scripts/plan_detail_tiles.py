@@ -248,11 +248,12 @@ def creative_safe_policy(detail_budget: str, extent: str, detail_complexity: str
     else:
         soft = stage["soft"]
         hard = stage["hard"]
+    creative_overflow_threshold = 1.01 if detail_budget == "fast" else (0.42 if detail_budget == "max" else 0.46)
     return {
         "soft": soft,
         "hard": hard,
         "threshold": max(base["threshold"], 0.34),
-        "overflow_threshold": max(base["overflow_threshold"], 0.46),
+        "overflow_threshold": creative_overflow_threshold,
     }
 
 
