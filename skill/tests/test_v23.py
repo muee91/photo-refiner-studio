@@ -82,7 +82,7 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             self.assertEqual(manifest["execution_mode"], "creative-translation")
             self.assertEqual(manifest["creative_recipe"]["id"], "s001-abstract-quartet")
             self.assertEqual(manifest["resolved_prompt"]["preset"], "natural-cinematic")
-            self.assertEqual(manifest["detail"]["mode"], "not-applicable")
+            self.assertEqual(manifest["detail"]["mode"], "creative-safe-adaptive")
             self.assertTrue(manifest["base_preview"]["required"])
             self.assertEqual(manifest["creative_output"]["mode"], "direct-effect")
             self.assertFalse(manifest["creative_output"]["original_assembly"])
