@@ -30,10 +30,7 @@
     ],
     "brandColor": "#1C8878",
     "composerIcon": "./assets/photo-refiner.svg",
-    "logo": "./assets/photo-refiner.svg",
-    "screenshots": [
-      "./assets/settings-preview.png"
-    ]
+    "logo": "./assets/photo-refiner.svg"
   },
   "mcpServers": "./.mcp.json"
 }
