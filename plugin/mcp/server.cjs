@@ -20,16 +20,16 @@ const NODE_CANVAS_SCRIPT = fs.readFileSync(path.join(NODE_CANVAS_ROOT, "app.js")
 // containing an encoded `+` can return a successful tool call while failing to
 // resolve and mount the Widget resource.
 const WIDGET_VERSION = String(MANIFEST.version).replace(/[^A-Za-z0-9._-]+/g, "-");
-const WIDGET_URI = `ui://widget/photo-refiner-settings/${WIDGET_VERSION}.html`;
-const NODE_CANVAS_URI = `ui://widget/photo-refiner-node-canvas/${WIDGET_VERSION}.html`;
+const WIDGET_URI = `ui://widget/photo-refiner-flow-settings/${WIDGET_VERSION}.html`;
+const NODE_CANVAS_URI = `ui://widget/photo-refiner-flow/${WIDGET_VERSION}.html`;
 const WIDGET_MIME = "text/html;profile=mcp-app";
 const INITIAL_PAYLOAD_TOKEN = "__PHOTO_REFINER_INITIAL_PAYLOAD__";
 // Respect an injected HOME for isolated plugin sessions and smoke tests. macOS
 // os.homedir() resolves from the account database and can ignore HOME.
 const USER_HOME = process.env.HOME || os.homedir();
-const CONFIRMATION_DIR = path.join(USER_HOME, ".codex", "photo-refiner", "confirmed");
-const GRAPH_DIR = path.join(USER_HOME, ".codex", "photo-refiner", "graphs");
-const PREFERENCES_PATH = path.join(USER_HOME, ".codex", "photo-refiner", "preferences.json");
+const CONFIRMATION_DIR = path.join(USER_HOME, ".codex", "photo-refiner-flow", "confirmed");
+const GRAPH_DIR = path.join(USER_HOME, ".codex", "photo-refiner-flow", "graphs");
+const PREFERENCES_PATH = path.join(USER_HOME, ".codex", "photo-refiner-flow", "preferences.json");
 
 const DEFAULTS = {
   sourceCount: 1,
@@ -138,7 +138,7 @@ const FALLBACK_WIDGET_PAYLOAD = {
 
 const FALLBACK_NODE_CANVAS_PAYLOAD = {
   ok: true,
-  kind: "photo-refiner-node-canvas",
+  kind: "photo-refiner-flow",
   schemaVersion: 1,
   _photoRefinerFallback: true,
   presets: PRESETS,
@@ -354,7 +354,7 @@ function uiMeta(resourceUri = WIDGET_URI) {
 function widgetResourceMeta() {
   return {
     ui: {prefersBorder: true},
-    "openai/widgetDescription": "Interactive Photo Refiner settings panel for confirming a photo refinement workflow before generation.",
+    "openai/widgetDescription": "Interactive Photo Refiner Flow settings panel for confirming a photo refinement workflow before generation.",
     "openai/widgetPrefersBorder": true,
     "openai/widgetCSP": {
       connect_domains: [],
@@ -385,7 +385,7 @@ function nodeCanvasHtmlWithInitialPayload(payload) {
   let html = NODE_CANVAS_INDEX_HTML;
   html = html.replace('<link rel="stylesheet" href="styles.css">', () => `<style>${NODE_CANVAS_STYLES}</style>`);
   html = html.replace('<script src="app.js"></script>', () => `<script>window.__PHOTO_REFINER_NODE_PAYLOAD__=${serialized};</script><script>${NODE_CANVAS_SCRIPT}</script>`);
-  if (html === NODE_CANVAS_INDEX_HTML) throw new Error("Photo Refiner Node Canvas could not inline its assets");
+  if (html === NODE_CANVAS_INDEX_HTML) throw new Error("Photo Refiner Flow could not inline its assets");
   return html;
 }
 
@@ -458,8 +458,8 @@ function widgetHtmlWithInitialPayload(payload) {
 function toolDefinitions() {
   return [
     {
-      name: "open_photo_refiner_settings",
-      title: "Open Photo Refiner settings",
+      name: "open_photo_refiner_flow_settings",
+      title: "Open Photo Refiner Flow settings",
       description: "MANDATORY only after at least one source photograph is attached or an existing local image path is known: invoke the interactive settings panel as a native top-level tool call before replying with settings or starting image generation, unless this conversation already contains a submitted confirmationPath. This tool call must be the final visible action of the turn: do not append text, a settings summary, or any acknowledgement after it, because the host needs the Widget metadata to mount the panel. Never invoke it through functions.exec, a shell wrapper, or another orchestration tool. Do not open this panel when no source photograph is known. Do not print a text settings menu when this tool is available.",
       inputSchema: {
         type: "object",
@@ -493,8 +493,8 @@ function toolDefinitions() {
       _meta: uiMeta(),
     },
     {
-      name: "open_photo_refiner_node_canvas",
-      title: "Open Photo Refiner Node Canvas",
+      name: "open_photo_refiner_flow",
+      title: "Open Photo Refiner Flow",
       description: "Open the experimental high-level Photo Refiner node canvas inside a compatible ChatGPT/Codex MCP Apps host. This is optional and coexists with the existing settings panel. Use it when the user explicitly wants the node workflow UI.",
       inputSchema: {
         type: "object",
@@ -522,9 +522,9 @@ function toolDefinitions() {
       _meta: uiMeta(NODE_CANVAS_URI),
     },
     {
-      name: "submit_photo_refiner_graph",
+      name: "submit_photo_refiner_flow_graph",
       title: "Confirm Photo Refiner node graph",
-      description: "Validate and freeze a graph explicitly submitted from the Photo Refiner Node Canvas. Do not call this on the user's behalf.",
+      description: "Validate and freeze a graph explicitly submitted from the Photo Refiner Flow. Do not call this on the user's behalf.",
       inputSchema: {
         type: "object",
         required: ["userConfirmed", "graph"],
@@ -543,8 +543,8 @@ function toolDefinitions() {
       _meta: {"openai/widgetAccessible": true, ui: {visibility: ["app"]}},
     },
     {
-      name: "submit_photo_refiner_settings",
-      title: "Confirm Photo Refiner settings",
+      name: "submit_photo_refiner_flow_settings",
+      title: "Confirm Photo Refiner Flow settings",
       description: "Validate and freeze settings submitted by the interactive Photo Refiner panel. Do not call this on the user's behalf; it represents an explicit panel submission. After success, the returned confirmationPath is authoritative: continue from it without reopening the panel or asking the user to confirm the same settings again.",
       inputSchema: {
         type: "object",
@@ -578,7 +578,7 @@ function toolDefinitions() {
       _meta: {"openai/widgetAccessible": true, ui: {visibility: ["app"]}},
     },
     {
-      name: "delete_photo_refiner_prompt",
+      name: "delete_photo_refiner_flow_prompt",
       title: "Delete saved Photo Refiner prompt",
       description: "Delete one user-authored prompt after an explicit action in the settings panel. Built-in presets are not deletable.",
       inputSchema: {
@@ -588,7 +588,7 @@ function toolDefinitions() {
           collection: {type: "string", enum: ["custom"]},
           entryId: {type: "string", minLength: 1},
         },
-        // Same broker-envelope tolerance as submit_photo_refiner_settings.
+        // Same broker-envelope tolerance as submit_photo_refiner_flow_settings.
         additionalProperties: true,
       },
       annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false},
@@ -601,9 +601,9 @@ function nodeCanvasToolResult(payload) {
   const html = nodeCanvasHtmlWithInitialPayload(payload);
   return {
     content: [
-      {type: "text", text: "Photo Refiner Node Canvas is ready."},
+      {type: "text", text: "Photo Refiner Flow is ready."},
       {type: "resource", resource: {uri: NODE_CANVAS_URI, mimeType: WIDGET_MIME, text: html, _meta: nodeCanvasResourceMeta()}},
-      {type: "resource_link", uri: NODE_CANVAS_URI, name: "Photo Refiner Node Canvas", title: "Photo Refiner Node Canvas", mimeType: WIDGET_MIME, _meta: nodeCanvasResourceMeta()},
+      {type: "resource_link", uri: NODE_CANVAS_URI, name: "Photo Refiner Flow", title: "Photo Refiner Flow", mimeType: WIDGET_MIME, _meta: nodeCanvasResourceMeta()},
     ],
     structuredContent: payload,
     isError: false,
@@ -613,7 +613,7 @@ function nodeCanvasToolResult(payload) {
 
 function toolResult(payload, withWidget = false) {
   const result = {
-    content: [{type: "text", text: withWidget ? "Photo Refiner settings are ready." : JSON.stringify(payload)}],
+    content: [{type: "text", text: withWidget ? "Photo Refiner Flow settings are ready." : JSON.stringify(payload)}],
     structuredContent: payload,
     isError: false,
   };
@@ -635,8 +635,8 @@ function toolResult(payload, withWidget = false) {
     result.content.push({
       type: "resource_link",
       uri: WIDGET_URI,
-      name: "Photo Refiner settings",
-      title: "Photo Refiner settings",
+      name: "Photo Refiner Flow settings",
+      title: "Photo Refiner Flow settings",
       mimeType: WIDGET_MIME,
       _meta: widgetResourceMeta(),
     });
@@ -650,7 +650,7 @@ function toolError(message) {
 }
 
 function callTool(name, args) {
-  if (name === "open_photo_refiner_node_canvas") {
+  if (name === "open_photo_refiner_flow") {
     if (!Number.isInteger(args.sourceCount) || args.sourceCount < 1) throw new Error("At least one source photograph is required before opening Node Canvas");
     const preferences = loadPreferences();
     const savedConfig = isObject(preferences.lastConfig) ? preferences.lastConfig : {};
@@ -669,22 +669,22 @@ function callTool(name, args) {
       const recipe = CREATIVE_RECIPE_BY_ID[args.suggestedCreativeRecipe];
       if (recipe && args.sourceCount >= recipe.sourceCount.min && args.sourceCount <= recipe.sourceCount.max) defaults.creativeRecipe = recipe.id;
     }
-    return nodeCanvasToolResult({ok: true, kind: "photo-refiner-node-canvas", schemaVersion: 1, presets: PRESETS, creativeRecipes: CREATIVE_RECIPES, defaults});
+    return nodeCanvasToolResult({ok: true, kind: "photo-refiner-flow", schemaVersion: 1, presets: PRESETS, creativeRecipes: CREATIVE_RECIPES, defaults});
   }
-  if (name === "submit_photo_refiner_graph") {
+  if (name === "submit_photo_refiner_flow_graph") {
     if (args.userConfirmed !== true) throw new Error("Explicit user confirmation is required");
     const graph = validateSubmittedGraph(args.graph);
     const now = new Date().toISOString();
     const graphId = graph.graphId || crypto.randomUUID();
     fs.mkdirSync(GRAPH_DIR, {recursive: true, mode: 0o700});
     const graphPath = path.join(GRAPH_DIR, `${graphId}.json`);
-    const record = {schemaVersion: 1, graphId, confirmedAt: now, confirmedBy: "photo-refiner-node-canvas", graph};
+    const record = {schemaVersion: 1, graphId, confirmedAt: now, confirmedBy: "photo-refiner-flow", graph};
     fs.writeFileSync(graphPath, `${JSON.stringify(record, null, 2)}\n`, {encoding: "utf8", mode: 0o600});
     return toolResult({ok: true, kind: "photo-refiner-node-graph", graphId, graphPath, confirmedAt: now});
   }
-  if (name === "open_photo_refiner_settings") {
+  if (name === "open_photo_refiner_flow_settings") {
     if (!Number.isInteger(args.sourceCount) || args.sourceCount < 1) {
-      throw new Error("At least one source photograph is required before opening Photo Refiner settings");
+      throw new Error("At least one source photograph is required before opening Photo Refiner Flow settings");
     }
     const preferences = loadPreferences();
     const savedConfig = isObject(preferences.lastConfig) ? preferences.lastConfig : {};
@@ -718,7 +718,7 @@ function callTool(name, args) {
     })).filter((item) => item.prompt) : [];
     return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 3, presets: PRESETS, creativeRecipes: CREATIVE_RECIPES, defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
   }
-  if (name === "submit_photo_refiner_settings") {
+  if (name === "submit_photo_refiner_flow_settings") {
     if (args.userConfirmed !== true) throw new Error("Explicit user confirmation is required");
     const config = validateConfig(args.config);
     const prompt = resolvedPrompt(config);
@@ -729,7 +729,7 @@ function callTool(name, args) {
       schemaVersion: 3,
       confirmationId: id,
       confirmedAt: now,
-      confirmedBy: "photo-refiner-studio",
+      confirmedBy: "photo-refiner-flow-studio",
       config,
       executionMode: creativeRecipe ? "creative-translation" : "photo-refinement",
       resolvedCreativeRecipe: creativeRecipe,
@@ -785,7 +785,7 @@ function callTool(name, args) {
       },
     });
   }
-  if (name === "delete_photo_refiner_prompt") {
+  if (name === "delete_photo_refiner_flow_prompt") {
     const collection = enumValue(args.collection, ["custom"], "collection");
     const entryId = cleanText(args.entryId, 120, "entryId");
     const preferences = loadPreferences();
@@ -823,8 +823,8 @@ async function handleRpc(message) {
           // ui/resourceUri should be mounted as an in-chat Widget.
           extensions: {"io.modelcontextprotocol/ui": {}},
         },
-        serverInfo: {name: "photo-refiner-studio", title: "Photo Refiner Studio", version: MANIFEST.version},
-        instructions: "For Photo Refiner requests with at least one attached or existing source photo, use the stable open_photo_refiner_settings surface by default. If the user explicitly asks for the node workflow, Node Canvas, nodes, or graph editing, use the native top-level open_photo_refiner_node_canvas tool instead. Either UI-opening tool call must be the final visible action of the turn; do not append text after it or wrap it through functions.exec. If no source photo is supplied, ask for one. PHOTO_REFINER_PANEL_SUBMITTED with confirmationPath is explicit settings confirmation; PHOTO_REFINER_NODE_GRAPH_SUBMITTED with graphPath is explicit node-graph confirmation. After either handoff, do not reopen a UI or ask the user to confirm the same configuration again.",
+        serverInfo: {name: "photo-refiner-flow-studio", title: "Photo Refiner Flow", version: MANIFEST.version},
+        instructions: "For $photo-refiner-flow or Photo Refiner Flow requests with at least one attached or existing source photo, invoke the native top-level open_photo_refiner_flow tool by default. Use open_photo_refiner_flow_settings only if the user explicitly asks for the compact settings panel or the Flow canvas is unavailable. Either UI-opening tool call must be the final visible action of the turn; do not append text after it or wrap it through functions.exec. If no source photo is supplied, ask for one. PHOTO_REFINER_FLOW_GRAPH_SUBMITTED with graphPath is explicit graph confirmation; PHOTO_REFINER_FLOW_SETTINGS_SUBMITTED with confirmationPath is explicit fallback-settings confirmation. After either handoff, do not reopen a UI or ask the user to confirm the same configuration again.",
       });
     }
     if (message.method === "ping") return rpcResponse(id, {});
@@ -840,8 +840,8 @@ async function handleRpc(message) {
     }
     if (message.method === "resources/list") {
       return rpcResponse(id, {resources: [
-        {uri: WIDGET_URI, name: "Photo Refiner settings", mimeType: WIDGET_MIME, _meta: widgetResourceMeta()},
-        {uri: NODE_CANVAS_URI, name: "Photo Refiner Node Canvas", mimeType: WIDGET_MIME, _meta: nodeCanvasResourceMeta()},
+        {uri: WIDGET_URI, name: "Photo Refiner Flow settings", mimeType: WIDGET_MIME, _meta: widgetResourceMeta()},
+        {uri: NODE_CANVAS_URI, name: "Photo Refiner Flow", mimeType: WIDGET_MIME, _meta: nodeCanvasResourceMeta()},
       ]});
     }
     if (message.method === "resources/read") {
