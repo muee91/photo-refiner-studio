@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 
-DEFAULT_SKILL_PRESETS = Path.home() / ".codex" / "skills" / "photo-refiner" / "references" / "presets.yaml"
+DEFAULT_SKILL_PRESETS = Path.home() / ".codex" / "skills" / "photo-refiner-flow" / "references" / "presets.yaml"
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "config" / "presets.json"
 
 
