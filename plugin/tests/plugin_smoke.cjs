@@ -44,16 +44,28 @@ function rpc(method, params = {}) {
   assert.equal(initialized.serverInfo.name, "photo-refiner-studio");
 
   const listed = await rpc("tools/list");
-  assert.deepEqual(listed.tools.map((item) => item.name), ["open_photo_refiner_settings", "submit_photo_refiner_settings", "delete_photo_refiner_prompt"]);
+  assert.deepEqual(listed.tools.map((item) => item.name), [
+    "open_photo_refiner_settings",
+    "open_photo_refiner_node_canvas",
+    "submit_photo_refiner_graph",
+    "submit_photo_refiner_settings",
+    "delete_photo_refiner_prompt",
+  ]);
   assert.deepEqual(listed.tools[0].inputSchema.required, ["sourceCount"]);
   assert.equal(listed.tools[0].inputSchema.properties.sourceCount.minimum, 1);
+  assert.deepEqual(listed.tools[1].inputSchema.required, ["sourceCount"]);
+  assert.equal(listed.tools[1].inputSchema.properties.sourceCount.minimum, 1);
   // Broker-envelope tolerance: widget-originated calls must accept extra
   // fields some Codex brokers add, so no const/additionalProperties:false.
-  assert.equal(listed.tools[1].inputSchema.properties.userConfirmed.type, "boolean");
-  assert.equal(listed.tools[1].inputSchema.properties.userConfirmed.const, undefined);
-  assert.equal(listed.tools[1].inputSchema.additionalProperties, true);
+  assert.equal(listed.tools[2].inputSchema.properties.userConfirmed.type, "boolean");
+  assert.equal(listed.tools[2].inputSchema.properties.userConfirmed.const, undefined);
   assert.equal(listed.tools[2].inputSchema.additionalProperties, true);
-  assert.deepEqual(listed.tools[1].outputSchema.required, ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt"]);
+  assert.equal(listed.tools[3].inputSchema.properties.userConfirmed.type, "boolean");
+  assert.equal(listed.tools[3].inputSchema.properties.userConfirmed.const, undefined);
+  assert.equal(listed.tools[3].inputSchema.additionalProperties, true);
+  assert.equal(listed.tools[4].inputSchema.additionalProperties, true);
+  assert.deepEqual(listed.tools[2].outputSchema.required, ["ok", "kind", "graphId", "graphPath", "confirmedAt"]);
+  assert.deepEqual(listed.tools[3].outputSchema.required, ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt"]);
 
   const noSource = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 0}});
   assert.equal(noSource.isError, true);
@@ -122,6 +134,9 @@ function rpc(method, params = {}) {
   assert.deepEqual(JSON.parse(embeddedPayload[1]), recommended.structuredContent);
 
   const resources = await rpc("resources/list");
+  assert.equal(resources.resources.length, 2);
+  assert.match(resources.resources[0].uri, /photo-refiner-settings/);
+  assert.match(resources.resources[1].uri, /photo-refiner-node-canvas/);
   const resource = await rpc("resources/read", {uri: resources.resources[0].uri});
   assert.equal(resource.contents[0].mimeType, "text/html;profile=mcp-app");
   const resourceHtml = resource.contents[0].text;
@@ -183,6 +198,59 @@ function rpc(method, params = {}) {
     if (!id || id.includes("+")) continue;
     assert.ok(resourceHtml.includes(`id="${id}"`), `Widget script references missing element id: ${id}`);
   }
+
+  const nodeOpened = await rpc("tools/call", {
+    name: "open_photo_refiner_node_canvas",
+    arguments: {sourceCount: 1, suggestedPreset: "natural-landscape", suggestedCreativeRecipe: "s001-abstract-quartet"},
+  });
+  assert.equal(nodeOpened.structuredContent.kind, "photo-refiner-node-canvas");
+  assert.equal(nodeOpened.structuredContent.schemaVersion, 1);
+  assert.equal(nodeOpened.structuredContent.defaults.sourceCount, 1);
+  assert.equal(nodeOpened.structuredContent.defaults.preset, "natural-landscape");
+  assert.equal(nodeOpened.structuredContent.defaults.creativeRecipe, "s001-abstract-quartet");
+  assert.match(nodeOpened._meta.ui.resourceUri, /photo-refiner-node-canvas/);
+  assert.equal(nodeOpened.content[1].type, "resource");
+  assert.match(nodeOpened.content[1].resource.text, /Photo Refiner · Node Canvas/);
+  assert.match(nodeOpened.content[1].resource.text, /submit_photo_refiner_graph/);
+  assert.match(nodeOpened.content[1].resource.text, /PHOTO_REFINER_NODE_GRAPH_SUBMITTED/);
+  assert.doesNotMatch(nodeOpened.content[1].resource.text, /href="styles\.css"/);
+  assert.doesNotMatch(nodeOpened.content[1].resource.text, /src="app\.js"/);
+
+  const nodeResource = await rpc("resources/read", {uri: resources.resources[1].uri});
+  assert.equal(nodeResource.contents[0].mimeType, "text/html;profile=mcp-app");
+  assert.match(nodeResource.contents[0].text, /__PHOTO_REFINER_NODE_PAYLOAD__/);
+  assert.match(nodeResource.contents[0].text, /openai\.callTool/);
+  assert.match(nodeResource.contents[0].text, /Effect B|效果 B/);
+
+  const graph = {
+    version: 1,
+    graphId: "smoke-node-graph",
+    createdFrom: "node-canvas",
+    nodes: [
+      {id: "source", type: "source", enabled: true, config: {sourceCount: 1}, position: {x: 0, y: 0}},
+      {id: "look_a", type: "look", enabled: true, config: {preset: "natural-landscape", styleStrength: 35, renderMode: "look-master"}, position: {x: 1, y: 0}},
+      {id: "effect_b", type: "creative-effect", enabled: false, config: {recipeId: "s001-abstract-quartet", mode: "direct-effect", sourceCommit: ""}, position: {x: 2, y: 0}},
+      {id: "approval", type: "approval", enabled: true, config: {deliveryMode: "preview-first"}, position: {x: 3, y: 0}},
+      {id: "recovery", type: "recovery", enabled: true, config: {mode: "normal", generationBudget: "balanced"}, position: {x: 4, y: 0}},
+      {id: "delivery", type: "delivery", enabled: true, config: {resolution: "source-width", outputFormat: "jpg"}, position: {x: 5, y: 0}},
+    ],
+    edges: [
+      {from: "source", to: "look_a", kind: "flow"},
+      {from: "look_a", to: "approval", kind: "flow"},
+      {from: "approval", to: "recovery", kind: "flow"},
+      {from: "recovery", to: "delivery", kind: "flow"},
+    ],
+  };
+  const submittedGraph = await rpc("tools/call", {
+    name: "submit_photo_refiner_graph",
+    arguments: {userConfirmed: true, graph},
+  });
+  assert.equal(submittedGraph.structuredContent.ok, true);
+  assert.equal(submittedGraph.structuredContent.graphId, "smoke-node-graph");
+  assert.ok(fs.existsSync(submittedGraph.structuredContent.graphPath));
+  const graphRecord = JSON.parse(fs.readFileSync(submittedGraph.structuredContent.graphPath, "utf8"));
+  assert.equal(graphRecord.confirmedBy, "photo-refiner-node-canvas");
+  assert.equal(graphRecord.graph.graphId, "smoke-node-graph");
 
   const defaults = recommended.structuredContent.defaults;
   defaults.clothing.wrinkleReduction = 35;
