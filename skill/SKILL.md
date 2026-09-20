@@ -257,6 +257,14 @@ Rules:
 - A requested/actual mismatch is observational evidence, not an automatic failure. Pixel Budget and visual quality gates decide whether the patch remains useful.
 - `original-assembly` and other jobs with `detail.mode = not-applicable` must not record local recovery patches.
 
+After several local tests, summarize observed client behavior without claiming a platform limit:
+
+```bash
+python3 "$SKILL_ROOT/scripts/summarize_patch_observations.py" <job.json-or-jobs-directory> [...]
+```
+
+The summary reports requested→actual mappings, actual sizes grouped by normal/creative detail mode, and the largest **observed** width, height, and total pixel count. These are empirical observations from this runtime only.
+
 ## 8A. Adaptive tile planning and generation budgets
 
 Before local generation, v2.2 plans coarse detail regions with:
