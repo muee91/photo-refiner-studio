@@ -12,6 +12,8 @@ Example:
   "schema_version": 1,
   "coordinate_space": "normalized",
   "subject_type": "classical-portrait",
+  "portrait_extent": "full",
+  "detail_complexity": "complex",
   "regions": {
     "subject": {"x": 0.22, "y": 0.10, "width": 0.56, "height": 0.82},
     "face": {"x": 0.40, "y": 0.18, "width": 0.18, "height": 0.15},
@@ -29,8 +31,16 @@ Example:
 `normalized`. Normalized boxes use fractions of the source image. The required
 `subject_type` values are `portrait`, `classical-portrait`, `landscape`,
 `architecture`, and `generic`. `subject` and `face` are single boxes;
-`hands` and `props` are arrays. Additional fields such as confidence or labels
-may be included by the Vision backend and are ignored by the planner.
+`hands` and `props` are arrays.
+
+For portrait-like subjects, `portrait_extent` is optional and may be `close`,
+`half`, `full`, or `complex-full`. If omitted, the planner infers it from
+face-to-subject scale. `detail_complexity` is optional and may be `normal` or
+`complex`; use `complex` only when clothing, props, or other large subject
+surfaces genuinely justify a larger recovery budget. These hints are consumed
+by the `creative-safe` recovery profile and do not force patch generation.
+Additional fields such as confidence or labels may be included by the Vision
+backend and are ignored by the planner.
 
 Run it with:
 
