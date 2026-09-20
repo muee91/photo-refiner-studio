@@ -9,6 +9,23 @@ Photo Refiner is a **photographic refinement workflow**, not a generic image-red
 
 Version 2.3 keeps the v2.2 SOURCE / LOOK / DETAIL refinement model and adds an explicitly selected **creative translation** branch. That branch can run the bundled Starryear recipes without flattening their multi-stage workflows into ordinary filter presets.
 
+## Node Canvas branch
+
+The `feat/node-canvas-v3` branch adds an experimental high-level graph layer without replacing the proven v2.3 processing backend.
+
+The controlled graph is:
+
+```text
+Source -> Look A -> Effect B? -> Approval -> Recovery? -> Delivery
+```
+
+Read `references/node-graph.md` before changing graph semantics. Validate exported graphs with `scripts/validate_graph.py` and compile them with `scripts/compile_graph_plan.py`.
+
+Important compatibility rule: Look A can be either `direction-only` or `look-master`. `direction-only` preserves the current one-pass direct-effect behavior; `look-master` preserves `creative-from-base` and spends a real A-stage generation before Effect B. The Canvas must never silently add a generation call.
+
+The standalone local prototype lives in `../node-canvas/` and does not depend on MCP Widget mounting. Until graph execution is wired fully into job initialization, the existing v2.3 scripts remain the runtime authority.
+
+
 ## 1. Intent gate
 
 A question about this Skill is **not** an edit request. If the user asks whether it can edit, how it works, how to optimize it, what its limits are, or asks to inspect/review the Skill, answer or inspect only. **Do not invoke image generation.**
