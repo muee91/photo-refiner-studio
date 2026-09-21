@@ -592,9 +592,15 @@ def main() -> None:
             and tile_evidence_ok
             and blend_chain_ok
         )
+        full_canvas_detail_context_ok = (
+            not detail_required
+            or hd_master_delivery
+            or "detail_plan" in provenance_sources
+        )
         full_canvas_native_ok = (
             tile_ok
             and full_canvas_plan
+            and full_canvas_detail_context_ok
             and int(coverage.get("sliver_area") or 0) == 0
             and int(coverage.get("hole_area") or 0) == 0
             and tile_canvas_matches
@@ -609,6 +615,7 @@ def main() -> None:
             "final_canvas": final["size"],
             "canvas_matches": tile_canvas_matches,
             "full_canvas_plan": full_canvas_plan,
+            "full_canvas_detail_context_ok": full_canvas_detail_context_ok,
             "full_canvas_native_ok": full_canvas_native_ok,
             "index_contract_ok": index_contract_ok,
             "tile_count": len(tiles),
