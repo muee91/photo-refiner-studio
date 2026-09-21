@@ -248,7 +248,7 @@ def install_engine() -> dict:
         )
         installed.append("spandrel + torch (python engine)")
     except subprocess.CalledProcessError as exc:
-        failures.append(f"pip realesrgan failed: {exc.stderr[-400:] if exc.stderr else exc}")
+        failures.append(f"pip spandrel failed: {exc.stderr[-400:] if exc.stderr else exc}")
     model_done = False
     for url in MODEL_CANDIDATES:
         descriptor, temp_name = tempfile.mkstemp(prefix=f"{MODEL_NAME}.", suffix=".part", dir=UPSCALER_DIR)
