@@ -69,7 +69,7 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.equal(listed.tools[1].inputSchema.properties.userConfirmed.const, undefined);
   assert.equal(listed.tools[1].inputSchema.additionalProperties, true);
   assert.equal(listed.tools[2].inputSchema.additionalProperties, true);
-  assert.deepEqual(listed.tools[1].outputSchema.required, ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt"]);
+  assert.deepEqual(listed.tools[1].outputSchema.required, ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt", "confirmationHash"]);
 
   const noSource = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 0}});
   assert.equal(noSource.isError, true);
