@@ -126,7 +126,7 @@ def main() -> None:
     parser.add_argument("--master", required=True, type=Path, help="The accepted composite that became the delivered file")
     parser.add_argument("--final", required=True, type=Path, help="The file about to be delivered")
     parser.add_argument("--plan", type=Path, help="detail-plan.json from plan_detail_tiles.py; required for recovery-enabled non-HD-master jobs")
-    parser.add_argument("--tile-plan", type=Path, help="tile-plan.json from plan_tile_redraw.py; required for hd-master creative delivery")
+    parser.add_argument("--tile-plan", type=Path, help="tile-plan.json from plan_tile_redraw.py; required for hd-master creative delivery or an ordinary full-canvas HD fallback")
     parser.add_argument("--max-upscale", type=float, help=f"Allowed delivery/canvas ratio (default {MAX_HONEST_UPSCALE})")
     parser.add_argument("--note", default="")
     args = parser.parse_args()
@@ -159,15 +159,15 @@ def main() -> None:
     geometry_ok = geometry_scale <= limit
 
     reasons = []
-    if not geometry_ok:
-        reasons.append(
-            f"geometry: the delivered file is {geometry_scale:.2f}x larger than the canvas that "
-            f"really supports it ({canvas[0]}x{canvas[1]}), so most pixels are interpolated. "
-            "Raise the working canvas first with an information-adding upscaler "
-            "(scripts/upscale_image.py, installed via `upscale_image.py --install-engine`; a "
-            "Lanczos fallback is recorded as adds_information=false and does not count), or "
-            "deliver at the canvas' native dimensions."
-        )
+    information_canvas = list(canvas)
+    geometry_reason = (
+        f"geometry: the delivered file is {geometry_scale:.2f}x larger than the canvas that "
+        f"really supports it ({canvas[0]}x{canvas[1]}), so most pixels are interpolated. "
+        "Raise the working canvas with scripts/prepare_hd_working_canvas.py. When the target "
+        "exceeds the model-native information span, use its full-canvas tile-redraw route "
+        "instead of treating interpolation as recovered detail."
+    )
+    full_canvas_tile_redraw_accepted = False
 
     detail_mode = str((data.get("detail") or {}).get("mode") or "")
     creative_binding = str((data.get("creative_output") or {}).get("upstream_binding") or "")
@@ -186,7 +186,7 @@ def main() -> None:
             "budget: hd-master creative delivery requires --tile-plan from plan_tile_redraw.py; "
             "the final tiled redraw cannot be certified from geometry alone."
         )
-    elif detail_required and not hd_master_delivery and args.plan is None:
+    elif detail_required and not hd_master_delivery and args.plan is None and args.tile_plan is None:
         budget = {
             "verdict": "fail",
             "reason": "missing_detail_plan",
@@ -194,8 +194,8 @@ def main() -> None:
             "failed_observations": [],
         }
         reasons.append(
-            "budget: local detail recovery is enabled but --plan was not supplied. "
-            "Run plan_detail_tiles.py and pass its detail-plan.json so Pixel Budget cannot be bypassed."
+            "budget: local detail recovery is enabled but neither --plan nor a full-canvas "
+            "--tile-plan was supplied. Run prepare_hd_working_canvas.py, then follow the route it records."
         )
 
     if args.plan is not None and not hd_master_delivery:
@@ -415,6 +415,8 @@ def main() -> None:
         coverage = tile_plan.get("coverage") or {}
         tile_canvas = tile_plan.get("canvas")
         tile_canvas_matches = tile_canvas == final["size"]
+        provenance_sources = ((tile_plan.get("provenance") or {}).get("source") or [])
+        full_canvas_plan = "full_canvas" in provenance_sources
         expected_indices = [item.get("index") for item in tiles]
         index_contract_ok = (
             all(isinstance(index, int) and index >= 0 for index in expected_indices)
@@ -562,12 +564,24 @@ def main() -> None:
             and tile_evidence_ok
             and blend_chain_ok
         )
+        full_canvas_native_ok = (
+            tile_ok
+            and full_canvas_plan
+            and int(coverage.get("sliver_area") or 0) == 0
+            and int(coverage.get("hole_area") or 0) == 0
+            and tile_canvas_matches
+        )
+        if full_canvas_native_ok:
+            full_canvas_tile_redraw_accepted = True
+
         tile_budget = {
             "verdict": "pass" if tile_ok else "fail",
             "plan_sha256": tile_plan_sha256,
             "canvas": tile_canvas,
             "final_canvas": final["size"],
             "canvas_matches": tile_canvas_matches,
+            "full_canvas_plan": full_canvas_plan,
+            "full_canvas_native_ok": full_canvas_native_ok,
             "index_contract_ok": index_contract_ok,
             "tile_count": len(tiles),
             "hole_area": int(coverage.get("hole_area") or 0),
@@ -593,15 +607,26 @@ def main() -> None:
                 "whose final output hash equals the delivery master."
             )
 
+    # A genuine full-canvas redraw replaces the interpolated scaffold pixel-for-pixel,
+    # so it is native delivery evidence and may satisfy geometry even when the global
+    # 4X information canvas was smaller. Thin delegated slivers are forbidden here.
+    if full_canvas_tile_redraw_accepted:
+        geometry_ok = True
+        geometry_scale = 1.0
+        canvas = list(final["size"])
+
     # Mandatory evidence remains mandatory even when another optional plan was
-    # also supplied; a passing detail-plan may not overwrite a missing hd-master
-    # tile-plan failure.
+    # supplied. Ordinary local recovery may use a detail plan, or the automatic
+    # full-canvas fallback when global information cannot honestly reach delivery.
     if hd_master_delivery and args.tile_plan is None:
         budget["verdict"] = "fail"
         budget["reason"] = "missing_tile_plan"
-    elif detail_required and not hd_master_delivery and args.plan is None:
+    elif detail_required and not hd_master_delivery and args.plan is None and not full_canvas_tile_redraw_accepted:
         budget["verdict"] = "fail"
-        budget["reason"] = "missing_detail_plan"
+        budget["reason"] = "missing_detail_plan_or_full_canvas_tile_plan"
+
+    if not geometry_ok:
+        reasons.insert(0, geometry_reason)
 
     diff = None
     approved = data.get("approved_preview")
@@ -623,7 +648,9 @@ def main() -> None:
             "master_size": master["size"],
             "upscale_raise_factor": round(raise_factor, 6),
             "information_passes": raise_passes,
+            "information_canvas": information_canvas,
             "effective_canvas": canvas,
+            "geometry_override": "full-canvas-tile-redraw" if full_canvas_tile_redraw_accepted else None,
             "final_size": final["size"],
             "effective_scale": round(geometry_scale, 6),
             "max_honest_upscale": limit,
