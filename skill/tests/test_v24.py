@@ -174,6 +174,56 @@ class ConfirmationFieldValidationTests(unittest.TestCase):
         job = json.loads(job_path.read_text(encoding="utf-8"))
         self.assertEqual(job["output_format"], "jpg")
         self.assertEqual(job["detail"]["generation_budget"], "balanced")
+        self.assertEqual(job["hd_working_canvas_policy"]["mode"], "automatic")
+        self.assertEqual(job["hd_working_canvas_policy"]["model_native_information_scale"], 4)
+        self.assertEqual(job["upscale_passes"], [])
+
+    def test_one_click_cannot_treat_an_unbound_master_as_native(self):
+        config = panel_config(deliveryMode="one-click")
+        config["detail"]["mode"] = "base-only"
+        result = self.init_with(config)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        job_dir = Path(result.stdout.strip().splitlines()[-1])
+        job_path = job_dir / "job.json"
+        master = job_dir / "master.png"
+        Image.new("RGB", REAL_WORKING_CANVAS, (90, 120, 150)).save(master)
+        gate = subprocess.run(
+            [sys.executable, str(SCRIPTS / "delivery_gate.py"), str(job_path),
+             "--master", str(master), "--final", str(master)],
+            capture_output=True, text=True, env=self.env,
+        )
+        self.assertEqual(gate.returncode, 3, gate.stdout + gate.stderr)
+        report = json.loads(gate.stdout)
+        self.assertFalse(report["geometry"]["reference_evidence_ok"])
+        self.assertIn("prepare_hd_working_canvas", report["required_action"])
+
+    def test_one_click_native_route_binds_original_generated_bitmap(self):
+        config = panel_config(deliveryMode="one-click", resolution="1024x1536")
+        config["detail"]["mode"] = "base-only"
+        result = self.init_with(config)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        job_dir = Path(result.stdout.strip().splitlines()[-1])
+        job_path = job_dir / "job.json"
+        generated = job_dir / "intermediates" / "generated-base.png"
+        Image.new("RGB", REAL_WORKING_CANVAS, (90, 120, 150)).save(generated)
+        prepared = job_dir / "intermediates" / "hd-working.png"
+        prep = subprocess.run(
+            [sys.executable, str(SCRIPTS / "prepare_hd_working_canvas.py"), str(job_path),
+             "--input", str(generated), "--output", str(prepared)],
+            capture_output=True, text=True, env=self.env,
+        )
+        self.assertEqual(prep.returncode, 0, prep.stdout + prep.stderr)
+        prep_report = json.loads(prep.stdout)
+        self.assertEqual(prep_report["route"], "native-detail")
+        gate = subprocess.run(
+            [sys.executable, str(SCRIPTS / "delivery_gate.py"), str(job_path),
+             "--master", str(prepared), "--final", str(prepared)],
+            capture_output=True, text=True, env=self.env,
+        )
+        self.assertEqual(gate.returncode, 0, gate.stdout + gate.stderr)
+        report = json.loads(gate.stdout)
+        self.assertEqual(report["geometry"]["reference_source"], "hd_working_canvas_input")
+        self.assertTrue(report["geometry"]["reference_evidence_ok"])
 
     def test_accepts_pro_ui_mode_from_studio(self):
         result = self.init_with(panel_config(uiMode="pro"))
