@@ -315,7 +315,7 @@ FRAMING_VALUES = ("preserve", "crop", "outpaint", "contain")
 OUTPUT_FORMAT_VALUES = ("png", "jpg", "both")
 CONSISTENCY_VALUES = ("strict", "balanced", "creative")
 DELIVERY_MODE_VALUES = ("preview-first", "one-click", "base-only")
-UI_MODE_VALUES = ("simple", "professional")
+UI_MODE_VALUES = ("simple", "pro")
 DETAIL_MODE_VALUES = ("base-only", "face", "adaptive", "explicit")
 GENERATION_BUDGET_VALUES = tuple(BUDGET_POLICY)
 DETAIL_PATCH_SCOPE_VALUES = ("head-and-face", "face-only", "custom", "adaptive-subject")
@@ -336,6 +336,9 @@ PANEL_SETTINGS = (
     ("outputFormat", "output_format", "enum:output_format"),
     ("keepIntermediates", "keep_intermediates", "bool"),
     ("creativeAssemblyMode", "creative_assembly_mode", "enum:creative_assembly_mode"),
+    ("creativeFromBase", "creative_from_base", "bool"),
+    ("creativeHdChain", "creative_hd_chain", "bool"),
+    ("creativeUpscale", "creative_upscale", "bool"),
     (("batch", "consistency"), "consistency", "enum:consistency"),
     (("detail", "mode"), "detail_mode", "enum:detail_mode"),
     (("detail", "generationBudget"), "generation_budget", "enum:generation_budget"),
@@ -429,7 +432,8 @@ def validated_panel_settings(config: dict) -> dict:
     settings = {}
     for field, target, kind in PANEL_SETTINGS:
         optional = target in {"generation_budget", "patch_scope", "detail_regions", "detail_strength",
-                              "custom_prompt", "custom_avoid", "creative_assembly_mode", "keep_intermediates"}
+                              "custom_prompt", "custom_avoid", "creative_assembly_mode", "keep_intermediates",
+                              "creative_from_base", "creative_hd_chain", "creative_upscale"}
         value = _panel_get(config, field)
         if value is None and optional:
             settings[target] = None
