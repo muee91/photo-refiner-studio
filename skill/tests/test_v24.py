@@ -74,6 +74,11 @@ def panel_config(**overrides):
     return config
 
 
+def canonical_hash(value) -> str:
+    rendered = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
 def write_confirmation(home: Path, config: dict) -> Path:
     resolved_prompt = {
         "preset": config["preset"],
@@ -85,6 +90,7 @@ def write_confirmation(home: Path, config: dict) -> Path:
         "presetVersion": 2,
     }
     record = {
+        "schemaVersion": 4,
         "confirmationId": "cid-v24",
         "confirmedAt": "2026-09-21T00:00:00.000Z",
         "confirmedBy": "photo-refiner-studio",
@@ -97,6 +103,13 @@ def write_confirmation(home: Path, config: dict) -> Path:
             json.dumps(resolved_prompt, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         ).hexdigest(),
     }
+    record["confirmationHash"] = canonical_hash({
+        "config": record["config"],
+        "executionMode": record["executionMode"],
+        "resolvedCreativeRecipe": record["resolvedCreativeRecipe"],
+        "creativeOutput": record["creativeOutput"],
+        "resolvedPrompt": record["resolvedPrompt"],
+    })
     directory = home / ".codex" / "photo-refiner" / "confirmed"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "cid-v24.json"
@@ -161,6 +174,25 @@ class ConfirmationFieldValidationTests(unittest.TestCase):
         job = json.loads(job_path.read_text(encoding="utf-8"))
         self.assertEqual(job["output_format"], "jpg")
         self.assertEqual(job["detail"]["generation_budget"], "balanced")
+
+    def test_accepts_pro_ui_mode_from_studio(self):
+        result = self.init_with(panel_config(uiMode="pro"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        job = json.loads(Path(result.stdout.strip().splitlines()[-1]).joinpath("job.json").read_text(encoding="utf-8"))
+        self.assertEqual(job["ui_mode"], "pro")
+
+    def test_confirmation_hash_rejects_config_tampering(self):
+        confirmation = write_confirmation(self.home, panel_config())
+        record = json.loads(confirmation.read_text(encoding="utf-8"))
+        record["config"]["creativeUpscale"] = False
+        confirmation.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "init_job.py"), str(self.source),
+             "--confirmation-file", str(confirmation)],
+            capture_output=True, text=True, env=self.env,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("settings hash mismatch", result.stdout + result.stderr)
 
     def test_panel_generation_budget_reaches_the_manifest(self):
         # fast/max were unreachable from Studio: the panel carried no such field.
@@ -338,7 +370,7 @@ class DeliveryGateTests(unittest.TestCase):
     def start_job(self):
         result = self.run_script(
             "init_job.py", self.source, "--preset", "warm-gold-ancient", "--confirmed",
-            "--output-root", self.root / "jobs",
+            "--detail-mode", "base-only", "--output-root", self.root / "jobs",
         )
         return Path(result.stdout.strip().splitlines()[-1])
 
@@ -388,6 +420,77 @@ class DeliveryGateTests(unittest.TestCase):
         self.assertEqual(json.loads(gate.stdout)["verdict"], "pass")
         self.run_script("update_job.py", job_dir / "job.json", "--status", "completed")
         self.assertEqual(json.loads((job_dir / "job.json").read_text())["status"], "completed")
+
+    def test_recovery_enabled_delivery_refuses_missing_detail_plan(self):
+        result = self.run_script(
+            "init_job.py", self.source, "--preset", "warm-gold-ancient", "--confirmed",
+            "--detail-mode", "adaptive", "--output-root", self.root / "detail-jobs",
+        )
+        job_dir = Path(result.stdout.strip().splitlines()[-1])
+        master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).save(final, quality=95)
+        gate = self.run_script(
+            "delivery_gate.py", job_dir / "job.json", "--master", master, "--final", final,
+            ok=False,
+        )
+        self.assertEqual(gate.returncode, 3, gate.stdout + gate.stderr)
+        report = json.loads(gate.stdout)
+        self.assertEqual(report["budget"]["reason"], "missing_detail_plan")
+        self.assertIn("--plan", report["required_action"])
+
+    def test_hd_master_delivery_requires_tile_plan_even_with_passing_detail_plan(self):
+        job_dir = self.start_job()
+        master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).save(final, quality=95)
+        job_path = job_dir / "job.json"
+        data = json.loads(job_path.read_text(encoding="utf-8"))
+        data["detail"]["mode"] = "adaptive"
+        data["creative_output"] = {"upstream_binding": "hd-master"}
+        job_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        detail_plan = job_dir / "detail-plan.json"
+        detail_plan.write_text(json.dumps({
+            "region_count": 0,
+            "regions_dropped_for_budget": [],
+            "delivery_feasibility": {"verdict": "native"},
+        }), encoding="utf-8")
+        gate = self.run_script(
+            "delivery_gate.py", job_path, "--master", master, "--final", final,
+            "--plan", detail_plan, ok=False,
+        )
+        self.assertEqual(gate.returncode, 3, gate.stdout + gate.stderr)
+        report = json.loads(gate.stdout)
+        self.assertEqual(report["budget"]["reason"], "missing_tile_plan")
+        self.assertIn("--tile-plan", report["required_action"])
+
+    def test_hd_master_delivery_accepts_a_valid_tile_plan(self):
+        job_dir = self.start_job()
+        master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).save(final, quality=95)
+        job_path = job_dir / "job.json"
+        data = json.loads(job_path.read_text(encoding="utf-8"))
+        data["detail"]["mode"] = "adaptive"
+        data["creative_output"] = {"upstream_binding": "hd-master"}
+        job_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tile_plan = job_dir / "tile-plan.json"
+        tile_plan.write_text(json.dumps({
+            "verdict": "pass",
+            "observed_patch_size": [1254, 1254],
+            "coverage": {"hole_area": 0, "sliver_area": 0},
+            "tiles": [{
+                "index": 0, "region_type": "face",
+                "budget_ratio": 0.86, "threshold": 0.85,
+            }],
+        }), encoding="utf-8")
+        gate = self.run_script(
+            "delivery_gate.py", job_path, "--master", master, "--final", final,
+            "--tile-plan", tile_plan,
+        )
+        report = json.loads(gate.stdout)
+        self.assertEqual(report["verdict"], "pass")
+        self.assertEqual(report["budget"]["tile_redraw"]["verdict"], "pass")
 
     def test_completed_is_refused_without_running_the_gate(self):
         job_dir = self.start_job()
