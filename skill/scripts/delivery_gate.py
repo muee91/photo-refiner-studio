@@ -443,6 +443,18 @@ def main() -> None:
         coverage = tile_plan.get("coverage") or {}
         tile_canvas = tile_plan.get("canvas")
         tile_canvas_matches = tile_canvas == final["size"]
+        tile_canvas_path = tile_plan.get("canvas_path")
+        tile_canvas_sha256 = tile_plan.get("canvas_sha256")
+        tile_canvas_source_bound = bool(tile_canvas_path and tile_canvas_sha256)
+        tile_canvas_source_ok = True
+        if tile_canvas_source_bound:
+            resolved_canvas_path = Path(str(tile_canvas_path)).expanduser().resolve()
+            tile_canvas_source_ok = (
+                resolved_canvas_path.is_file()
+                and resolved_canvas_path.is_relative_to(job_dir)
+                and measure(resolved_canvas_path)["size"] == tile_canvas
+                and sha256_file(resolved_canvas_path) == tile_canvas_sha256
+            )
         provenance_sources = ((tile_plan.get("provenance") or {}).get("source") or [])
         full_canvas_plan = "full_canvas" in provenance_sources
         expected_indices = [item.get("index") for item in tiles]
@@ -566,10 +578,16 @@ def main() -> None:
             return None
 
         blend_chain = find_receipt_chain(0, 0, None) if blend_sequence else None
+        blend_chain_start_ok = (
+            True
+            if not tile_canvas_source_bound
+            else bool(blend_chain) and blend_chain[0].get("input_base_sha256") == tile_canvas_sha256
+        )
         blend_chain_ok = (
             blend_chain is not None
             and len(blend_chain) == len(blend_sequence)
             and bool(blend_chain)
+            and blend_chain_start_ok
             and blend_chain[-1].get("output_sha256") == master["sha256"]
         )
         blend_evidence = {
@@ -578,6 +596,7 @@ def main() -> None:
             "chain_length": len(blend_chain or []),
             "expected_chain_length": len(blend_sequence),
             "chain_tile_indices": [item.get("tile_index") for item in (blend_chain or [])],
+            "starts_from_planned_canvas": blend_chain_start_ok,
             "final_output_matches_master": bool(blend_chain) and blend_chain[-1].get("output_sha256") == master["sha256"],
             "accepted": blend_chain_ok,
         }
@@ -585,6 +604,7 @@ def main() -> None:
         tile_ok = (
             tile_plan.get("verdict") == "pass"
             and tile_canvas_matches
+            and tile_canvas_source_ok
             and index_contract_ok
             and bool(tiles)
             and int(coverage.get("hole_area") or 0) == 0
@@ -614,6 +634,8 @@ def main() -> None:
             "canvas": tile_canvas,
             "final_canvas": final["size"],
             "canvas_matches": tile_canvas_matches,
+            "canvas_source_bound": tile_canvas_source_bound,
+            "canvas_source_ok": tile_canvas_source_ok,
             "full_canvas_plan": full_canvas_plan,
             "full_canvas_detail_context_ok": full_canvas_detail_context_ok,
             "full_canvas_native_ok": full_canvas_native_ok,
@@ -636,8 +658,8 @@ def main() -> None:
             budget["verdict"] = "fail"
             reasons.append(
                 "budget: tile redraw evidence failed; require tile-plan verdict=pass, tile-plan canvas "
-                "equal to the delivered file, a consistent tile index/blend sequence, hole_area=0, "
-                "every planned tile budget_ratio >= its threshold, one still-present accepted "
+                "equal to the delivered file, the planned redraw canvas hash still valid, a consistent "
+                "tile index/blend sequence, hole_area=0, every planned tile budget_ratio >= its threshold, one still-present accepted "
                 "record_patch_observation.py result per tile, and an ordered register_blend.py hash-chain "
                 "whose final output hash equals the delivery master."
             )
