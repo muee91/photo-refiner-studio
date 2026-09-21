@@ -1122,6 +1122,92 @@ class RegisterBlendReceiptTests(unittest.TestCase):
         self.assertEqual(gate_report["verdict"], "pass")
         self.assertTrue(gate_report["budget"]["execution_evidence"]["accepted"])
 
+    def test_full_canvas_redraw_can_honestly_replace_global_interpolation(self):
+        approved = self.root / "approved-small.png"
+        with Image.open(self.base) as image:
+            image.resize((128, 128), Image.Resampling.LANCZOS).save(approved)
+
+        full_plan = self.root / "full-canvas-plan.json"
+        full_plan.write_text(json.dumps({
+            "schema_version": 1,
+            "verdict": "pass",
+            "canvas": [512, 512],
+            "observed_patch_size": [512, 512],
+            "tile_count": 1,
+            "blend_sequence": [0],
+            "provenance": {"source": ["full_canvas"]},
+            "coverage": {
+                "target_area": 512 * 512,
+                "covered_area": 512 * 512,
+                "uncovered_area": 0,
+                "hole_area": 0,
+                "sliver_area": 0,
+            },
+            "tiles": [{
+                "index": 0,
+                "region_type": "generic",
+                "region_role": "full-canvas",
+                "box": {"x": 0, "y": 0, "width": 512, "height": 512},
+                "requested_size": [512, 512],
+                "budget_ratio": 1.0,
+                "threshold": 0.50,
+                "blend_order": 10,
+            }],
+        }), encoding="utf-8")
+
+        full_patch = self.root / "full-tile.png"
+        Image.open(self.base).save(full_patch)
+        full_output = self.root / "full-composite.png"
+        data = json.loads(self.job.read_text(encoding="utf-8"))
+        data["execution_mode"] = "photo-refinement"
+        data["detail"] = {"mode": "adaptive"}
+        data["creative_output"] = None
+        data["approved_preview"] = {
+            "kind": "base_preview",
+            "path": str(approved.resolve()),
+            "size": [128, 128],
+            "sha256": hashlib.sha256(approved.read_bytes()).hexdigest(),
+        }
+        data["patch_observations"] = []
+        data["tile_blend_receipts"] = []
+        self.job.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+        observed = self.invoke(
+            "record_patch_observation.py", self.job,
+            "--patch", full_patch,
+            "--region-type", "generic",
+            "--region-role", "full-canvas",
+            "--requested-size", "512x512",
+            "--tile-plan", full_plan,
+            "--tile-index", 0,
+        )
+        self.assertTrue(json.loads(observed.stdout)["budget_recheck"]["accepted"])
+
+        self.invoke(
+            "register_blend.py",
+            "--base", self.base,
+            "--target", self.base,
+            "--patch", full_patch,
+            "--output", full_output,
+            "--x", 0, "--y", 0,
+            "--region-type", "generic",
+            "--min-inliers", 20,
+            "--job", self.job,
+            "--tile-plan", full_plan,
+            "--tile-index", 0,
+        )
+        gate = self.invoke(
+            "delivery_gate.py", self.job,
+            "--master", full_output,
+            "--final", full_output,
+            "--tile-plan", full_plan,
+        )
+        report = json.loads(gate.stdout)
+        self.assertEqual(report["verdict"], "pass")
+        self.assertEqual(report["geometry"]["geometry_override"], "full-canvas-tile-redraw")
+        self.assertEqual(report["geometry"]["information_canvas"], [128, 128])
+        self.assertTrue(report["budget"]["tile_redraw"]["full_canvas_native_ok"])
+
     def test_register_blend_records_a_live_tile_hash_chain_receipt(self):
         observed = self.invoke(
             "record_patch_observation.py", self.job,
@@ -1163,6 +1249,75 @@ class RegisterBlendReceiptTests(unittest.TestCase):
         gate_report = json.loads(gate.stdout)
         self.assertEqual(gate_report["verdict"], "pass")
         self.assertTrue(gate_report["budget"]["tile_redraw"]["blend_evidence"]["accepted"])
+
+
+class HdWorkingCanvasRoutingTests(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import prepare_hd_working_canvas
+        import delivery_gate
+        self.router = prepare_hd_working_canvas
+        self.delivery_gate = delivery_gate
+
+    def tearDown(self):
+        sys.path.pop(0)
+
+    def test_native_canvas_does_not_upscale_without_need(self):
+        route = self.router.choose_route((2000, 3000), (2048, 3072), True)
+        self.assertEqual(route["route"], "native-detail")
+        self.assertFalse(route["requires_full_canvas_redraw"])
+
+    def test_model_route_is_used_inside_native_4x_information_span(self):
+        route = self.router.choose_route((1024, 1536), (3072, 4608), True)
+        self.assertEqual(route["route"], "ultrasharp-detail")
+        self.assertEqual(route["model_scale"], 3)
+
+    def test_source_width_beyond_4x_routes_to_full_canvas_redraw(self):
+        route = self.router.choose_route((1024, 1536), (4672, 7008), True)
+        self.assertEqual(route["route"], "full-canvas-tile-redraw")
+        self.assertTrue(route["requires_full_canvas_redraw"])
+        self.assertEqual(route["model_scale"], 4)
+
+    def test_missing_ai_engine_routes_to_full_canvas_redraw(self):
+        route = self.router.choose_route((1024, 1536), (2048, 3072), False)
+        self.assertEqual(route["route"], "full-canvas-tile-redraw")
+        self.assertEqual(route["model_scale"], 1)
+
+    def test_delivery_gate_caps_six_x_file_at_four_x_information(self):
+        data = {"upscale_passes": [{
+            "engine": "4x-ultrasharp-spandrel",
+            "adds_information": True,
+            "from": [1024, 1536],
+            "to": [6144, 9216],
+            "information_to": [4096, 6144],
+            "native_information_scale": 4,
+            "interpolated_tail": [2048, 3072],
+        }]}
+        factor, passes = self.delivery_gate.information_raise(data, [1024, 1536])
+        self.assertEqual(factor, 4.0)
+        self.assertEqual(passes[0]["to"], [6144, 9216])
+        self.assertEqual(passes[0]["information_to"], [4096, 6144])
+
+    def test_interpolated_tail_cannot_be_laundered_into_second_ai_pass(self):
+        data = {"upscale_passes": [
+            {
+                "engine": "4x-ultrasharp-spandrel",
+                "adds_information": True,
+                "from": [1024, 1536],
+                "to": [6144, 9216],
+                "information_to": [4096, 6144],
+            },
+            {
+                "engine": "4x-ultrasharp-spandrel",
+                "adds_information": True,
+                "from": [6144, 9216],
+                "to": [24576, 36864],
+                "information_to": [24576, 36864],
+            },
+        ]}
+        factor, passes = self.delivery_gate.information_raise(data, [1024, 1536])
+        self.assertEqual(factor, 4.0)
+        self.assertEqual(len(passes), 1)
 
 
 class UltraSharpIntegrityTests(unittest.TestCase):
