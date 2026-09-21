@@ -16,6 +16,7 @@ Routes:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import shutil
@@ -40,6 +41,14 @@ def parse_size(value: str) -> tuple[int, int]:
     if width <= 0 or height <= 0:
         raise argparse.ArgumentTypeError("Dimensions must be positive")
     return width, height
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def image_size(path: Path) -> tuple[int, int]:
@@ -215,6 +224,7 @@ def main() -> None:
         "policy": "automatic-hd-working-canvas",
         "input": str(source),
         "input_size": list(start_size),
+        "input_sha256": sha256_file(source),
         "delivery_canvas": list(target),
         "route": decision["route"],
         "required_scale": round(float(decision["required_scale"]), 6),
@@ -223,6 +233,7 @@ def main() -> None:
         "informative_engine_ready": informative_ready,
         "output": str(output),
         "output_size": list(output_size),
+        "output_sha256": sha256_file(output),
         "requires_full_canvas_redraw": bool(decision["requires_full_canvas_redraw"]),
         "scaffold_interpolation": scaffold_interpolation,
         "upscale_result": upscale_result,
