@@ -106,6 +106,21 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def confirmation_hash_payload(record: dict) -> dict:
+    return {
+        "config": record.get("config"),
+        "executionMode": record.get("executionMode"),
+        "resolvedCreativeRecipe": record.get("resolvedCreativeRecipe"),
+        "creativeOutput": record.get("creativeOutput"),
+        "resolvedPrompt": record.get("resolvedPrompt"),
+    }
+
+
+def canonical_json_sha256(value) -> str:
+    rendered = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
 def load_confirmation(path_value: Path) -> dict:
     confirmation_path = path_value.expanduser().resolve()
     confirmation_root = (Path.home() / ".codex" / "photo-refiner" / "confirmed").resolve()
@@ -122,6 +137,10 @@ def load_confirmation(path_value: Path) -> dict:
         raise SystemExit("Confirmation prompt hash mismatch")
     if not isinstance(record.get("config"), dict):
         raise SystemExit("Confirmation is missing its config")
+    if int(record.get("schemaVersion") or 0) >= 4 or record.get("confirmationHash"):
+        expected_confirmation_hash = canonical_json_sha256(confirmation_hash_payload(record))
+        if record.get("confirmationHash") != expected_confirmation_hash:
+            raise SystemExit("Confirmation settings hash mismatch")
     record["confirmationPath"] = str(confirmation_path)
     return record
 
@@ -231,12 +250,11 @@ def main() -> None:
         args.workflow = settings["workflow"]
         args.creative_recipe = ui_config.get("creativeRecipe", "none")
         args.creative_assembly_mode = settings["creative_assembly_mode"] or "direct-effect"
-        # The panel no longer carries a two-stage control; the choice is
-        # offered conversationally, so an explicit CLI flag must survive a
-        # confirmation whose config predates or omits the field.
-        args.creative_from_base = args.creative_from_base or bool(ui_config.get("creativeFromBase", False))
-        args.creative_hd_chain = args.creative_hd_chain or bool(ui_config.get("creativeHdChain", False))
-        args.creative_upscale = args.creative_upscale or bool(ui_config.get("creativeUpscale", False))
+        # Explicit CLI opt-ins may raise a confirmed false to true, but Studio
+        # values are type-checked by job_contract before they reach this point.
+        args.creative_from_base = args.creative_from_base or bool(settings.get("creative_from_base"))
+        args.creative_hd_chain = args.creative_hd_chain or bool(settings.get("creative_hd_chain"))
+        args.creative_upscale = args.creative_upscale or bool(settings.get("creative_upscale"))
         args.preset = ui_config["preset"]
         args.custom_prompt = settings["custom_prompt"] or ""
         args.custom_avoid = settings["custom_avoid"] or ""
@@ -310,9 +328,13 @@ def main() -> None:
         )
         creative_output["hd_chain"] = hd_chain
         creative_output["upscale"] = {
-            "enabled": bool(getattr(args, "creative_upscale", False)),
+            "enabled": bool(getattr(args, "creative_upscale", False)) and not hd_chain,
             "engine": "auto",
-            "note": "After approval the preview is upscaled with 4X-UltraSharp when the bundled engine is installed (upscale_image.py --install-engine, no ComfyUI needed); patch planning then runs on the upscaled canvas. Without an engine an honest Lanczos fallback is recorded.",
+            "note": (
+                "Disabled for hd-master: final resolution is produced by style-faithful tile redraw."
+                if hd_chain
+                else "After approval the preview is upscaled with 4X-UltraSharp when the bundled engine is installed (upscale_image.py --install-engine, no ComfyUI needed); patch planning then runs on the raised canvas. Without an engine an honest Lanczos fallback is recorded."
+            ),
         }
     workflow = args.workflow
     if workflow == "auto":
@@ -456,6 +478,21 @@ def main() -> None:
             "generated_panels": ["recipe_specific_visual_translation"],
             "deterministic_assembly": ["layout", "source_pixel_placement", "final_dimensions"],
         } if args.creative_assembly_mode == "original-assembly" else ({
+            "stage_1_refinement": {
+                "source_master": ["identity", "anatomy", "factual_geometry", "construction", "authentic_material_reference"],
+                "look_master": ["approved_color", "lighting", "tone", "atmosphere", "visual_style"],
+                "detail_patch": ["registered_mid_frequency_detail", "registered_high_frequency_detail"],
+            },
+            "stage_2_creative": {
+                "hd_master": ["identity", "refined_detail", "approved_photographic_structure"],
+                "creative_draft": ["creative_style", "materials", "visual_grammar"],
+            },
+            "stage_3_tile_redraw": {
+                "creative_draft": ["style_authority"],
+                "hd_master": ["identity_and_structure_reference"],
+                "tile_redraw": ["delivery_resolution_detail"],
+            },
+        } if hd_chain else ({
             "source_master": ["identity", "anatomy", "factual_geometry", "construction", "authentic_material_reference"],
             "creative_look_master": ["approved_creative_canvas", "color", "lighting", "tone", "materials", "visual_grammar"],
             "creative_detail_patch": ["registered_mid_frequency_detail", "registered_high_frequency_detail"],
@@ -463,7 +500,7 @@ def main() -> None:
             "source_reference": ["identity", "theme", "source-derived motifs"],
             "generated_artwork": ["complete creative canvas", "recipe visual grammar"],
             "deterministic_assembly": [],
-        })),
+        }))),
         "creative_output": creative_output,
         "workflow": workflow,
         "ui_mode": ui_mode,
