@@ -312,11 +312,12 @@ def main() -> None:
         # Opt-in two-stage flow: stage 1 renders the confirmed preset as an
         # approved main image; stage 2 translates creatively with that image
         # as look reference while identity stays anchored to the source.
-        hd_chain = (
-            bool(args.creative_hd_chain)
-            and creative_output["mode"] == "direct-effect"
-            and len(sources) == 1
-        )
+        hd_chain_eligible = creative_output["mode"] == "direct-effect" and len(sources) == 1
+        if args.creative_hd_chain and not hd_chain_eligible:
+            raise SystemExit("HD creative chain requires exactly one source and direct-effect creative output")
+        hd_chain = bool(args.creative_hd_chain) and hd_chain_eligible
+        if hd_chain and delivery_mode != "preview-first":
+            raise SystemExit("HD creative chain requires preview-first because both HD master and creative draft need approval")
         creative_output["upstream_binding"] = (
             "hd-master"
             if hd_chain
