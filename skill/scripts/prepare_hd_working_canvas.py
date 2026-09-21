@@ -91,6 +91,21 @@ def delivery_canvas(job: dict, input_size: tuple[int, int], override: tuple[int,
     return source_size[0], max(1, round(source_size[0] * input_size[1] / input_size[0]))
 
 
+def ultrasharp_allowed(job: dict) -> bool:
+    creative = job.get("creative_output")
+    if not isinstance(creative, dict):
+        return True
+    # hd-master's first stage is an ordinary photographic HD master; its separate
+    # creativeUpscale toggle is intentionally disabled because the final artwork
+    # is tiled later, but the photographic master may still use the common router.
+    if creative.get("upstream_binding") == "hd-master":
+        return True
+    upscale = creative.get("upscale")
+    if isinstance(upscale, dict):
+        return bool(upscale.get("enabled"))
+    return True
+
+
 def choose_route(
     input_size: tuple[int, int],
     target: tuple[int, int],
@@ -185,7 +200,8 @@ def main() -> None:
     start_size = image_size(source)
     target = delivery_canvas(data, start_size, args.delivery_size)
     status = engine_status()
-    informative_ready = bool(status.get("ultrasharp_ready"))
+    allowed_by_job = ultrasharp_allowed(data)
+    informative_ready = bool(status.get("ultrasharp_ready")) and allowed_by_job
     decision = choose_route(start_size, target, informative_ready)
 
     upscale_result = None
@@ -230,6 +246,7 @@ def main() -> None:
         "required_scale": round(float(decision["required_scale"]), 6),
         "model_native_scale": MODEL_NATIVE_SCALE,
         "model_scale_used": int(decision["model_scale"]),
+        "ultrasharp_allowed_by_job": allowed_by_job,
         "informative_engine_ready": informative_ready,
         "output": str(output),
         "output_size": list(output_size),
