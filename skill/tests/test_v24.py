@@ -477,6 +477,7 @@ class DeliveryGateTests(unittest.TestCase):
         tile_plan = job_dir / "tile-plan.json"
         tile_plan.write_text(json.dumps({
             "verdict": "pass",
+            "canvas": list(REAL_DELIVERY_CANVAS),
             "observed_patch_size": [1254, 1254],
             "coverage": {"hole_area": 0, "sliver_area": 0},
             "tiles": [{
@@ -491,6 +492,36 @@ class DeliveryGateTests(unittest.TestCase):
         report = json.loads(gate.stdout)
         self.assertEqual(report["verdict"], "pass")
         self.assertEqual(report["budget"]["tile_redraw"]["verdict"], "pass")
+
+    def test_hd_master_tile_plan_canvas_must_match_final(self):
+        job_dir = self.start_job()
+        master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).save(final, quality=95)
+        job_path = job_dir / "job.json"
+        data = json.loads(job_path.read_text(encoding="utf-8"))
+        data["detail"]["mode"] = "adaptive"
+        data["creative_output"] = {"upstream_binding": "hd-master"}
+        job_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tile_plan = job_dir / "tile-plan-wrong-canvas.json"
+        tile_plan.write_text(json.dumps({
+            "verdict": "pass",
+            "canvas": list(REAL_WORKING_CANVAS),
+            "observed_patch_size": [1254, 1254],
+            "coverage": {"hole_area": 0, "sliver_area": 0},
+            "tiles": [{
+                "index": 0, "region_type": "face",
+                "budget_ratio": 0.90, "threshold": 0.85,
+            }],
+        }), encoding="utf-8")
+        gate = self.run_script(
+            "delivery_gate.py", job_path, "--master", master, "--final", final,
+            "--tile-plan", tile_plan, ok=False,
+        )
+        self.assertEqual(gate.returncode, 3, gate.stdout + gate.stderr)
+        report = json.loads(gate.stdout)
+        self.assertFalse(report["budget"]["tile_redraw"]["canvas_matches"])
+        self.assertIn("canvas", report["required_action"].lower())
 
     def test_completed_is_refused_without_running_the_gate(self):
         job_dir = self.start_job()
@@ -801,7 +832,7 @@ class ApprovalBindingTests(unittest.TestCase):
         self.source = self.root / "source.jpg"
         Image.new("RGB", REAL_WORKING_CANVAS, (90, 120, 150)).save(self.source, quality=95)
         job = self.invoke("init_job.py", self.source, "--preset", "warm-gold-ancient",
-                          "--confirmed", "--output-root", self.root / "jobs")
+                          "--confirmed", "--detail-mode", "base-only", "--output-root", self.root / "jobs")
         self.job_dir = Path(job.stdout.strip().splitlines()[-1])
         self.job = self.job_dir / "job.json"
         self.invoke("update_job.py", self.job, "--status", "prepared")
