@@ -72,9 +72,10 @@ const DEFAULTS = {
   // Full HD creative chain: ordinary refinement to an approved HD master,
   // creative draft on it, then style-faithful tiled redraw.
   creativeHdChain: false,
-  // Non-patch areas of direct creative outputs are upscaled with the bundled
-  // 4X-UltraSharp engine before detail recovery (Lanczos fallback, honestly
-  // labeled, when the engine is not installed).
+  // Preference for direct creative outputs: allow the common automatic HD
+  // working-canvas router to use 4X-UltraSharp inside its native information
+  // span. When disabled/unavailable, the router uses full-canvas tile redraw
+  // instead of laundering a plain resize into "HD".
   creativeUpscale: true,
   // Neutral fallback only; normal jobs pass a subject-aware suggestedPreset.
   preset: "natural-cinematic",
