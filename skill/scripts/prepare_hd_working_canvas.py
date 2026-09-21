@@ -238,9 +238,11 @@ def main() -> None:
         "scaffold_interpolation": scaffold_interpolation,
         "upscale_result": upscale_result,
         "next_step": (
-            "Run plan_tile_redraw.py on this exact output with --full-canvas --sliver-margin 0, "
-            "using an observed client patch size, then execute every tile and pass --tile-plan "
-            "to delivery_gate.py."
+            "For adaptive/face/explicit recovery, first run plan_detail_tiles.py on this exact "
+            "delivery-size scaffold with the observed client patch size. Then run plan_tile_redraw.py "
+            "with BOTH --detail-plan <that-plan> and --full-canvas --sliver-margin 0 so high-value "
+            "face/head/hand regions keep their stricter Pixel Budget while generic tiles fill the rest. "
+            "Execute every tile and pass --tile-plan to delivery_gate.py."
             if decision["requires_full_canvas_redraw"]
             else "Run plan_detail_tiles.py on this exact output using delivery_canvas, then execute its selected regions."
         ),
