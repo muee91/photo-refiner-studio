@@ -494,7 +494,7 @@ function toolDefinitions() {
       annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false},
       outputSchema: {
         type: "object",
-        required: ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt"],
+        required: ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt", "confirmationHash"],
         additionalProperties: true,
         properties: {
           ok: {type: "boolean"},
