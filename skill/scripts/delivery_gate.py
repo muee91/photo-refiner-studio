@@ -195,6 +195,11 @@ def main() -> None:
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         dropped = plan.get("regions_dropped_for_budget") or []
         feasibility = plan.get("delivery_feasibility") or {}
+        planned_delivery_canvas = plan.get("delivery_canvas")
+        plan_canvas_matches = (
+            hd_master_delivery
+            or planned_delivery_canvas == final["size"]
+        )
         failed_observations = [
             {
                 "region_type": item.get("region_type"),
@@ -208,9 +213,18 @@ def main() -> None:
         budget = {
             "verdict": "pass",
             "planned_regions": plan.get("region_count"),
+            "planned_delivery_canvas": planned_delivery_canvas,
+            "final_canvas": final["size"],
+            "plan_canvas_matches": plan_canvas_matches,
             "dropped_regions": dropped,
             "failed_observations": failed_observations,
         }
+        if not plan_canvas_matches:
+            budget["verdict"] = "fail"
+            reasons.append(
+                f"budget: detail-plan delivery_canvas {planned_delivery_canvas} does not match "
+                f"the delivered file {final['size']}; re-plan against the exact final canvas."
+            )
         if dropped or feasibility.get("verdict") == "needs-tiling" or failed_observations:
             budget["verdict"] = "fail"
             tiling = plan.get("tiling_requirement") or {}
@@ -239,6 +253,8 @@ def main() -> None:
         tile_plan = json.loads(tile_path.read_text(encoding="utf-8"))
         tiles = tile_plan.get("tiles") or []
         coverage = tile_plan.get("coverage") or {}
+        tile_canvas = tile_plan.get("canvas")
+        tile_canvas_matches = tile_canvas == final["size"]
         weak_tiles = [
             {
                 "index": item.get("index"),
@@ -253,12 +269,16 @@ def main() -> None:
         ]
         tile_ok = (
             tile_plan.get("verdict") == "pass"
+            and tile_canvas_matches
             and bool(tiles)
             and int(coverage.get("hole_area") or 0) == 0
             and not weak_tiles
         )
         tile_budget = {
             "verdict": "pass" if tile_ok else "fail",
+            "canvas": tile_canvas,
+            "final_canvas": final["size"],
+            "canvas_matches": tile_canvas_matches,
             "tile_count": len(tiles),
             "hole_area": int(coverage.get("hole_area") or 0),
             "sliver_area": int(coverage.get("sliver_area") or 0),
@@ -271,8 +291,9 @@ def main() -> None:
         if not tile_ok:
             budget["verdict"] = "fail"
             reasons.append(
-                "budget: tile redraw evidence failed; require tile-plan verdict=pass, at least one tile, "
-                "hole_area=0, and every tile budget_ratio >= its threshold."
+                "budget: tile redraw evidence failed; require tile-plan verdict=pass, tile-plan canvas "
+                "equal to the delivered file, at least one tile, hole_area=0, and every tile "
+                "budget_ratio >= its threshold."
             )
 
     # Mandatory evidence remains mandatory even when another optional plan was
