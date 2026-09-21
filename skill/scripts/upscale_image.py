@@ -349,9 +349,11 @@ def main() -> None:
         return
     if not args.input or not args.output:
         parser.error("--input and --output are required unless --status or --install-engine is used")
+    if not 1 <= args.scale <= 8:
+        parser.error("--scale must be between 1 and 8")
     source = args.input.expanduser().resolve()
     target = args.output.expanduser().resolve()
-    result = upscale(args.input, args.output, max(1, min(8, args.scale)), args.engine)
+    result = upscale(args.input, args.output, args.scale, args.engine)
     with Image.open(source) as raw:
         from_size = [raw.width, raw.height]
     with Image.open(target) as made:
