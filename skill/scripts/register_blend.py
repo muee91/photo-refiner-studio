@@ -103,7 +103,9 @@ def main() -> None:
     parser.add_argument("--min-coverage", type=float, default=0.90)
     parser.add_argument("--max-median-error", type=float, default=3.0)
     parser.add_argument("--max-p95-error", type=float, default=8.0)
-    parser.add_argument("--job", type=Path, help="job.json; required with --tile-plan/--tile-index to record an auditable tile blend")
+    parser.add_argument("--job", type=Path, help="job.json; required when recording an auditable detail/tile blend")
+    parser.add_argument("--plan", type=Path, help="detail-plan.json for an ordinary/creative-safe blend receipt")
+    parser.add_argument("--planner-region-index", type=int, help="Region index from --plan")
     parser.add_argument("--tile-plan", type=Path, help="tile-plan.json for an hd-master redraw blend receipt")
     parser.add_argument("--tile-index", type=int, help="Tile index from --tile-plan")
     args = parser.parse_args()
@@ -115,9 +117,19 @@ def main() -> None:
     if not 0.0 <= mid_detail_gain <= 1.0:
         raise SystemExit("--mid-detail-gain must be between 0 and 1")
     model = AUTO_MODELS[args.region_type] if args.model == "auto" else args.model
-    receipt_requested = any(value is not None for value in (args.job, args.tile_plan, args.tile_index))
-    if receipt_requested and any(value is None for value in (args.job, args.tile_plan, args.tile_index)):
-        raise SystemExit("--job, --tile-plan and --tile-index must be supplied together for tile redraw evidence")
+    detail_receipt_requested = args.plan is not None or args.planner_region_index is not None
+    tile_receipt_requested = args.tile_plan is not None or args.tile_index is not None
+    if detail_receipt_requested and tile_receipt_requested:
+        raise SystemExit("Use either --plan/--planner-region-index or --tile-plan/--tile-index, not both")
+    receipt_requested = args.job is not None or detail_receipt_requested or tile_receipt_requested
+    if receipt_requested and args.job is None:
+        raise SystemExit("--job is required for audited blend evidence")
+    if detail_receipt_requested and (args.plan is None or args.planner_region_index is None):
+        raise SystemExit("--plan and --planner-region-index must be supplied together")
+    if tile_receipt_requested and (args.tile_plan is None or args.tile_index is None):
+        raise SystemExit("--tile-plan and --tile-index must be supplied together")
+    if args.planner_region_index is not None and args.planner_region_index < 0:
+        raise SystemExit("--planner-region-index must be zero or greater")
     if args.tile_index is not None and args.tile_index < 0:
         raise SystemExit("--tile-index must be zero or greater")
 
@@ -132,52 +144,86 @@ def main() -> None:
     if output in protected_paths:
         raise SystemExit("Refusing to overwrite a base, target, patch, or mask image")
 
-    tile_context = None
+    blend_context = None
     if receipt_requested:
         job_path = args.job.expanduser().resolve()
-        tile_plan_path = args.tile_plan.expanduser().resolve()
         if not job_path.is_file() or job_path.name != "job.json":
             raise SystemExit(f"Missing job manifest: {job_path}")
         job_dir = job_path.parent
-        if not tile_plan_path.is_file() or not tile_plan_path.is_relative_to(job_dir):
-            raise SystemExit("Tile plan must be an existing file inside the job directory")
         for evidence_path in (base_path, target_path, patch_path, output):
             if not evidence_path.is_relative_to(job_dir):
-                raise SystemExit(f"Audited tile blend paths must stay inside the job directory: {evidence_path}")
-        tile_plan = json.loads(tile_plan_path.read_text(encoding="utf-8"))
-        matches = [item for item in (tile_plan.get("tiles") or []) if item.get("index") == args.tile_index]
-        if len(matches) != 1:
-            raise SystemExit(f"--tile-index {args.tile_index} must match exactly one tile")
-        tile = matches[0]
-        if tile.get("region_type") != args.region_type:
-            raise SystemExit(
-                f"Tile region type {tile.get('region_type')!r} does not match --region-type {args.region_type!r}"
-            )
-        box = tile.get("box") or {}
-        if args.x != box.get("x") or args.y != box.get("y"):
-            raise SystemExit("Blend placement must match the tile-plan box exactly")
-        plan_sha256 = sha256_file(tile_plan_path)
+                raise SystemExit(f"Audited blend paths must stay inside the job directory: {evidence_path}")
         job_data = json.loads(job_path.read_text(encoding="utf-8"))
         patch_sha256 = sha256_file(patch_path)
+
+        if tile_receipt_requested:
+            plan_path = args.tile_plan.expanduser().resolve()
+            if not plan_path.is_file() or not plan_path.is_relative_to(job_dir):
+                raise SystemExit("Tile plan must be an existing file inside the job directory")
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            matches = [item for item in (plan.get("tiles") or []) if item.get("index") == args.tile_index]
+            if len(matches) != 1:
+                raise SystemExit(f"--tile-index {args.tile_index} must match exactly one tile")
+            region = matches[0]
+            box = region.get("box") or {}
+            evidence_kind = "tile-redraw"
+            index_name = "tile_index"
+            index_value = args.tile_index
+            receipt_list = "tile_blend_receipts"
+            plan_sha_field = "tile_plan_sha256"
+            plan_path_field = "tile_plan_path"
+        else:
+            plan_path = args.plan.expanduser().resolve()
+            if not plan_path.is_file() or not plan_path.is_relative_to(job_dir):
+                raise SystemExit("Detail plan must be an existing file inside the job directory")
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            regions = plan.get("regions") or []
+            if not 0 <= args.planner_region_index < len(regions):
+                raise SystemExit(
+                    f"--planner-region-index {args.planner_region_index} is outside the detail plan ({len(regions)} regions)"
+                )
+            region = regions[args.planner_region_index]
+            box = region.get("crop") or {}
+            evidence_kind = "detail-patch"
+            index_name = "planner_region_index"
+            index_value = args.planner_region_index
+            receipt_list = "detail_blend_receipts"
+            plan_sha_field = "detail_plan_sha256"
+            plan_path_field = "detail_plan_path"
+
+        if region.get("region_type") != args.region_type:
+            raise SystemExit(
+                f"Planned region type {region.get('region_type')!r} does not match --region-type {args.region_type!r}"
+            )
+        if args.x != box.get("x") or args.y != box.get("y"):
+            raise SystemExit("Blend placement must match the planned region box exactly")
+        plan_sha256 = sha256_file(plan_path)
         accepted_observations = [
             item for item in (job_data.get("patch_observations") or [])
             if isinstance(item, dict)
-            and item.get("evidence_kind") == "tile-redraw"
+            and item.get("evidence_kind") == evidence_kind
             and item.get("evidence_plan_sha256") == plan_sha256
-            and item.get("tile_index") == args.tile_index
+            and item.get(index_name) == index_value
             and item.get("patch_sha256") == patch_sha256
             and (item.get("budget_recheck") or {}).get("accepted") is True
         ]
         if not accepted_observations:
             raise SystemExit(
-                "Tile patch has no accepted record_patch_observation.py evidence for this exact tile plan"
+                f"Patch has no accepted record_patch_observation.py evidence for this exact {evidence_kind} plan entry"
             )
-        tile_context = {
+        blend_context = {
+            "kind": evidence_kind,
             "job_path": job_path,
             "job_data": job_data,
-            "tile_plan_path": tile_plan_path,
-            "tile_plan_sha256": plan_sha256,
-            "tile": tile,
+            "plan_path": plan_path,
+            "plan_sha256": plan_sha256,
+            "plan_sha_field": plan_sha_field,
+            "plan_path_field": plan_path_field,
+            "receipt_list": receipt_list,
+            "index_name": index_name,
+            "index_value": index_value,
+            "region": region,
+            "box": box,
             "patch_sha256": patch_sha256,
         }
 
@@ -196,11 +242,11 @@ def main() -> None:
         blend_mask = None
     height, width = target.shape[:2]
     patch_h, patch_w = patch.shape[:2]
-    if tile_context is not None:
-        box = tile_context["tile"]["box"]
+    if blend_context is not None:
+        box = blend_context["box"]
         if width != box.get("width") or height != box.get("height"):
             raise SystemExit(
-                f"Target crop {width}x{height} does not match tile-plan box {box.get('width')}x{box.get('height')}"
+                f"Target crop {width}x{height} does not match planned box {box.get('width')}x{box.get('height')}"
             )
     target_ratio = width / height
     patch_ratio = patch_w / patch_h
@@ -375,22 +421,22 @@ def main() -> None:
             "custom_blend_mask": blend_mask_path is not None,
         }
     )
-    if tile_context is not None:
+    if blend_context is not None:
         output_sha256 = sha256_file(output)
         receipt = {
             "schema_version": 1,
-            "kind": "tile-redraw",
+            "kind": blend_context["kind"],
             "recorded_at": datetime.now().astimezone().isoformat(),
-            "tile_plan_path": str(tile_context["tile_plan_path"]),
-            "tile_plan_sha256": tile_context["tile_plan_sha256"],
-            "tile_index": args.tile_index,
+            blend_context["plan_path_field"]: str(blend_context["plan_path"]),
+            blend_context["plan_sha_field"]: blend_context["plan_sha256"],
+            blend_context["index_name"]: blend_context["index_value"],
             "region_type": args.region_type,
             "input_base_path": str(base_path),
             "input_base_sha256": sha256_file(base_path),
             "target_path": str(target_path),
             "target_sha256": sha256_file(target_path),
             "patch_path": str(patch_path),
-            "patch_sha256": tile_context["patch_sha256"],
+            "patch_sha256": blend_context["patch_sha256"],
             "output_path": str(output),
             "output_sha256": output_sha256,
             "registration": {
@@ -403,15 +449,17 @@ def main() -> None:
                 "accepted": True,
             },
         }
-        job_data = tile_context["job_data"]
-        receipts = job_data.setdefault("tile_blend_receipts", [])
+        job_data = blend_context["job_data"]
+        receipts = job_data.setdefault(blend_context["receipt_list"], [])
         if not isinstance(receipts, list):
-            raise SystemExit("job.json tile_blend_receipts must be an array")
+            raise SystemExit(f"job.json {blend_context['receipt_list']} must be an array")
         receipt["sequence"] = len(receipts) + 1
         receipts.append(receipt)
         job_data["updated_at"] = receipt["recorded_at"]
-        atomic_write_json(tile_context["job_path"], job_data)
-        report["tile_blend_receipt"] = receipt
+        atomic_write_json(blend_context["job_path"], job_data)
+        report["blend_receipt"] = receipt
+        if blend_context["kind"] == "tile-redraw":
+            report["tile_blend_receipt"] = receipt
     print(json.dumps(report, indent=2))
 
 
