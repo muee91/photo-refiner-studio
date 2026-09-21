@@ -396,8 +396,34 @@ canvas. `coverage.hole_area` must stay 0; a nonzero hole fails the plan.
 Read `tile_count` as the real cost. It is lower than `tiling_requirement.tile_count`,
 which naively adds overlapping per-region grids. Then for each tile in `tiles[]`: crop it
 from the reference canvas, generate at exactly `requested_size`, record the observed
-return with `record_patch_observation.py`, and blend in `blend_sequence` order so face
-tiles land last.
+return against the **exact tile plan**, and blend in `blend_sequence` order so face
+tiles land last:
+
+```bash
+python3 "$SKILL_ROOT/scripts/record_patch_observation.py" <job.json> \
+  --patch <returned-tile.png> \
+  --region-type <tile.region_type> \
+  --region-role <tile.region_role> \
+  --requested-size <tile.requested_size WxH> \
+  --tile-plan <tile-plan.json> \
+  --tile-index <tile.index>
+
+python3 "$SKILL_ROOT/scripts/register_blend.py" \
+  --base <current-composite.png> \
+  --target <exact-tile-crop.png> \
+  --patch <returned-tile.png> \
+  --output <next-composite.png> \
+  --x <tile.box.x> --y <tile.box.y> \
+  --region-type <tile.region_type> \
+  --job <job.json> --tile-plan <tile-plan.json> --tile-index <tile.index>
+```
+
+The observation binds the actual returned bitmap to the tile-plan SHA256 and rechecks
+its Pixel Budget. The audited blend then writes a receipt binding input-base hash,
+patch hash and output-composite hash. At delivery, every tile in `blend_sequence`
+must have a live accepted observation and the receipts must form an ordered hash chain
+whose final output is exactly the `--master` passed to `delivery_gate.py`. A feasible
+tile plan alone is never proof that redraw happened.
 
 The contract is documented in `references/vision-analysis-schema.md`. It accepts pixel or normalized boxes for the subject, face, hands, and props, plus optional `portrait_extent` and `detail_complexity` hints. The planner infers portrait extent from face-to-subject scale when the hint is omitted. The Vision pass remains responsible for detection; the planner remains responsible for value scoring, merging, and generation budgets. Manual box flags remain backward-compatible and override matching Vision fields.
 
@@ -558,7 +584,7 @@ because either one alone can be fooled:
   (`job.approved_preview`), raised only by recorded `adds_information: true` upscale
   passes. Inflating a preview with Lanczos and passing it as `--master` therefore does
   not help: an unrecorded or information-free pass raises nothing.
-- `budget` — is **fail-closed**. Recovery-enabled ordinary / creative-safe jobs must provide `--plan`; hd-master final delivery must provide `--tile-plan`. It fails when required evidence is missing, when a detail plan dropped regions for the requested size, when `delivery_feasibility.verdict` is `needs-tiling`, when any blended patch has `budget_recheck.accepted: false`, or when a tile plan has a hole / unreachable tile. This catches a large subject at a large delivery size even when the geometry looks reasonable.
+- `budget` — is **fail-closed**. Recovery-enabled ordinary / creative-safe jobs must provide `--plan`; hd-master final delivery must provide `--tile-plan`. It fails when required evidence is missing, when a detail plan dropped regions for the requested size, when `delivery_feasibility.verdict` is `needs-tiling`, when any blended patch has `budget_recheck.accepted: false`, when a tile plan has a hole / unreachable tile, when a planned tile lacks a live actual-return observation, or when the tile blend receipts do not form a hash chain ending at the delivery master. This catches a large subject at a large delivery size even when the geometry looks reasonable.
 
 `required_action` then says what to do instead: raise the canvas with a real engine,
 deliver at or below `max_honest_delivery_width`, or switch to the tile-redraw chain.
