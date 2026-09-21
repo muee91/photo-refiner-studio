@@ -41,9 +41,10 @@ MODEL_PATH = UPSCALER_DIR / f"{MODEL_NAME}.pth"
 MODEL_DIGEST_PATH = UPSCALER_DIR / f"{MODEL_NAME}.pth.sha256"
 NCNN_DIRS = [UPSCALER_DIR, UPSCALER_DIR / "models"]
 MODEL_MIN_BYTES = 50_000_000
+MODEL_EXPECTED_SHA256 = "a5812231fc936b42af08a5edba784195495d303d5b3248c24489ef0c4021fe01"
 MODEL_CANDIDATES = [
     "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x-UltraSharp.pth",
-    "https://huggingface.co/kolibril13/4x-UltraSharp/resolve/main/4x-UltraSharp.pth",
+    "https://huggingface.co/aiunivers/upscale-models/resolve/main/4x-UltraSharp.pth",
 ]
 UPSCAYL_BINARIES = [
     Path("/Applications/Upscayl.app/Contents/Resources/resources/binaries/upscayl-bin"),
@@ -92,23 +93,14 @@ def find_ncnn_binary() -> str | None:
 
 
 def cached_model_matches_digest() -> bool:
-    """False when the pinned sidecar exists and no longer matches the cached weights.
-
-    The mirrors are third party, so a cached model that changed underneath us must
-    not keep loading: the .pth is deserialized by torch, which makes it executable
-    input rather than plain data.
-    """
-    if not MODEL_DIGEST_PATH.is_file():
-        return True
-    try:
-        expected = MODEL_DIGEST_PATH.read_text(encoding="utf-8").split()[0].lower()
-    except (IndexError, OSError):
+    """Require the executable pickle to match the repository-pinned digest."""
+    if not MODEL_PATH.is_file():
         return False
     digest = hashlib.sha256()
     with MODEL_PATH.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             digest.update(chunk)
-    return digest.hexdigest().lower() == expected
+    return digest.hexdigest().lower() == MODEL_EXPECTED_SHA256
 
 
 def python_engine_ready() -> bool:
@@ -123,12 +115,14 @@ def python_engine_ready() -> bool:
 def engine_status() -> dict:
     model_dir = find_ncnn_pair()
     return {
+        "ultrasharp_ready": bool(model_dir or python_engine_ready()),
         "ultrashort_ready": bool(model_dir or python_engine_ready()),
         "ncnn_dir": str(model_dir) if model_dir else None,
         "ncnn_binary": find_ncnn_binary(),
         "python_engine": python_engine_ready(),
         "model_path": str(MODEL_PATH) if MODEL_PATH.is_file() else None,
         "model_digest_matches": cached_model_matches_digest() if MODEL_PATH.is_file() else None,
+        "model_expected_sha256": MODEL_EXPECTED_SHA256,
         "model_candidates": MODEL_CANDIDATES,
         "upscaler_dir": str(UPSCALER_DIR),
     }
@@ -271,9 +265,14 @@ def install_engine() -> dict:
                         raise ValueError("model download exceeds expected size")
             if target.stat().st_size < MODEL_MIN_BYTES:
                 raise ValueError(f"downloaded model too small ({target.stat().st_size} bytes)")
+            actual_digest = digest.hexdigest().lower()
+            if actual_digest != MODEL_EXPECTED_SHA256:
+                raise ValueError(
+                    f"model sha256 mismatch: expected {MODEL_EXPECTED_SHA256}, got {actual_digest}"
+                )
             target.replace(MODEL_PATH)
-            MODEL_DIGEST_PATH.write_text(f"{digest.hexdigest()}  {MODEL_NAME}.pth\n", encoding="utf-8")
-            installed.append(f"{MODEL_NAME}.pth ({url}, sha256 {digest.hexdigest()[:16]})")
+            MODEL_DIGEST_PATH.write_text(f"{MODEL_EXPECTED_SHA256}  {MODEL_NAME}.pth\n", encoding="utf-8")
+            installed.append(f"{MODEL_NAME}.pth ({url}, pinned sha256 {MODEL_EXPECTED_SHA256[:16]})")
             model_done = True
             break
         except Exception as exc:
