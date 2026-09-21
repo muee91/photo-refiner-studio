@@ -918,6 +918,22 @@ class GateReadsBudgetNotGeometryTests(unittest.TestCase):
         # Master and final are the same size, so the old geometry-only gate passed.
         master = self.make(self.job_dir / "master.png", (4672, 7008))
         final = self.make(self.job_dir / "final.jpg", (4672, 7008))
+        data = json.loads(self.job.read_text(encoding="utf-8"))
+        master_hash = hashlib.sha256(master.read_bytes()).hexdigest()
+        data["hd_working_canvas"] = {
+            "schema_version": 1,
+            "policy": "automatic-hd-working-canvas",
+            "input": str(master.resolve()),
+            "input_size": [4672, 7008],
+            "input_sha256": master_hash,
+            "delivery_canvas": [4672, 7008],
+            "route": "native-detail",
+            "output": str(master.resolve()),
+            "output_size": [4672, 7008],
+            "output_sha256": master_hash,
+            "requires_full_canvas_redraw": False,
+        }
+        self.job.write_text(json.dumps(data, indent=2), encoding="utf-8")
         plan = self.job_dir / "detail-plan.json"
         plan.write_text(json.dumps({
             "working_canvas": [4096, 6144], "delivery_canvas": [4672, 7008],
@@ -1525,6 +1541,8 @@ class TileRedrawPlannerTests(unittest.TestCase):
     def test_no_gaps_and_no_unreachable_tiles(self):
         plan = self.tile_plan("--detail-plan", self.plan_path)
         self.assertEqual(plan["verdict"], "pass")
+        self.assertEqual(Path(plan["canvas_path"]), self.canvas.resolve())
+        self.assertEqual(plan["canvas_sha256"], hashlib.sha256(self.canvas.read_bytes()).hexdigest())
         self.assertEqual(plan["coverage"]["hole_area"], 0,
                          "no real hole may remain; thin remainders are tracked separately")
         self.assertGreater(plan["tile_count"], 0)
@@ -1543,8 +1561,11 @@ class TileRedrawPlannerTests(unittest.TestCase):
         boxes = [(t["box"]["x"], t["box"]["y"], t["box"]["width"], t["box"]["height"]) for t in plan["tiles"]]
         self.assertEqual(len(boxes), len(set(boxes)), "the same tile must not be generated twice")
         naive = sum(entry["tiles"] for entry in (plan["source_tiling_request"] or {}).get("regions", []))
-        self.assertLess(plan["tile_count"], naive, "dedupe must lower the naive per-region sum")
-        self.assertEqual(plan["deduplicated_tiles"], naive - plan["tile_count"])
+        self.assertLess(plan["tile_count"], naive, "dedupe/sliver suppression must lower the naive per-region sum")
+        self.assertEqual(
+            plan["deduplicated_tiles"] + plan["sliver_tiles_dropped"],
+            naive - plan["tile_count"],
+        )
 
     def test_face_tiles_are_blended_last(self):
         plan = self.tile_plan("--detail-plan", self.plan_path)
