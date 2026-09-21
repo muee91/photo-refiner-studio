@@ -334,9 +334,9 @@ def main() -> None:
             "enabled": bool(getattr(args, "creative_upscale", False)) and not hd_chain,
             "engine": "auto",
             "note": (
-                "Disabled for hd-master: final resolution is produced by style-faithful tile redraw."
+                "Disabled as a separate pass for hd-master: Section 8.0 prepares the photographic HD master and the final creative stage is tiled redraw."
                 if hd_chain
-                else "After approval the preview is upscaled with 4X-UltraSharp when the bundled engine is installed (upscale_image.py --install-engine, no ComfyUI needed); patch planning then runs on the raised canvas. Without an engine an honest Lanczos fallback is recorded."
+                else "Executed through the common prepare_hd_working_canvas.py router. 4X-UltraSharp is used only inside its native information span; targets beyond that span or environments without an information-adding engine switch to full-canvas tile redraw."
             ),
         }
     workflow = args.workflow
