@@ -464,7 +464,7 @@ class DeliveryGateTests(unittest.TestCase):
         report = json.loads(gate.stdout)
         self.assertEqual(report["verdict"], "fail")
         self.assertAlmostEqual(report["delivery_scale"], 4.5625, places=4)
-        self.assertIn("upscale_image.py", report["required_action"])
+        self.assertIn("prepare_hd_working_canvas.py", report["required_action"])
 
         refused = self.run_script(
             "update_job.py", job_dir / "job.json", "--status", "completed", ok=False,
