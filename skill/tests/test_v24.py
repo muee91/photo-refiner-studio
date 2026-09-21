@@ -1185,7 +1185,7 @@ class RegisterBlendReceiptTests(unittest.TestCase):
             "observed_patch_size": [512, 512],
             "tile_count": 1,
             "blend_sequence": [0],
-            "provenance": {"source": ["full_canvas"]},
+            "provenance": {"source": ["detail_plan", "full_canvas"]},
             "coverage": {
                 "target_area": 512 * 512,
                 "covered_area": 512 * 512,
