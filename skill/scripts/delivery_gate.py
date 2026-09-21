@@ -275,6 +275,16 @@ def main() -> None:
                 "hole_area=0, and every tile budget_ratio >= its threshold."
             )
 
+    # Mandatory evidence remains mandatory even when another optional plan was
+    # also supplied; a passing detail-plan may not overwrite a missing hd-master
+    # tile-plan failure.
+    if hd_master_delivery and args.tile_plan is None:
+        budget["verdict"] = "fail"
+        budget["reason"] = "missing_tile_plan"
+    elif detail_required and not hd_master_delivery and args.plan is None:
+        budget["verdict"] = "fail"
+        budget["reason"] = "missing_detail_plan"
+
     diff = None
     approved = data.get("approved_preview")
     if isinstance(approved, dict) and approved.get("path"):
