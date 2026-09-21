@@ -194,6 +194,20 @@ class ConfirmationFieldValidationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("settings hash mismatch", result.stdout + result.stderr)
 
+    def test_confirmation_schema_downgrade_is_rejected(self):
+        confirmation = write_confirmation(self.home, panel_config())
+        record = json.loads(confirmation.read_text(encoding="utf-8"))
+        record["schemaVersion"] = 3
+        record.pop("confirmationHash", None)
+        confirmation.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "init_job.py"), str(self.source),
+             "--confirmation-file", str(confirmation)],
+            capture_output=True, text=True, env=self.env,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("confirmation schema", (result.stdout + result.stderr).lower())
+
     def test_panel_generation_budget_reaches_the_manifest(self):
         # fast/max were unreachable from Studio: the panel carried no such field.
         config = panel_config()
