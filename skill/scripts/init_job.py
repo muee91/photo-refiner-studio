@@ -465,6 +465,7 @@ def main() -> None:
             "path": confirmation["confirmationPath"],
             "confirmed_at": confirmation["confirmedAt"],
             "confirmed_by": confirmation["confirmedBy"],
+            "confirmation_hash": confirmation.get("confirmationHash"),
         },
         "status": "initialized",
         "working_color_space": "sRGB",
