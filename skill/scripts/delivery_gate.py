@@ -186,44 +186,191 @@ def main() -> None:
             "Run plan_detail_tiles.py and pass its detail-plan.json so Pixel Budget cannot be bypassed."
         )
 
-    if args.plan is not None:
+    if args.plan is not None and not hd_master_delivery:
         plan_path = args.plan.expanduser().resolve()
         if not plan_path.is_file():
             raise SystemExit(f"Missing detail plan: {plan_path}")
         if not plan_path.is_relative_to(job_dir):
             raise SystemExit(f"Detail plan must live inside the job directory: {plan_path}")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan_sha256 = sha256_file(plan_path)
+        regions = plan.get("regions") or []
         dropped = plan.get("regions_dropped_for_budget") or []
         feasibility = plan.get("delivery_feasibility") or {}
         planned_delivery_canvas = plan.get("delivery_canvas")
-        plan_canvas_matches = (
-            hd_master_delivery
-            or planned_delivery_canvas == final["size"]
-        )
+        plan_canvas_matches = planned_delivery_canvas == final["size"]
+        region_contract_ok = plan.get("region_count") == len(regions)
+
+        plan_observations = [
+            item for item in (data.get("patch_observations") or [])
+            if isinstance(item, dict)
+            and item.get("evidence_kind") == "detail-patch"
+            and item.get("evidence_plan_sha256") == plan_sha256
+        ]
         failed_observations = [
             {
+                "planner_region_index": item.get("planner_region_index"),
                 "region_type": item.get("region_type"),
-                "region_role": (item.get("region_role") or ""),
+                "region_role": item.get("region_role") or "",
                 "detail_ratio": (item.get("budget_recheck") or {}).get("detail_ratio"),
                 "threshold": (item.get("budget_recheck") or {}).get("threshold"),
             }
-            for item in data.get("patch_observations") or []
+            for item in plan_observations
             if (item.get("budget_recheck") or {}).get("accepted") is False
         ]
+
+        evidence_by_index: dict[int, list[dict]] = {}
+        for item in plan_observations:
+            index = item.get("planner_region_index")
+            if isinstance(index, int):
+                evidence_by_index.setdefault(index, []).append(item)
+
+        accepted_region_evidence = []
+        missing_region_evidence = []
+        failed_region_evidence = []
+        stale_region_evidence = []
+        for index, region in enumerate(regions):
+            candidates = evidence_by_index.get(index, [])
+            accepted_candidates = [
+                item for item in candidates
+                if (item.get("budget_recheck") or {}).get("accepted") is True
+            ]
+            valid = None
+            for item in sorted(accepted_candidates, key=lambda value: value.get("sequence") or 0, reverse=True):
+                patch_path = Path(str(item.get("patch_path") or "")).expanduser().resolve()
+                if not patch_path.is_file() or not patch_path.is_relative_to(job_dir):
+                    continue
+                measured = measure(patch_path)
+                if measured["sha256"] != item.get("patch_sha256") or measured["size"] != item.get("actual_size"):
+                    continue
+                if item.get("region_type") != region.get("region_type"):
+                    continue
+                valid = item
+                break
+            if valid is not None:
+                accepted_region_evidence.append({
+                    "planner_region_index": index,
+                    "region_type": region.get("region_type"),
+                    "patch_path": valid.get("patch_path"),
+                    "patch_sha256": valid.get("patch_sha256"),
+                    "actual_size": valid.get("actual_size"),
+                    "detail_ratio": (valid.get("budget_recheck") or {}).get("detail_ratio"),
+                })
+            elif not candidates:
+                missing_region_evidence.append(index)
+            elif not accepted_candidates:
+                failed_region_evidence.append(index)
+            else:
+                stale_region_evidence.append(index)
+
+        region_evidence_ok = (
+            len(accepted_region_evidence) == len(regions)
+            and not missing_region_evidence
+            and not failed_region_evidence
+            and not stale_region_evidence
+        )
+        accepted_patch_sha = {
+            item["planner_region_index"]: item.get("patch_sha256")
+            for item in accepted_region_evidence
+        }
+        plan_receipts = sorted(
+            [
+                item for item in (data.get("detail_blend_receipts") or [])
+                if isinstance(item, dict)
+                and item.get("kind") == "detail-patch"
+                and item.get("detail_plan_sha256") == plan_sha256
+            ],
+            key=lambda item: item.get("sequence") or 0,
+        )
+
+        def detail_receipt_is_live(receipt: dict) -> bool:
+            if (receipt.get("registration") or {}).get("accepted") is not True:
+                return False
+            index = receipt.get("planner_region_index")
+            if accepted_patch_sha.get(index) != receipt.get("patch_sha256"):
+                return False
+            output_path = Path(str(receipt.get("output_path") or "")).expanduser().resolve()
+            if not output_path.is_file() or not output_path.is_relative_to(job_dir):
+                return False
+            if sha256_file(output_path) != receipt.get("output_sha256"):
+                return False
+            return True
+
+        live_receipts = [item for item in plan_receipts if detail_receipt_is_live(item)]
+        expected_blend_order = list(range(len(regions)))
+
+        def find_detail_chain(position: int, after_sequence: int, previous_output_sha: str | None):
+            if position >= len(expected_blend_order):
+                return []
+            wanted = expected_blend_order[position]
+            for receipt in live_receipts:
+                sequence = receipt.get("sequence") or 0
+                if sequence <= after_sequence or receipt.get("planner_region_index") != wanted:
+                    continue
+                if previous_output_sha is not None and receipt.get("input_base_sha256") != previous_output_sha:
+                    continue
+                tail = find_detail_chain(position + 1, sequence, receipt.get("output_sha256"))
+                if tail is not None:
+                    return [receipt] + tail
+            return None
+
+        if regions:
+            blend_chain = find_detail_chain(0, 0, None)
+            blend_chain_ok = (
+                blend_chain is not None
+                and len(blend_chain) == len(regions)
+                and blend_chain[-1].get("output_sha256") == master["sha256"]
+            )
+        else:
+            blend_chain = []
+            blend_chain_ok = True
+
+        execution_ok = region_evidence_ok and blend_chain_ok
+        execution_evidence = {
+            "accepted_region_evidence": accepted_region_evidence,
+            "missing_region_evidence": missing_region_evidence,
+            "failed_region_evidence": failed_region_evidence,
+            "stale_region_evidence": stale_region_evidence,
+            "blend_receipt_count": len(plan_receipts),
+            "live_blend_receipt_count": len(live_receipts),
+            "blend_chain_length": len(blend_chain or []),
+            "expected_blend_chain_length": len(regions),
+            "final_output_matches_master": (
+                True if not regions
+                else bool(blend_chain) and blend_chain[-1].get("output_sha256") == master["sha256"]
+            ),
+            "accepted": execution_ok,
+        }
+
         budget = {
             "verdict": "pass",
+            "plan_sha256": plan_sha256,
             "planned_regions": plan.get("region_count"),
             "planned_delivery_canvas": planned_delivery_canvas,
             "final_canvas": final["size"],
             "plan_canvas_matches": plan_canvas_matches,
+            "region_contract_ok": region_contract_ok,
             "dropped_regions": dropped,
             "failed_observations": failed_observations,
+            "execution_evidence": execution_evidence,
         }
         if not plan_canvas_matches:
             budget["verdict"] = "fail"
             reasons.append(
                 f"budget: detail-plan delivery_canvas {planned_delivery_canvas} does not match "
                 f"the delivered file {final['size']}; re-plan against the exact final canvas."
+            )
+        if not region_contract_ok:
+            budget["verdict"] = "fail"
+            reasons.append(
+                "budget: detail-plan region_count does not match its regions array; regenerate the plan."
+            )
+        if regions and not execution_ok:
+            budget["verdict"] = "fail"
+            reasons.append(
+                "budget: detail-plan is feasible but its selected regions were not fully executed. "
+                "Every planned region needs a live accepted record_patch_observation.py entry and an "
+                "ordered register_blend.py hash-chain ending at the delivery master."
             )
         if dropped or feasibility.get("verdict") == "needs-tiling" or failed_observations:
             budget["verdict"] = "fail"
