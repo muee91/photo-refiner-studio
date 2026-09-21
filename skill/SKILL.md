@@ -461,12 +461,15 @@ Register with:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/register_blend.py" \
-  --base <look-master-canvas> \
-  --target <exact-look-master-crop> \
+  --base <look-master-or-current-composite> \
+  --target <exact-current-composite-crop> \
   --patch <generated-patch> \
   --output <new-composite> \
   --x <x> --y <y> \
-  --region-type <type>
+  --region-type <type> \
+  --job <job.json> \
+  --plan <detail-plan.json> \
+  --planner-region-index <index>
 ```
 
 `--model auto` uses:
@@ -510,7 +513,7 @@ Default patch mid-frequency contribution is region-aware and deliberately conser
 
 Do not paste a generated patch wholesale over the approved look. Reject visible white-balance changes, relighting, saturation jumps, seams, halos, double features, or local sharpness discontinuities.
 
-Always blend from the clean latest accepted state. Broad tiles first, specific tiles last; face is normally last.
+Always blend from the clean latest accepted state. Broad tiles first, specific tiles last; face is normally last. For every planned normal/creative-safe region, first record the returned image with `record_patch_observation.py --plan <detail-plan.json> --planner-region-index <index>`, then call the audited `register_blend.py` form above. The job records a detail-blend receipt linking input-base hash → patch hash → output-composite hash. Keep those intermediate composite files until `delivery_gate.py` passes: the gate requires an ordered hash chain for all selected regions and requires its last output hash to equal the exact `--master`. A feasible detail plan by itself is not execution evidence.
 
 Read `$SKILL_ROOT/references/quality-gates.md` for the full rejection/retry rules.
 
