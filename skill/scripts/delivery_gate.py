@@ -354,18 +354,41 @@ def main() -> None:
                     return [receipt] + tail
             return None
 
+        hd_output_sha256 = None
+        hd_output_integrity_ok = True
+        hd_record = data.get("hd_working_canvas")
+        if isinstance(hd_record, dict) and hd_record.get("output") and hd_record.get("output_sha256"):
+            hd_output_path = Path(str(hd_record["output"])).expanduser().resolve()
+            hd_output_integrity_ok = (
+                hd_output_path.is_file()
+                and hd_output_path.is_relative_to(job_dir)
+                and sha256_file(hd_output_path) == hd_record.get("output_sha256")
+                and measure(hd_output_path)["size"] == hd_record.get("output_size")
+            )
+            if hd_output_integrity_ok:
+                hd_output_sha256 = hd_record.get("output_sha256")
+        elif (data.get("hd_working_canvas_policy") or {}).get("mode") == "automatic":
+            hd_output_integrity_ok = False
+
         if regions:
             blend_chain = find_detail_chain(0, 0, None)
+            blend_chain_start_ok = (
+                True
+                if hd_output_sha256 is None
+                else bool(blend_chain) and blend_chain[0].get("input_base_sha256") == hd_output_sha256
+            )
             blend_chain_ok = (
                 blend_chain is not None
                 and len(blend_chain) == len(regions)
+                and blend_chain_start_ok
                 and blend_chain[-1].get("output_sha256") == master["sha256"]
             )
         else:
             blend_chain = []
-            blend_chain_ok = True
+            blend_chain_start_ok = hd_output_integrity_ok
+            blend_chain_ok = hd_output_integrity_ok
 
-        execution_ok = region_evidence_ok and blend_chain_ok
+        execution_ok = region_evidence_ok and blend_chain_ok and hd_output_integrity_ok
         execution_evidence = {
             "accepted_region_evidence": accepted_region_evidence,
             "missing_region_evidence": missing_region_evidence,
@@ -375,6 +398,8 @@ def main() -> None:
             "live_blend_receipt_count": len(live_receipts),
             "blend_chain_length": len(blend_chain or []),
             "expected_blend_chain_length": len(regions),
+            "hd_working_canvas_output_integrity_ok": hd_output_integrity_ok,
+            "starts_from_hd_working_canvas": blend_chain_start_ok,
             "final_output_matches_master": (
                 True if not regions
                 else bool(blend_chain) and blend_chain[-1].get("output_sha256") == master["sha256"]
