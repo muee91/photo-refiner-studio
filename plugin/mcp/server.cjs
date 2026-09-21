@@ -293,6 +293,15 @@ function validateConfig(raw) {
     config.resolution = enumValue(config.resolution, ["preview", "4k", "source-width"], "resolution");
   }
   config.deliveryMode = enumValue(config.deliveryMode, ["preview-first", "one-click"], "deliveryMode");
+  if (config.creativeHdChain) {
+    const hdRecipe = config.creativeRecipe === "none" ? null : CREATIVE_RECIPE_BY_ID[config.creativeRecipe];
+    if (!hdRecipe || config.sourceCount !== 1 || config.creativeAssemblyMode !== "direct-effect") {
+      throw new Error("creativeHdChain requires one source photograph and a single-source direct-effect creative recipe");
+    }
+    if (config.deliveryMode !== "preview-first") {
+      throw new Error("creativeHdChain requires preview-first because both the HD master and creative draft need explicit approval");
+    }
+  }
   config.outputFormat = enumValue(config.outputFormat, ["png", "jpg", "both"], "outputFormat");
   config.keepIntermediates = booleanValue(config.keepIntermediates, "keepIntermediates");
   config.styleStrength = numberIn(config.styleStrength, 0, 100, "styleStrength");
@@ -366,6 +375,24 @@ function resolvedCreativeRecipe(config) {
 
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function confirmationHashPayload(record) {
+  return {
+    config: record.config,
+    executionMode: record.executionMode,
+    resolvedCreativeRecipe: record.resolvedCreativeRecipe,
+    creativeOutput: record.creativeOutput,
+    resolvedPrompt: record.resolvedPrompt,
+  };
 }
 
 function uiMeta() {
@@ -476,6 +503,7 @@ function toolDefinitions() {
           confirmationPath: {type: "string"},
           confirmedAt: {type: "string"},
           promptHash: {type: "string"},
+          confirmationHash: {type: "string"},
           summary: {type: "object"},
         },
       },
@@ -617,7 +645,7 @@ function callTool(name, args) {
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
     const record = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       confirmationId: id,
       confirmedAt: now,
       confirmedBy: "photo-refiner-studio",
@@ -647,6 +675,7 @@ function callTool(name, args) {
       .slice(0, 30);
     savePreferences(preferences);
     record.promptHash = sha256(JSON.stringify(record.resolvedPrompt));
+    record.confirmationHash = sha256(stableJson(confirmationHashPayload(record)));
     fs.mkdirSync(CONFIRMATION_DIR, {recursive: true, mode: 0o700});
     const confirmationPath = path.join(CONFIRMATION_DIR, `${id}.json`);
     fs.writeFileSync(confirmationPath, `${JSON.stringify(record, null, 2)}\n`, {encoding: "utf8", mode: 0o600, flag: "wx"});
@@ -658,6 +687,7 @@ function callTool(name, args) {
       confirmedAt: now,
       preset: config.preset,
       promptHash: record.promptHash,
+      confirmationHash: record.confirmationHash,
       summary: {
         workflow: config.workflow,
         executionMode: creativeRecipe ? "creative-translation" : "photo-refinement",
