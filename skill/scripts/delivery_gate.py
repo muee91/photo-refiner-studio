@@ -56,23 +56,35 @@ def measure(path: Path) -> dict:
 def information_raise(data: dict, reference_size: list[int]) -> tuple[float, list[dict]]:
     """How much larger the canvas genuinely is, starting from the reference image.
 
-    Passes are chained from the reference size, so an already-upscaled composite
-    passed as `--master` is not multiplied a second time. Information-free passes
-    (Lanczos) are skipped entirely, and a pass that does not start at the current
-    size cannot be assumed to have happened on this chain.
+    `to` is only a file size. New entries carry `information_to`, which caps a
+    4X model at its native 4x information range even if the caller asked for 5–8x.
+    Old manifests without `information_to` remain readable and use `to`.
+
+    Chaining is deliberately strict: the next information-adding pass must start
+    from the previous *information* canvas, not from an interpolated larger file,
+    so interpolation cannot be laundered into a second "AI" pass.
     """
     width = reference_size[0]
     applied = []
     for entry in data.get("upscale_passes") or []:
         if not isinstance(entry, dict) or not entry.get("adds_information"):
             continue
-        span, from_span = entry.get("to") or [], entry.get("from") or []
-        if len(span) != 2 or len(from_span) != 2 or not from_span[0]:
+        from_span = entry.get("from") or []
+        file_span = entry.get("to") or []
+        info_span = entry.get("information_to") or file_span
+        if len(info_span) != 2 or len(from_span) != 2 or not from_span[0]:
             continue
         if round(from_span[0]) != width:
             continue
-        width = span[0]
-        applied.append({"engine": entry.get("engine"), "from": from_span, "to": span})
+        width = info_span[0]
+        applied.append({
+            "engine": entry.get("engine"),
+            "from": from_span,
+            "to": file_span,
+            "information_to": info_span,
+            "native_information_scale": entry.get("native_information_scale"),
+            "interpolated_tail": entry.get("interpolated_tail"),
+        })
     return (width / reference_size[0] if reference_size[0] else 1.0), applied
 
 
