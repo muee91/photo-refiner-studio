@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from job_contract import (
+    MAX_HONEST_UPSCALE,
     PIXEL_BUDGET_THRESHOLDS,
     RELEASE_VERSION,
     PLANNER_CREATIVE_SAFE,
