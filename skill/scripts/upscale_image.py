@@ -114,12 +114,16 @@ def python_engine_ready() -> bool:
 
 def engine_status() -> dict:
     model_dir = find_ncnn_pair()
+    ncnn_binary = find_ncnn_binary()
+    ncnn_ready = bool(model_dir and ncnn_binary)
+    python_ready = python_engine_ready()
     return {
-        "ultrasharp_ready": bool(model_dir or python_engine_ready()),
-        "ultrashort_ready": bool(model_dir or python_engine_ready()),
+        "ultrasharp_ready": bool(ncnn_ready or python_ready),
+        "ultrashort_ready": bool(ncnn_ready or python_ready),
+        "ncnn_ready": ncnn_ready,
         "ncnn_dir": str(model_dir) if model_dir else None,
-        "ncnn_binary": find_ncnn_binary(),
-        "python_engine": python_engine_ready(),
+        "ncnn_binary": ncnn_binary,
+        "python_engine": python_ready,
         "model_path": str(MODEL_PATH) if MODEL_PATH.is_file() else None,
         "model_digest_matches": cached_model_matches_digest() if MODEL_PATH.is_file() else None,
         "model_expected_sha256": MODEL_EXPECTED_SHA256,
@@ -129,36 +133,28 @@ def engine_status() -> dict:
 
 
 def run_ncnn(inp: Path, out: Path, scale: int, model_dir: Path, binary: str) -> dict:
-    """Run the 4x model at its native scale; resize only after that when needed.
-
-    A request above 4x may create a larger file, but the extra tail is interpolation
-    and is never counted as model-generated information.
-    """
+    """Run the 4x model at native scale and transcode to the promised extension."""
     native_scale = 4
-    temp_path = out
-    temp_created = False
-    if scale != native_scale:
-        descriptor, name = tempfile.mkstemp(prefix="ultrasharp-native-", suffix=".png", dir=out.parent)
-        os.close(descriptor)
-        temp_path = Path(name)
-        temp_created = True
+    descriptor, name = tempfile.mkstemp(prefix="ultrasharp-native-", suffix=".png", dir=out.parent)
+    os.close(descriptor)
+    native_path = Path(name)
     try:
         subprocess.run(
-            [binary, "-i", str(inp), "-o", str(temp_path), "-s", str(native_scale),
+            [binary, "-i", str(inp), "-o", str(native_path), "-s", str(native_scale),
              "-n", str(model_dir / MODEL_NAME), "-f", "png"],
             check=True, capture_output=True, timeout=1800,
         )
-        if scale != native_scale:
-            with Image.open(temp_path) as image, Image.open(inp) as source:
-                target_size = (source.width * scale, source.height * scale)
-                resized = image.convert("RGB").resize(
+        with Image.open(native_path) as image, Image.open(inp) as source:
+            target_size = (source.width * scale, source.height * scale)
+            rendered = image.convert("RGB")
+            if rendered.size != target_size:
+                rendered = rendered.resize(
                     target_size,
                     Image.Resampling.LANCZOS if scale < native_scale else Image.Resampling.BICUBIC,
                 )
-                _save_like(resized, out)
+            _save_like(rendered, out)
     finally:
-        if temp_created:
-            temp_path.unlink(missing_ok=True)
+        native_path.unlink(missing_ok=True)
     return {
         "engine": "4x-ultrasharp-ncnn",
         "adds_information": True,
