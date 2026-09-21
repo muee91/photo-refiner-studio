@@ -215,19 +215,26 @@ Budget evidence is also mandatory. Every current-version job first runs
 selects `native-detail`, `ultrasharp-detail`, or `full-canvas-tile-redraw`.
 Recovery-enabled ordinary / creative-safe jobs normally gate with
 `--plan <detail-plan.json>`. When the router returns
-`full-canvas-tile-redraw`, they instead gate with a `--tile-plan` produced using
-`--full-canvas --sliver-margin 0`. An `hd-master` final creative redraw also gates
-with `--tile-plan`.
+`full-canvas-tile-redraw`, adaptive/face/explicit recovery first plans the subject
+on the delivery-size scaffold with `plan_detail_tiles.py`, then builds the final
+tile plan with **both** `--detail-plan <detail-plan.json>` and
+`--full-canvas --sliver-margin 0`. This preserves stricter face/head/hand Pixel
+Budgets while generic tiles fill the rest of the frame. The delivery then gates with
+that `--tile-plan`. An `hd-master` final creative redraw also gates with
+`--tile-plan`.
 
 The supplied plan canvas must equal the actual delivered canvas. Every selected
 ordinary / creative-safe region must have a live `detail-patch` observation bound
 to the exact detail-plan SHA256 plus an ordered `register_blend.py` receipt chain
 ending at the delivery master's SHA256. Tile routes require the same invariant per
-tile using `tile-redraw` observations and the exact tile-plan SHA256. Only a fully
-executed **full-canvas** tile plan with zero holes and zero delegated slivers may
-replace a global geometry failure. A feasible plan without generated-and-blended
-execution evidence is a hard delivery failure. A legitimate zero-region detail plan
-remains valid without patch calls.
+tile using `tile-redraw` observations and the exact tile-plan SHA256. Current tile
+plans also bind `canvas_path + canvas_sha256`; the first audited blend receipt must
+start from that exact canvas and the final receipt must end at the delivery master.
+Only a fully executed **subject-aware full-canvas** tile plan with zero holes and zero
+delegated slivers may replace a global geometry failure. A feasible plan without
+generated-and-blended execution evidence is a hard delivery failure. A legitimate
+zero-region detail plan remains valid without patch calls when its prepared HD
+working-canvas output remains intact.
 
 For 4X-UltraSharp, `to` is a file dimension while `information_to` is the trusted
 information boundary. Requests above the model-native 4× span may create a larger
@@ -243,6 +250,8 @@ artifact file, not part of `job.json`.
 ```yaml
 schema_version: 1
 canvas: [4672, 7008]              # the canvas being redrawn, in its own pixels
+canvas_path: .../hd-working.png   # exact redraw starting canvas
+canvas_sha256: ...                # blend-chain first receipt must start from this hash
 observed_patch_size: [1254, 1254]
 tile_overlap: 0.15
 tile_count: 11                     # after both drop rules; the real cost
