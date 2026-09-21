@@ -113,7 +113,8 @@ def main() -> None:
     parser.add_argument("job", type=Path, help="Path to job.json")
     parser.add_argument("--master", required=True, type=Path, help="The accepted composite that became the delivered file")
     parser.add_argument("--final", required=True, type=Path, help="The file about to be delivered")
-    parser.add_argument("--plan", type=Path, help="detail-plan.json from plan_detail_tiles.py; enables the per-region budget check")
+    parser.add_argument("--plan", type=Path, help="detail-plan.json from plan_detail_tiles.py; required for recovery-enabled non-HD-master jobs")
+    parser.add_argument("--tile-plan", type=Path, help="tile-plan.json from plan_tile_redraw.py; required for hd-master creative delivery")
     parser.add_argument("--max-upscale", type=float, help=f"Allowed delivery/canvas ratio (default {MAX_HONEST_UPSCALE})")
     parser.add_argument("--note", default="")
     args = parser.parse_args()
@@ -156,11 +157,41 @@ def main() -> None:
             "deliver at the canvas' native dimensions."
         )
 
+    detail_mode = str((data.get("detail") or {}).get("mode") or "")
+    creative_binding = str((data.get("creative_output") or {}).get("upstream_binding") or "")
+    detail_required = detail_mode not in {"", "base-only", "not-applicable"}
+    hd_master_delivery = creative_binding == "hd-master"
+
     budget = {"verdict": "not-applicable", "dropped_regions": [], "failed_observations": []}
+    if hd_master_delivery and args.tile_plan is None:
+        budget = {
+            "verdict": "fail",
+            "reason": "missing_tile_plan",
+            "dropped_regions": [],
+            "failed_observations": [],
+        }
+        reasons.append(
+            "budget: hd-master creative delivery requires --tile-plan from plan_tile_redraw.py; "
+            "the final tiled redraw cannot be certified from geometry alone."
+        )
+    elif detail_required and not hd_master_delivery and args.plan is None:
+        budget = {
+            "verdict": "fail",
+            "reason": "missing_detail_plan",
+            "dropped_regions": [],
+            "failed_observations": [],
+        }
+        reasons.append(
+            "budget: local detail recovery is enabled but --plan was not supplied. "
+            "Run plan_detail_tiles.py and pass its detail-plan.json so Pixel Budget cannot be bypassed."
+        )
+
     if args.plan is not None:
         plan_path = args.plan.expanduser().resolve()
         if not plan_path.is_file():
             raise SystemExit(f"Missing detail plan: {plan_path}")
+        if not plan_path.is_relative_to(job_dir):
+            raise SystemExit(f"Detail plan must live inside the job directory: {plan_path}")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         dropped = plan.get("regions_dropped_for_budget") or []
         feasibility = plan.get("delivery_feasibility") or {}
@@ -197,6 +228,51 @@ def main() -> None:
                     "Deliver at or below delivery_feasibility.max_honest_delivery_width, or switch "
                     "to the tile-redraw chain so the subject is covered by many observed-size tiles."
                 )
+            )
+
+    if args.tile_plan is not None:
+        tile_path = args.tile_plan.expanduser().resolve()
+        if not tile_path.is_file():
+            raise SystemExit(f"Missing tile redraw plan: {tile_path}")
+        if not tile_path.is_relative_to(job_dir):
+            raise SystemExit(f"Tile redraw plan must live inside the job directory: {tile_path}")
+        tile_plan = json.loads(tile_path.read_text(encoding="utf-8"))
+        tiles = tile_plan.get("tiles") or []
+        coverage = tile_plan.get("coverage") or {}
+        weak_tiles = [
+            {
+                "index": item.get("index"),
+                "region_type": item.get("region_type"),
+                "budget_ratio": item.get("budget_ratio"),
+                "threshold": item.get("threshold"),
+            }
+            for item in tiles
+            if not isinstance(item.get("budget_ratio"), (int, float))
+            or not isinstance(item.get("threshold"), (int, float))
+            or item["budget_ratio"] < item["threshold"]
+        ]
+        tile_ok = (
+            tile_plan.get("verdict") == "pass"
+            and bool(tiles)
+            and int(coverage.get("hole_area") or 0) == 0
+            and not weak_tiles
+        )
+        tile_budget = {
+            "verdict": "pass" if tile_ok else "fail",
+            "tile_count": len(tiles),
+            "hole_area": int(coverage.get("hole_area") or 0),
+            "sliver_area": int(coverage.get("sliver_area") or 0),
+            "weak_tiles": weak_tiles,
+            "observed_patch_size": tile_plan.get("observed_patch_size"),
+        }
+        if budget.get("verdict") == "not-applicable":
+            budget = {"verdict": tile_budget["verdict"], "dropped_regions": [], "failed_observations": []}
+        budget["tile_redraw"] = tile_budget
+        if not tile_ok:
+            budget["verdict"] = "fail"
+            reasons.append(
+                "budget: tile redraw evidence failed; require tile-plan verdict=pass, at least one tile, "
+                "hole_area=0, and every tile budget_ratio >= its threshold."
             )
 
     diff = None
