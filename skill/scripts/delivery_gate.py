@@ -313,6 +313,7 @@ def main() -> None:
                 accepted_tile_evidence.append({
                     "tile_index": index,
                     "patch_path": valid.get("patch_path"),
+                    "patch_sha256": valid.get("patch_sha256"),
                     "actual_size": valid.get("actual_size"),
                     "detail_ratio": (valid.get("budget_recheck") or {}).get("detail_ratio"),
                 })
@@ -329,6 +330,69 @@ def main() -> None:
             and not failed_tile_evidence
             and not stale_tile_evidence
         )
+
+        accepted_patch_sha = {
+            item["tile_index"]: item.get("patch_sha256")
+            for item in accepted_tile_evidence
+        }
+        plan_receipts = sorted(
+            [
+                item for item in (data.get("tile_blend_receipts") or [])
+                if isinstance(item, dict)
+                and item.get("kind") == "tile-redraw"
+                and item.get("tile_plan_sha256") == tile_plan_sha256
+            ],
+            key=lambda item: item.get("sequence") or 0,
+        )
+
+        def receipt_is_live(receipt: dict) -> bool:
+            if (receipt.get("registration") or {}).get("accepted") is not True:
+                return False
+            index = receipt.get("tile_index")
+            if accepted_patch_sha.get(index) != receipt.get("patch_sha256"):
+                return False
+            output_path = Path(str(receipt.get("output_path") or "")).expanduser().resolve()
+            if not output_path.is_file() or not output_path.is_relative_to(job_dir):
+                return False
+            if sha256_file(output_path) != receipt.get("output_sha256"):
+                return False
+            return True
+
+        live_receipts = [item for item in plan_receipts if receipt_is_live(item)]
+        blend_sequence = tile_plan.get("blend_sequence") or []
+
+        def find_receipt_chain(position: int, after_sequence: int, previous_output_sha: str | None):
+            if position >= len(blend_sequence):
+                return []
+            wanted = blend_sequence[position]
+            for receipt in live_receipts:
+                sequence = receipt.get("sequence") or 0
+                if sequence <= after_sequence or receipt.get("tile_index") != wanted:
+                    continue
+                if previous_output_sha is not None and receipt.get("input_base_sha256") != previous_output_sha:
+                    continue
+                tail = find_receipt_chain(position + 1, sequence, receipt.get("output_sha256"))
+                if tail is not None:
+                    return [receipt] + tail
+            return None
+
+        blend_chain = find_receipt_chain(0, 0, None) if blend_sequence else None
+        blend_chain_ok = (
+            blend_chain is not None
+            and len(blend_chain) == len(blend_sequence)
+            and bool(blend_chain)
+            and blend_chain[-1].get("output_sha256") == master["sha256"]
+        )
+        blend_evidence = {
+            "receipt_count": len(plan_receipts),
+            "live_receipt_count": len(live_receipts),
+            "chain_length": len(blend_chain or []),
+            "expected_chain_length": len(blend_sequence),
+            "chain_tile_indices": [item.get("tile_index") for item in (blend_chain or [])],
+            "final_output_matches_master": bool(blend_chain) and blend_chain[-1].get("output_sha256") == master["sha256"],
+            "accepted": blend_chain_ok,
+        }
+
         tile_ok = (
             tile_plan.get("verdict") == "pass"
             and tile_canvas_matches
@@ -337,6 +401,7 @@ def main() -> None:
             and int(coverage.get("hole_area") or 0) == 0
             and not weak_tiles
             and tile_evidence_ok
+            and blend_chain_ok
         )
         tile_budget = {
             "verdict": "pass" if tile_ok else "fail",
@@ -354,6 +419,7 @@ def main() -> None:
             "missing_tile_evidence": missing_tile_evidence,
             "failed_tile_evidence": failed_tile_evidence,
             "stale_tile_evidence": stale_tile_evidence,
+            "blend_evidence": blend_evidence,
         }
         if budget.get("verdict") == "not-applicable":
             budget = {"verdict": tile_budget["verdict"], "dropped_regions": [], "failed_observations": []}
@@ -363,8 +429,9 @@ def main() -> None:
             reasons.append(
                 "budget: tile redraw evidence failed; require tile-plan verdict=pass, tile-plan canvas "
                 "equal to the delivered file, a consistent tile index/blend sequence, hole_area=0, "
-                "every planned tile budget_ratio >= its threshold, and one still-present accepted "
-                "record_patch_observation.py result for every tile generated from this exact plan."
+                "every planned tile budget_ratio >= its threshold, one still-present accepted "
+                "record_patch_observation.py result per tile, and an ordered register_blend.py hash-chain "
+                "whose final output hash equals the delivery master."
             )
 
     # Mandatory evidence remains mandatory even when another optional plan was
