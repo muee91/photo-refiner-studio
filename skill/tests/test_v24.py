@@ -849,6 +849,65 @@ class ApprovalBindingTests(unittest.TestCase):
         self.assertEqual(report["diff"]["compared_at_size"], list(REAL_WORKING_CANVAS))
 
 
+class HdCreativeContractTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.source = self.root / "source.jpg"
+        Image.new("RGB", (1200, 1800), (90, 120, 150)).save(self.source, quality=95)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_hd_master_has_stage_authorities_and_does_not_run_whole_image_upscale(self):
+        result = subprocess.run(
+            [
+                sys.executable, str(SCRIPTS / "init_job.py"), str(self.source),
+                "--preset", "warm-gold-ancient",
+                "--creative-recipe", "s001-abstract-quartet",
+                "--creative-assembly-mode", "direct-effect",
+                "--creative-hd-chain",
+                "--confirmed",
+                "--output-root", str(self.root / "jobs"),
+            ],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        job = json.loads(Path(result.stdout.strip().splitlines()[-1]).joinpath("job.json").read_text(encoding="utf-8"))
+        self.assertEqual(job["creative_output"]["upstream_binding"], "hd-master")
+        self.assertFalse(job["creative_output"]["upscale"]["enabled"])
+        self.assertEqual(job["detail"]["mode"], "adaptive")
+        self.assertIn("stage_1_refinement", job["authority_model"])
+        self.assertIn("stage_2_creative", job["authority_model"])
+        self.assertIn("stage_3_tile_redraw", job["authority_model"])
+
+
+class UltraSharpIntegrityTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        sys.path.insert(0, str(SCRIPTS))
+        import upscale_image
+        self.upscale_image = upscale_image
+        self.original_model_path = upscale_image.MODEL_PATH
+
+    def tearDown(self):
+        self.upscale_image.MODEL_PATH = self.original_model_path
+        sys.path.pop(0)
+        self._tmp.cleanup()
+
+    def test_model_digest_is_repository_pinned(self):
+        self.assertEqual(
+            self.upscale_image.MODEL_EXPECTED_SHA256,
+            "a5812231fc936b42af08a5edba784195495d303d5b3248c24489ef0c4021fe01",
+        )
+
+    def test_untrusted_cached_pickle_is_rejected_even_without_a_sidecar(self):
+        fake = Path(self._tmp.name) / "4x-UltraSharp.pth"
+        fake.write_bytes(b"not the pinned model")
+        self.upscale_image.MODEL_PATH = fake
+        self.assertFalse(self.upscale_image.cached_model_matches_digest())
+
+
 class VersionConsistencyTests(unittest.TestCase):
     """The version was restated in five places and had drifted (docs said v2.3
     while the code wrote 2.4), so the constants and the prose are now pinned."""
