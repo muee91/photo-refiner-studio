@@ -251,10 +251,19 @@ def main() -> None:
         if not tile_path.is_relative_to(job_dir):
             raise SystemExit(f"Tile redraw plan must live inside the job directory: {tile_path}")
         tile_plan = json.loads(tile_path.read_text(encoding="utf-8"))
+        tile_plan_sha256 = sha256_file(tile_path)
         tiles = tile_plan.get("tiles") or []
         coverage = tile_plan.get("coverage") or {}
         tile_canvas = tile_plan.get("canvas")
         tile_canvas_matches = tile_canvas == final["size"]
+        expected_indices = [item.get("index") for item in tiles]
+        index_contract_ok = (
+            all(isinstance(index, int) and index >= 0 for index in expected_indices)
+            and len(set(expected_indices)) == len(expected_indices)
+            and tile_plan.get("tile_count") == len(tiles)
+            and set(tile_plan.get("blend_sequence") or []) == set(expected_indices)
+            and len(tile_plan.get("blend_sequence") or []) == len(expected_indices)
+        )
         weak_tiles = [
             {
                 "index": item.get("index"),
@@ -267,23 +276,84 @@ def main() -> None:
             or not isinstance(item.get("threshold"), (int, float))
             or item["budget_ratio"] < item["threshold"]
         ]
+        observations = [
+            item for item in (data.get("patch_observations") or [])
+            if isinstance(item, dict)
+            and item.get("evidence_kind") == "tile-redraw"
+            and item.get("evidence_plan_sha256") == tile_plan_sha256
+        ]
+        evidence_by_index: dict[int, list[dict]] = {}
+        for item in observations:
+            index = item.get("tile_index")
+            if isinstance(index, int):
+                evidence_by_index.setdefault(index, []).append(item)
+
+        missing_tile_evidence = []
+        failed_tile_evidence = []
+        stale_tile_evidence = []
+        accepted_tile_evidence = []
+        for tile in tiles:
+            index = tile.get("index")
+            candidates = evidence_by_index.get(index, [])
+            accepted_candidates = [
+                item for item in candidates
+                if (item.get("budget_recheck") or {}).get("accepted") is True
+            ]
+            valid = None
+            for item in sorted(accepted_candidates, key=lambda value: value.get("sequence") or 0, reverse=True):
+                patch_path = Path(str(item.get("patch_path") or "")).expanduser().resolve()
+                if not patch_path.is_file() or not patch_path.is_relative_to(job_dir):
+                    continue
+                measured = measure(patch_path)
+                if measured["sha256"] != item.get("patch_sha256") or measured["size"] != item.get("actual_size"):
+                    continue
+                valid = item
+                break
+            if valid is not None:
+                accepted_tile_evidence.append({
+                    "tile_index": index,
+                    "patch_path": valid.get("patch_path"),
+                    "actual_size": valid.get("actual_size"),
+                    "detail_ratio": (valid.get("budget_recheck") or {}).get("detail_ratio"),
+                })
+            elif not candidates:
+                missing_tile_evidence.append(index)
+            elif not accepted_candidates:
+                failed_tile_evidence.append(index)
+            else:
+                stale_tile_evidence.append(index)
+
+        tile_evidence_ok = (
+            len(accepted_tile_evidence) == len(tiles)
+            and not missing_tile_evidence
+            and not failed_tile_evidence
+            and not stale_tile_evidence
+        )
         tile_ok = (
             tile_plan.get("verdict") == "pass"
             and tile_canvas_matches
+            and index_contract_ok
             and bool(tiles)
             and int(coverage.get("hole_area") or 0) == 0
             and not weak_tiles
+            and tile_evidence_ok
         )
         tile_budget = {
             "verdict": "pass" if tile_ok else "fail",
+            "plan_sha256": tile_plan_sha256,
             "canvas": tile_canvas,
             "final_canvas": final["size"],
             "canvas_matches": tile_canvas_matches,
+            "index_contract_ok": index_contract_ok,
             "tile_count": len(tiles),
             "hole_area": int(coverage.get("hole_area") or 0),
             "sliver_area": int(coverage.get("sliver_area") or 0),
             "weak_tiles": weak_tiles,
             "observed_patch_size": tile_plan.get("observed_patch_size"),
+            "accepted_tile_evidence": accepted_tile_evidence,
+            "missing_tile_evidence": missing_tile_evidence,
+            "failed_tile_evidence": failed_tile_evidence,
+            "stale_tile_evidence": stale_tile_evidence,
         }
         if budget.get("verdict") == "not-applicable":
             budget = {"verdict": tile_budget["verdict"], "dropped_regions": [], "failed_observations": []}
@@ -292,8 +362,9 @@ def main() -> None:
             budget["verdict"] = "fail"
             reasons.append(
                 "budget: tile redraw evidence failed; require tile-plan verdict=pass, tile-plan canvas "
-                "equal to the delivered file, at least one tile, hole_area=0, and every tile "
-                "budget_ratio >= its threshold."
+                "equal to the delivered file, a consistent tile index/blend sequence, hole_area=0, "
+                "every planned tile budget_ratio >= its threshold, and one still-present accepted "
+                "record_patch_observation.py result for every tile generated from this exact plan."
             )
 
     # Mandatory evidence remains mandatory even when another optional plan was
