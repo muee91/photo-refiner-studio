@@ -147,20 +147,48 @@ def main() -> None:
     if limit < 1:
         raise SystemExit("--max-upscale cannot be below 1")
 
-    # Geometry is judged from what the user approved, never from an intermediate the
-    # agent may have inflated by interpolation on the way.
+    # Geometry is judged from the actual generation result, never from an
+    # intermediate the agent may already have inflated. Preview-first binds that
+    # through approved_preview. One-click binds it through the automatic HD
+    # preparation record. New jobs are not allowed to skip both evidence paths.
     reference = None
+    reference_source = None
+    reference_evidence_ok = True
     if isinstance(data.get("approved_preview"), dict) and data["approved_preview"].get("size"):
         reference = list(data["approved_preview"]["size"])
+        reference_source = "approved_preview"
+    else:
+        hd_record = data.get("hd_working_canvas")
+        if isinstance(hd_record, dict) and hd_record.get("input_size") and hd_record.get("input"):
+            hd_input = Path(str(hd_record["input"])).expanduser().resolve()
+            if (
+                hd_input.is_file()
+                and hd_input.is_relative_to(job_dir)
+                and sha256_file(hd_input) == hd_record.get("input_sha256")
+            ):
+                measured_hd_input = measure(hd_input)
+                if measured_hd_input["size"] == hd_record.get("input_size"):
+                    reference = list(hd_record["input_size"])
+                    reference_source = "hd_working_canvas_input"
+        policy = data.get("hd_working_canvas_policy") or {}
+        if reference is None and policy.get("mode") == "automatic":
+            reference_evidence_ok = False
     reference = reference or master["size"]
+    reference_source = reference_source or "legacy_master"
     raise_factor, raise_passes = information_raise(data, reference)
     canvas = [round(reference[0] * raise_factor), round(reference[1] * raise_factor)]
     geometry_scale = max(final["size"][0] / canvas[0], final["size"][1] / canvas[1])
-    geometry_ok = geometry_scale <= limit
+    geometry_ok = geometry_scale <= limit and reference_evidence_ok
 
     reasons = []
     information_canvas = list(canvas)
     geometry_reason = (
+        (
+            "geometry: this current-version job has no approved preview and no valid "
+            "prepare_hd_working_canvas.py input record; the original generated bitmap is not bound, "
+            "so delivery geometry cannot be certified. "
+        )
+        if not reference_evidence_ok else
         f"geometry: the delivered file is {geometry_scale:.2f}x larger than the canvas that "
         f"really supports it ({canvas[0]}x{canvas[1]}), so most pixels are interpolated. "
         "Raise the working canvas with scripts/prepare_hd_working_canvas.py. When the target "
@@ -644,7 +672,8 @@ def main() -> None:
         "geometry": {
             "verdict": "pass" if geometry_ok else "fail",
             "reference_size": reference,
-            "reference_source": "approved_preview" if reference != master["size"] else "master",
+            "reference_source": reference_source,
+            "reference_evidence_ok": reference_evidence_ok,
             "master_size": master["size"],
             "upscale_raise_factor": round(raise_factor, 6),
             "information_passes": raise_passes,
