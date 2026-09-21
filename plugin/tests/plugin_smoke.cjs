@@ -279,11 +279,36 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.equal(creativeSubmitted.structuredContent.summary.creativeFromBase, true);
   assert.equal(creativeSubmitted.structuredContent.summary.creativeHdChain, false);
   assert.equal(creativeSubmitted.structuredContent.summary.creativeUpscale, true);
+  assert.match(creativeSubmitted.structuredContent.confirmationHash, /^[0-9a-f]{64}$/);
   const creativeConfirmation = JSON.parse(fs.readFileSync(creativeSubmitted.structuredContent.confirmationPath, "utf8"));
   assert.equal(creativeConfirmation.resolvedCreativeRecipe.sourceCommit, "b71ad7b187d00a72378a15f32181b655907d32a9");
   assert.equal(creativeConfirmation.config.creativeAssemblyMode, "direct-effect");
   assert.equal(creativeConfirmation.config.creativeFromBase, true);
   assert.equal(creativeConfirmation.creativeOutput.mode, "direct-effect");
+  assert.equal(creativeConfirmation.schemaVersion, 4);
+  assert.match(creativeConfirmation.confirmationHash, /^[0-9a-f]{64}$/);
+
+  const invalidHdOneClick = JSON.parse(JSON.stringify(creativeConfig));
+  invalidHdOneClick.creativeFromBase = false;
+  invalidHdOneClick.creativeHdChain = true;
+  invalidHdOneClick.deliveryMode = "one-click";
+  const invalidHdSubmitted = await rpc("tools/call", {
+    name: "submit_photo_refiner_settings",
+    arguments: {userConfirmed: true, config: invalidHdOneClick},
+  });
+  assert.equal(invalidHdSubmitted.isError, true);
+  assert.match(invalidHdSubmitted.structuredContent.error, /preview-first/);
+
+  const validHd = JSON.parse(JSON.stringify(invalidHdOneClick));
+  validHd.deliveryMode = "preview-first";
+  const validHdSubmitted = await rpc("tools/call", {
+    name: "submit_photo_refiner_settings",
+    arguments: {userConfirmed: true, config: validHd},
+  });
+  assert.equal(validHdSubmitted.structuredContent.ok, true);
+  assert.equal(validHdSubmitted.structuredContent.summary.creativeHdChain, true);
+  assert.equal(validHdSubmitted.structuredContent.summary.deliveryMode, "preview-first");
+  assert.match(validHdSubmitted.structuredContent.confirmationHash, /^[0-9a-f]{64}$/);
 
   const originalAssembly = JSON.parse(JSON.stringify(creativeConfig));
   originalAssembly.creativeAssemblyMode = "original-assembly";
