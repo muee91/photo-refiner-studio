@@ -343,9 +343,14 @@ The summary reports requested→actual mappings, actual sizes grouped by normal/
 ## 8A. Adaptive tile planning and generation budgets
 
 Before local generation, plan coarse detail regions with the planner. Always pass
-both canvases plus the patch size this runtime has actually been observed to return
-(from `summarize_patch_observations.py` once a few jobs exist; otherwise the
-generator's documented maximum):
+both canvases plus a patch size this **ChatGPT client runtime has actually returned**.
+Use `summarize_patch_observations.py` when prior jobs exist. On a fresh runtime with
+no observation, do one disposable calibration generation at the intended patch
+aspect/size request, materialize that returned bitmap inside the job, and record it
+with `record_patch_observation.py` **without** `--plan`; its measured
+`actual_size` becomes the bootstrap cap for planning. The calibration image is
+observation-only and must never be blended. Never substitute API documentation,
+planner `recommended_patch_size`, or a remembered platform limit for this value:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
@@ -382,8 +387,9 @@ before any generation and listed in `regions_dropped_for_budget`, while
 `max_native_delivery_scale` reports how large a delivery the kept patches could
 honestly serve. Planning an enlarged delivery without `--observed-patch-size` is
 refused: that omission is exactly how doomed patches get requested, generated,
-"accepted" and then stretched. An empty `regions` list is a valid plan — report the
-limit instead of burning generations.
+"accepted" and then stretched. If no empirical cap exists yet, perform the one-call
+calibration above rather than guessing. An empty `regions` list is a valid plan —
+report the limit instead of burning generations.
 
 Each kept region carries `patch_size_planned`, already fitted to the observed return
 cap at that region's own aspect. Request exactly that size from the generator.
