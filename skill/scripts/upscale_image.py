@@ -129,12 +129,41 @@ def engine_status() -> dict:
 
 
 def run_ncnn(inp: Path, out: Path, scale: int, model_dir: Path, binary: str) -> dict:
-    subprocess.run(
-        [binary, "-i", str(inp), "-o", str(out), "-s", str(scale),
-         "-n", str(model_dir / MODEL_NAME), "-f", "png"],
-        check=True, capture_output=True, timeout=1800,
-    )
-    return {"engine": "4x-ultrasharp-ncnn", "adds_information": True}
+    """Run the 4x model at its native scale; resize only after that when needed.
+
+    A request above 4x may create a larger file, but the extra tail is interpolation
+    and is never counted as model-generated information.
+    """
+    native_scale = 4
+    temp_path = out
+    temp_created = False
+    if scale != native_scale:
+        descriptor, name = tempfile.mkstemp(prefix="ultrasharp-native-", suffix=".png", dir=out.parent)
+        os.close(descriptor)
+        temp_path = Path(name)
+        temp_created = True
+    try:
+        subprocess.run(
+            [binary, "-i", str(inp), "-o", str(temp_path), "-s", str(native_scale),
+             "-n", str(model_dir / MODEL_NAME), "-f", "png"],
+            check=True, capture_output=True, timeout=1800,
+        )
+        if scale != native_scale:
+            with Image.open(temp_path) as image, Image.open(inp) as source:
+                target_size = (source.width * scale, source.height * scale)
+                resized = image.convert("RGB").resize(
+                    target_size,
+                    Image.Resampling.LANCZOS if scale < native_scale else Image.Resampling.BICUBIC,
+                )
+                _save_like(resized, out)
+    finally:
+        if temp_created:
+            temp_path.unlink(missing_ok=True)
+    return {
+        "engine": "4x-ultrasharp-ncnn",
+        "adds_information": True,
+        "native_information_scale": native_scale,
+    }
 
 
 def _run_model(model, device, rgb_hwc, net_scale: int):
@@ -203,6 +232,7 @@ def run_python_engine(inp: Path, out: Path, scale: int) -> dict:
     return {
         "engine": "4x-ultrasharp-spandrel",
         "adds_information": True,
+        "native_information_scale": net_scale,
         "device": str(descriptor.device),
         "architecture": type(descriptor.model).__name__,
     }
@@ -216,7 +246,12 @@ def run_fallback(inp: Path, out: Path, scale: int) -> dict:
         (image.width * scale, image.height * scale), Image.LANCZOS
     )
     _save_like(image, out)
-    return {"engine": "fallback-lanczos", "adds_information": False, "note": FALLBACK_NOTE}
+    return {
+        "engine": "fallback-lanczos",
+        "adds_information": False,
+        "native_information_scale": 1,
+        "note": FALLBACK_NOTE,
+    }
 
 
 def upscale(inp: Path, out: Path, scale: int, engine: str) -> dict:
@@ -325,17 +360,36 @@ def main() -> None:
         from_size = [raw.width, raw.height]
     with Image.open(target) as made:
         to_size = [made.width, made.height]
+    adds_information = bool(result.get("adds_information", True))
+    native_information_scale = int(result.get("native_information_scale") or (4 if adds_information else 1))
+    information_scale = min(max(1, args.scale), native_information_scale) if adds_information else 1
+    information_to = [
+        from_size[0] * information_scale,
+        from_size[1] * information_scale,
+    ]
     result.update({
         "ok": True,
         "output": str(target),
         "scale": args.scale,
         "from": from_size,
         "to": to_size,
-        "adds_information": bool(result.get("adds_information", True)),
+        "adds_information": adds_information,
+        "native_information_scale": native_information_scale,
+        "information_scale": information_scale,
+        "information_to": information_to,
+        "interpolated_tail": (
+            [max(0, to_size[0] - information_to[0]), max(0, to_size[1] - information_to[1])]
+            if adds_information else list(to_size)
+        ),
     })
     if args.job:
         record_upscale_pass(args.job, {
-            key: result[key] for key in ("engine", "adds_information", "from", "to")
+            key: result[key]
+            for key in (
+                "engine", "adds_information", "from", "to",
+                "native_information_scale", "information_scale",
+                "information_to", "interpolated_tail"
+            )
         })
     _print(result)
 
