@@ -1234,9 +1234,26 @@ class RegisterBlendReceiptTests(unittest.TestCase):
             "size": [128, 128],
             "sha256": hashlib.sha256(approved.read_bytes()).hexdigest(),
         }
+        base_hash = hashlib.sha256(self.base.read_bytes()).hexdigest()
+        data["hd_working_canvas_policy"] = {"mode": "automatic"}
+        data["hd_working_canvas"] = {
+            "input": str(approved.resolve()),
+            "input_size": [128, 128],
+            "input_sha256": hashlib.sha256(approved.read_bytes()).hexdigest(),
+            "output": str(self.base.resolve()),
+            "output_size": [512, 512],
+            "output_sha256": base_hash,
+            "delivery_canvas": [512, 512],
+            "route": "full-canvas-tile-redraw",
+        }
         data["patch_observations"] = []
         data["tile_blend_receipts"] = []
         self.job.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+        plan_data = json.loads(full_plan.read_text(encoding="utf-8"))
+        plan_data["canvas_path"] = str(self.base.resolve())
+        plan_data["canvas_sha256"] = base_hash
+        full_plan.write_text(json.dumps(plan_data, indent=2), encoding="utf-8")
 
         observed = self.invoke(
             "record_patch_observation.py", self.job,
@@ -1327,6 +1344,26 @@ class HdWorkingCanvasRoutingTests(unittest.TestCase):
 
     def tearDown(self):
         sys.path.pop(0)
+
+    def test_creative_upscale_toggle_controls_direct_creative_router(self):
+        self.assertFalse(self.router.ultrasharp_allowed({
+            "creative_output": {
+                "upstream_binding": "direction-only",
+                "upscale": {"enabled": False},
+            },
+        }))
+        self.assertTrue(self.router.ultrasharp_allowed({
+            "creative_output": {
+                "upstream_binding": "direction-only",
+                "upscale": {"enabled": True},
+            },
+        }))
+        self.assertTrue(self.router.ultrasharp_allowed({
+            "creative_output": {
+                "upstream_binding": "hd-master",
+                "upscale": {"enabled": False},
+            },
+        }))
 
     def test_native_canvas_does_not_upscale_without_need(self):
         route = self.router.choose_route((2000, 3000), (2048, 3072), True)
