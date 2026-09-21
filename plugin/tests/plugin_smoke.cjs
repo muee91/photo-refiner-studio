@@ -288,6 +288,32 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.equal(creativeConfirmation.schemaVersion, 4);
   assert.match(creativeConfirmation.confirmationHash, /^[0-9a-f]{64}$/);
 
+  // Cross-layer contract: a real Studio confirmation (including uiMode=pro and
+  // the canonical confirmationHash) must be accepted unchanged by init_job.py.
+  const python = process.env.PYTHON || "python3";
+  const smokeSource = path.join(smokeHome, "source.jpg");
+  const makeSource = childProcess.spawnSync(
+    python,
+    ["-c", "from PIL import Image; import sys; Image.new('RGB',(1200,1800),(90,120,150)).save(sys.argv[1], quality=95)", smokeSource],
+    {encoding: "utf8"},
+  );
+  assert.equal(makeSource.status, 0, makeSource.stdout + makeSource.stderr);
+  const initResult = childProcess.spawnSync(
+    python,
+    [
+      path.resolve(ROOT, "..", "skill", "scripts", "init_job.py"),
+      smokeSource,
+      "--confirmation-file", creativeSubmitted.structuredContent.confirmationPath,
+      "--output-root", path.join(smokeHome, "jobs"),
+    ],
+    {encoding: "utf8", env: {...process.env, HOME: smokeHome}},
+  );
+  assert.equal(initResult.status, 0, initResult.stdout + initResult.stderr);
+  const crossJobDir = initResult.stdout.trim().split(/\r?\n/).at(-1);
+  const crossJob = JSON.parse(fs.readFileSync(path.join(crossJobDir, "job.json"), "utf8"));
+  assert.equal(crossJob.ui_mode, "pro");
+  assert.equal(crossJob.creative_output.upstream_binding, "look-master");
+
   const invalidHdOneClick = JSON.parse(JSON.stringify(creativeConfig));
   invalidHdOneClick.creativeFromBase = false;
   invalidHdOneClick.creativeHdChain = true;
