@@ -479,12 +479,29 @@ class DeliveryGateTests(unittest.TestCase):
             "verdict": "pass",
             "canvas": list(REAL_DELIVERY_CANVAS),
             "observed_patch_size": [1254, 1254],
+            "tile_count": 1,
+            "blend_sequence": [0],
             "coverage": {"hole_area": 0, "sliver_area": 0},
             "tiles": [{
-                "index": 0, "region_type": "face",
-                "budget_ratio": 0.86, "threshold": 0.85,
+                "index": 0, "region_type": "face", "region_role": "face",
+                "box": {"x": 100, "y": 100, "width": 1000, "height": 1000},
+                "requested_size": [900, 900],
+                "budget_ratio": 0.90, "threshold": 0.85,
             }],
         }), encoding="utf-8")
+        tile_patch = job_dir / "intermediates" / "tiles" / "tile-0.png"
+        tile_patch.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (900, 900), (120, 100, 90)).save(tile_patch)
+        observation = self.run_script(
+            "record_patch_observation.py", job_path,
+            "--patch", tile_patch,
+            "--region-type", "face",
+            "--region-role", "face",
+            "--requested-size", "900x900",
+            "--tile-plan", tile_plan,
+            "--tile-index", 0,
+        )
+        self.assertTrue(json.loads(observation.stdout)["budget_recheck"]["accepted"])
         gate = self.run_script(
             "delivery_gate.py", job_path, "--master", master, "--final", final,
             "--tile-plan", tile_plan,
@@ -492,6 +509,40 @@ class DeliveryGateTests(unittest.TestCase):
         report = json.loads(gate.stdout)
         self.assertEqual(report["verdict"], "pass")
         self.assertEqual(report["budget"]["tile_redraw"]["verdict"], "pass")
+
+    def test_hd_master_tile_plan_without_generated_tile_evidence_is_rejected(self):
+        job_dir = self.start_job()
+        master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).save(final, quality=95)
+        job_path = job_dir / "job.json"
+        data = json.loads(job_path.read_text(encoding="utf-8"))
+        data["detail"]["mode"] = "adaptive"
+        data["creative_output"] = {"upstream_binding": "hd-master"}
+        job_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tile_plan = job_dir / "tile-plan-no-execution.json"
+        tile_plan.write_text(json.dumps({
+            "verdict": "pass",
+            "canvas": list(REAL_DELIVERY_CANVAS),
+            "observed_patch_size": [1254, 1254],
+            "tile_count": 1,
+            "blend_sequence": [0],
+            "coverage": {"hole_area": 0, "sliver_area": 0},
+            "tiles": [{
+                "index": 0, "region_type": "face", "region_role": "face",
+                "box": {"x": 100, "y": 100, "width": 1000, "height": 1000},
+                "requested_size": [900, 900],
+                "budget_ratio": 0.90, "threshold": 0.85,
+            }],
+        }), encoding="utf-8")
+        gate = self.run_script(
+            "delivery_gate.py", job_path, "--master", master, "--final", final,
+            "--tile-plan", tile_plan, ok=False,
+        )
+        self.assertEqual(gate.returncode, 3, gate.stdout + gate.stderr)
+        report = json.loads(gate.stdout)
+        self.assertEqual(report["budget"]["tile_redraw"]["missing_tile_evidence"], [0])
+        self.assertIn("record_patch_observation", report["required_action"])
 
     def test_hd_master_tile_plan_canvas_must_match_final(self):
         job_dir = self.start_job()
@@ -508,9 +559,13 @@ class DeliveryGateTests(unittest.TestCase):
             "verdict": "pass",
             "canvas": list(REAL_WORKING_CANVAS),
             "observed_patch_size": [1254, 1254],
+            "tile_count": 1,
+            "blend_sequence": [0],
             "coverage": {"hole_area": 0, "sliver_area": 0},
             "tiles": [{
-                "index": 0, "region_type": "face",
+                "index": 0, "region_type": "face", "region_role": "face",
+                "box": {"x": 100, "y": 100, "width": 1000, "height": 1000},
+                "requested_size": [900, 900],
                 "budget_ratio": 0.90, "threshold": 0.85,
             }],
         }), encoding="utf-8")
