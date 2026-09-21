@@ -566,6 +566,21 @@ def main() -> None:
             "separate_job_folder": True,
             "keep_intermediates": args.keep_intermediates,
         },
+        "hd_working_canvas_policy": {
+            "mode": "automatic",
+            "script": "scripts/prepare_hd_working_canvas.py",
+            "model_native_information_scale": 4,
+            "max_interpolation_tail": MAX_HONEST_UPSCALE,
+            "routes": ["native-detail", "ultrasharp-detail", "full-canvas-tile-redraw"],
+            "note": (
+                "After the exact LOOK MASTER / CREATIVE LOOK MASTER is approved, resolve the real delivery canvas. "
+                "If the approved bitmap cannot honestly support it, first raise the working canvas with the "
+                "information-adding 4X model when available. If delivery still exceeds the model-native information "
+                "span, or no AI upscaler is installed, use a gap-free full-canvas tile redraw with sliver_margin=0. "
+                "Never treat Lanczos or a >4x interpolation tail as recovered information."
+            ),
+        },
+        "upscale_passes": [],
         "patch_observation": {
             "enabled": detail_manifest.get("mode") != "not-applicable",
             "recorder": "scripts/record_patch_observation.py",
