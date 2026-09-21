@@ -642,10 +642,24 @@ def main() -> None:
             or hd_master_delivery
             or "detail_plan" in provenance_sources
         )
+        prepared_canvas_matches = True
+        hd_record_for_tiles = data.get("hd_working_canvas")
+        if (
+            full_canvas_plan
+            and not hd_master_delivery
+            and (data.get("hd_working_canvas_policy") or {}).get("mode") == "automatic"
+        ):
+            prepared_canvas_matches = (
+                isinstance(hd_record_for_tiles, dict)
+                and bool(hd_record_for_tiles.get("output_sha256"))
+                and tile_canvas_sha256 == hd_record_for_tiles.get("output_sha256")
+                and tile_canvas == hd_record_for_tiles.get("output_size")
+            )
         full_canvas_native_ok = (
             tile_ok
             and full_canvas_plan
             and full_canvas_detail_context_ok
+            and prepared_canvas_matches
             and int(coverage.get("sliver_area") or 0) == 0
             and int(coverage.get("hole_area") or 0) == 0
             and tile_canvas_matches
@@ -663,6 +677,7 @@ def main() -> None:
             "canvas_source_ok": tile_canvas_source_ok,
             "full_canvas_plan": full_canvas_plan,
             "full_canvas_detail_context_ok": full_canvas_detail_context_ok,
+            "prepared_hd_canvas_matches": prepared_canvas_matches,
             "full_canvas_native_ok": full_canvas_native_ok,
             "index_contract_ok": index_contract_ok,
             "tile_count": len(tiles),
