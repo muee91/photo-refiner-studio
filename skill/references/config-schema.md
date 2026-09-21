@@ -184,8 +184,11 @@ image they approve as an `--artifact`, which is what makes the geometry verdict
 meaningful: it compares the delivery against the picture the user actually saw.
 Budget evidence is also mandatory: recovery-enabled ordinary / creative-safe jobs
 must gate with `--plan <detail-plan.json>`; an `hd-master` final tiled redraw must
-gate with `--tile-plan <tile-plan.json>`. Omitting the relevant plan is a hard
-delivery failure rather than `not-applicable`.
+gate with `--tile-plan <tile-plan.json>`. The supplied plan canvas must equal the
+actual delivered canvas. For hd-master, every planned tile must also have a live
+`tile-redraw` patch observation bound to that exact tile-plan SHA256 and an ordered
+`register_blend.py` receipt chain ending at the delivery master's SHA256. A plan
+without execution evidence is a hard delivery failure rather than `not-applicable`.
 
 ## Tile redraw plan (tile-plan.json)
 
