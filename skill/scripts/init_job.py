@@ -137,10 +137,11 @@ def load_confirmation(path_value: Path) -> dict:
         raise SystemExit("Confirmation prompt hash mismatch")
     if not isinstance(record.get("config"), dict):
         raise SystemExit("Confirmation is missing its config")
-    if int(record.get("schemaVersion") or 0) >= 4 or record.get("confirmationHash"):
-        expected_confirmation_hash = canonical_json_sha256(confirmation_hash_payload(record))
-        if record.get("confirmationHash") != expected_confirmation_hash:
-            raise SystemExit("Confirmation settings hash mismatch")
+    if record.get("schemaVersion") != 4:
+        raise SystemExit("Unsupported Photo Refiner confirmation schema; reopen Studio and confirm the current settings")
+    expected_confirmation_hash = canonical_json_sha256(confirmation_hash_payload(record))
+    if record.get("confirmationHash") != expected_confirmation_hash:
+        raise SystemExit("Confirmation settings hash mismatch")
     record["confirmationPath"] = str(confirmation_path)
     return record
 
