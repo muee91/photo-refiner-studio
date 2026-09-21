@@ -501,7 +501,22 @@ class DeliveryGateTests(unittest.TestCase):
             "--tile-plan", tile_plan,
             "--tile-index", 0,
         )
-        self.assertTrue(json.loads(observation.stdout)["budget_recheck"]["accepted"])
+        observed = json.loads(observation.stdout)
+        self.assertTrue(observed["budget_recheck"]["accepted"])
+        data = json.loads(job_path.read_text(encoding="utf-8"))
+        data["tile_blend_receipts"] = [{
+            "schema_version": 1,
+            "sequence": 1,
+            "kind": "tile-redraw",
+            "tile_plan_sha256": hashlib.sha256(tile_plan.read_bytes()).hexdigest(),
+            "tile_index": 0,
+            "patch_sha256": observed["patch_sha256"],
+            "input_base_sha256": "fixture-first-base",
+            "output_path": str(master.resolve()),
+            "output_sha256": hashlib.sha256(master.read_bytes()).hexdigest(),
+            "registration": {"accepted": True},
+        }]
+        job_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         gate = self.run_script(
             "delivery_gate.py", job_path, "--master", master, "--final", final,
             "--tile-plan", tile_plan,
@@ -966,6 +981,103 @@ class HdCreativeContractTests(unittest.TestCase):
         self.assertIn("stage_1_refinement", job["authority_model"])
         self.assertIn("stage_2_creative", job["authority_model"])
         self.assertIn("stage_3_tile_redraw", job["authority_model"])
+
+
+class RegisterBlendReceiptTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.job = self.root / "job.json"
+        self.tile_plan = self.root / "tile-plan.json"
+
+        rng = __import__("numpy").random.default_rng(12345)
+        base_array = rng.integers(0, 256, size=(512, 512, 3), dtype="uint8")
+        self.base = self.root / "base.png"
+        Image.fromarray(base_array, "RGB").save(self.base)
+        self.target = self.root / "target.png"
+        Image.fromarray(base_array[128:384, 128:384], "RGB").save(self.target)
+        self.patch = self.root / "tile.png"
+        Image.open(self.target).save(self.patch)
+        self.output = self.root / "composite.png"
+
+        self.tile_plan.write_text(json.dumps({
+            "verdict": "pass",
+            "canvas": [512, 512],
+            "observed_patch_size": [256, 256],
+            "tile_count": 1,
+            "blend_sequence": [0],
+            "coverage": {"hole_area": 0, "sliver_area": 0},
+            "tiles": [{
+                "index": 0,
+                "region_type": "face",
+                "region_role": "face",
+                "box": {"x": 128, "y": 128, "width": 256, "height": 256},
+                "requested_size": [256, 256],
+                "budget_ratio": 1.0,
+                "threshold": 0.85,
+            }],
+        }), encoding="utf-8")
+        self.job.write_text(json.dumps({
+            "execution_mode": "creative-translation",
+            "detail": {"mode": "adaptive"},
+            "creative_output": {"upstream_binding": "hd-master"},
+            "patch_observations": [],
+            "artifacts": [],
+        }), encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def invoke(self, script, *args, ok=True):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / script), *[str(a) for a in args]],
+            capture_output=True, text=True,
+        )
+        if ok:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def test_register_blend_records_a_live_tile_hash_chain_receipt(self):
+        observed = self.invoke(
+            "record_patch_observation.py", self.job,
+            "--patch", self.patch,
+            "--region-type", "face",
+            "--region-role", "face",
+            "--requested-size", "256x256",
+            "--tile-plan", self.tile_plan,
+            "--tile-index", 0,
+        )
+        self.assertTrue(json.loads(observed.stdout)["budget_recheck"]["accepted"])
+
+        blended = self.invoke(
+            "register_blend.py",
+            "--base", self.base,
+            "--target", self.target,
+            "--patch", self.patch,
+            "--output", self.output,
+            "--x", 128,
+            "--y", 128,
+            "--region-type", "face",
+            "--min-inliers", 20,
+            "--job", self.job,
+            "--tile-plan", self.tile_plan,
+            "--tile-index", 0,
+        )
+        report = json.loads(blended.stdout)
+        self.assertTrue(report["accepted"])
+        receipt = report["tile_blend_receipt"]
+        self.assertEqual(receipt["tile_index"], 0)
+        self.assertEqual(receipt["output_sha256"], hashlib.sha256(self.output.read_bytes()).hexdigest())
+
+        gate = self.invoke(
+            "delivery_gate.py", self.job,
+            "--master", self.output,
+            "--final", self.output,
+            "--tile-plan", self.tile_plan,
+        )
+        gate_report = json.loads(gate.stdout)
+        self.assertEqual(gate_report["verdict"], "pass")
+        self.assertTrue(gate_report["budget"]["tile_redraw"]["blend_evidence"]["accepted"])
 
 
 class UltraSharpIntegrityTests(unittest.TestCase):
