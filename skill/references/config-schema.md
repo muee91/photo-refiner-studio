@@ -115,7 +115,7 @@ Interactive runs must show the resolved values before writing `job.json` or gene
 
 The selected preset is a **subject-aware recommendation**, not a global fixed style. `references/presets.yaml` provides `default_strength` for the starting slider value. The numeric slider remains useful for UI and audit, but `build_edit_prompt.py` converts it to the semantic execution levels `minimal`, `subtle`, `visible`, `strong`, or `transformative` before generation.
 
-For a single image, `preview-first` generates and shows the Image 2.5 base effect image, then stops. After explicit approval it becomes LOOK MASTER. Continue to localized recovery only after approval recorded in `base_preview.approved`. `one-click` proceeds directly through the quality-gated path. Batches use the approved master frame as the corresponding style checkpoint.
+For a single image, `preview-first` generates and shows the Image 2.5 base effect image, then stops. After explicit approval it becomes LOOK MASTER. Continue to localized recovery only after approval recorded in `base_preview.approved`. `one-click` proceeds directly through the quality-gated path for ordinary jobs. `hd-master` creative chains require `preview-first` and reject one-click because the HD master and creative draft are both explicit checkpoints. Batches use the approved master frame as the corresponding style checkpoint.
 
 Pass `--confirmed` only after confirmation. Named presets must exist in `presets.yaml`; `custom` requires a non-empty custom prompt. When a non-original aspect ratio is selected, framing must be `crop`, `outpaint`, or `contain`.
 
@@ -182,6 +182,10 @@ detail_plan:                      # plan_detail_tiles.py reports the same contra
 ran makes the verdict stale and blocks `completed`. Approval flags now require the
 image they approve as an `--artifact`, which is what makes the geometry verdict
 meaningful: it compares the delivery against the picture the user actually saw.
+Budget evidence is also mandatory: recovery-enabled ordinary / creative-safe jobs
+must gate with `--plan <detail-plan.json>`; an `hd-master` final tiled redraw must
+gate with `--tile-plan <tile-plan.json>`. Omitting the relevant plan is a hard
+delivery failure rather than `not-applicable`.
 
 ## Tile redraw plan (tile-plan.json)
 
