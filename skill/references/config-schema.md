@@ -50,6 +50,14 @@ aspect_ratio: original           # original | 16:9 | 3:2 | 4:5 | 9:16 | custom
 framing: preserve               # preserve | crop | outpaint | contain
 resolution: source-width        # 4k | source-width | WIDTHxHEIGHT (preview remains accepted for legacy jobs only)
 delivery_mode: preview-first    # preview-first | one-click
+hd_working_canvas_policy:
+  mode: automatic
+  script: scripts/prepare_hd_working_canvas.py
+  model_native_information_scale: 4
+  max_interpolation_tail: 1.05
+  routes: [native-detail, ultrasharp-detail, full-canvas-tile-redraw]
+hd_working_canvas: null          # written by prepare_hd_working_canvas.py
+upscale_passes: []               # trusted scale comes from information_to, not file size alone
 base_preview:
   required: true                 # single preview-first or any preview-first creative translation
   approved: false                # when true, accepted base becomes LOOK MASTER
@@ -137,8 +145,24 @@ approved_preview:                 # written by --approve-base-preview / --approv
   path: .../approved-preview.png
   size: [1024, 1536]
   sha256: ...                     # an approval without an --artifact is refused
-upscale_passes:                   # appended by upscale_image.py --job; the gate trusts only these
-  - {engine: 4x-ultrasharp-ncnn, adds_information: true, from: [1024, 1536], to: [4096, 6144]}
+hd_working_canvas:                # written for preview-first and one-click jobs
+  input: .../look-master.png
+  input_size: [1024, 1536]
+  input_sha256: ...
+  delivery_canvas: [4672, 7008]
+  route: full-canvas-tile-redraw  # native-detail | ultrasharp-detail | full-canvas-tile-redraw
+  output: .../hd-working.png
+  output_size: [4672, 7008]
+  output_sha256: ...
+  requires_full_canvas_redraw: true
+upscale_passes:                   # appended by upscale_image.py --job
+  - engine: 4x-ultrasharp-ncnn
+    adds_information: true
+    from: [1024, 1536]
+    to: [6144, 9216]              # compatibility file size may exceed native model scale
+    native_information_scale: 4
+    information_to: [4096, 6144]  # only this boundary raises delivery geometry
+    interpolated_tail: [2048, 3072]
 delivery_gate:                    # written by delivery_gate.py; mandatory before status completed
   verdict: pass                   # pass | fail  (geometry AND budget must both pass)
   master: {path: ..., size: [...], sha256: ...}
@@ -146,9 +170,13 @@ delivery_gate:                    # written by delivery_gate.py; mandatory befor
   delivery_scale: 1.14
   geometry:
     verdict: pass
-    reference_size: [4096, 6144]  # approved_preview raised by information-adding passes only
-    reference_source: approved_preview
+    reference_size: [1024, 1536]
+    reference_source: approved_preview   # or hd_working_canvas_input for one-click
+    reference_evidence_ok: true
     upscale_raise_factor: 4.0
+    information_canvas: [4096, 6144]
+    effective_canvas: [4096, 6144]
+    geometry_override: null              # full-canvas-tile-redraw when every final area was redrawn
     effective_scale: 1.14
     max_honest_upscale: 1.05
   budget:
@@ -182,16 +210,30 @@ detail_plan:                      # plan_detail_tiles.py reports the same contra
 ran makes the verdict stale and blocks `completed`. Approval flags now require the
 image they approve as an `--artifact`, which is what makes the geometry verdict
 meaningful: it compares the delivery against the picture the user actually saw.
-Budget evidence is also mandatory: recovery-enabled ordinary / creative-safe jobs
-must gate with `--plan <detail-plan.json>`; an `hd-master` final tiled redraw must
-gate with `--tile-plan <tile-plan.json>`. The supplied plan canvas must equal the
-actual delivered canvas. Every selected ordinary / creative-safe region must have a
-live `detail-patch` observation bound to the exact detail-plan SHA256 plus an ordered
-`register_blend.py` receipt chain ending at the delivery master's SHA256. For
-hd-master, the same invariant applies per tile using `tile-redraw` observations and
-the exact tile-plan SHA256. A feasible plan without generated-and-blended execution
-evidence is a hard delivery failure rather than `not-applicable`. A legitimate
-zero-region detail plan remains valid without patch calls.
+Budget evidence is also mandatory. Every current-version job first runs
+`prepare_hd_working_canvas.py`, which binds the exact generated/approved master and
+selects `native-detail`, `ultrasharp-detail`, or `full-canvas-tile-redraw`.
+Recovery-enabled ordinary / creative-safe jobs normally gate with
+`--plan <detail-plan.json>`. When the router returns
+`full-canvas-tile-redraw`, they instead gate with a `--tile-plan` produced using
+`--full-canvas --sliver-margin 0`. An `hd-master` final creative redraw also gates
+with `--tile-plan`.
+
+The supplied plan canvas must equal the actual delivered canvas. Every selected
+ordinary / creative-safe region must have a live `detail-patch` observation bound
+to the exact detail-plan SHA256 plus an ordered `register_blend.py` receipt chain
+ending at the delivery master's SHA256. Tile routes require the same invariant per
+tile using `tile-redraw` observations and the exact tile-plan SHA256. Only a fully
+executed **full-canvas** tile plan with zero holes and zero delegated slivers may
+replace a global geometry failure. A feasible plan without generated-and-blended
+execution evidence is a hard delivery failure. A legitimate zero-region detail plan
+remains valid without patch calls.
+
+For 4X-UltraSharp, `to` is a file dimension while `information_to` is the trusted
+information boundary. Requests above the model-native 4× span may create a larger
+file, but the excess is `interpolated_tail` and does not raise delivery geometry.
+A later AI pass that begins from that interpolated file cannot chain unless its
+`from` size equals the prior `information_to` canvas.
 
 ## Tile redraw plan (tile-plan.json)
 
