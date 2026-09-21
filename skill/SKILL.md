@@ -206,14 +206,25 @@ The script resolves the real DELIVERY CANVAS from `job.resolution` (`source-widt
 - **`full-canvas-tile-redraw`** — the delivery target exceeds the model's native 4× information span, or no information-adding upscaler is available. The router builds a delivery-size **scaffold only**; that scaffold is not treated as recovered detail. Plan the exact prepared canvas with:
 
 ```bash
+# First create the normal subject-aware detail plan on the delivery-size scaffold.
+python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
+  --image <job-dir>/intermediates/hd-working.png \
+  --vision-analysis <vision-analysis.json> \
+  --delivery-canvas <delivery-WxH> \
+  --observed-patch-size <WxH> \
+  --detail-budget <fast|balanced|max> \
+  --output <job-dir>/detail-plan.json
+
+# Then combine strict subject regions with full-frame coverage.
 python3 "$SKILL_ROOT/scripts/plan_tile_redraw.py" \
   --image <job-dir>/intermediates/hd-working.png \
   --observed-patch-size <WxH> \
+  --detail-plan <job-dir>/detail-plan.json \
   --full-canvas --sliver-margin 0 \
   --output <job-dir>/full-canvas-tile-plan.json
 ```
 
-Then execute **every** tile using the Section 8A.2 observation + audited blend chain and pass that tile plan to `delivery_gate.py --tile-plan`. For this fallback, `sliver_margin=0` is mandatory: no part of the final canvas may be delegated back to an interpolated scaffold. A fully executed full-canvas redraw is allowed to satisfy geometry because every final pixel region is backed by generated tile evidence; a tile plan by itself is never enough.
+Then execute **every** tile using the Section 8A.2 observation + audited blend chain and pass that tile plan to `delivery_gate.py --tile-plan`. For adaptive/face/explicit ordinary or creative-safe recovery, the full-canvas plan must carry `detail_plan` provenance; otherwise a generic full-frame grid could underfeed face/head/hand regions and the delivery gate will refuse to treat it as native HD. For this fallback, `sliver_margin=0` is mandatory: no part of the final canvas may be delegated back to an interpolated scaffold. A fully executed subject-aware full-canvas redraw is allowed to satisfy geometry because every final region is backed by generated tile evidence; a tile plan by itself is never enough.
 
 The 4X model may still be asked to write a 5–8× file for compatibility, but `upscale_image.py` records a separate `information_to` boundary. **Only up to the model-native 4× span counts as information.** Pixels beyond that boundary are recorded in `interpolated_tail`; delivery geometry uses `information_to`, not the larger file dimensions, and a second AI pass starting from an interpolated tail cannot launder that interpolation into new trusted scale.
 
