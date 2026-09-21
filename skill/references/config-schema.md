@@ -185,10 +185,13 @@ meaningful: it compares the delivery against the picture the user actually saw.
 Budget evidence is also mandatory: recovery-enabled ordinary / creative-safe jobs
 must gate with `--plan <detail-plan.json>`; an `hd-master` final tiled redraw must
 gate with `--tile-plan <tile-plan.json>`. The supplied plan canvas must equal the
-actual delivered canvas. For hd-master, every planned tile must also have a live
-`tile-redraw` patch observation bound to that exact tile-plan SHA256 and an ordered
-`register_blend.py` receipt chain ending at the delivery master's SHA256. A plan
-without execution evidence is a hard delivery failure rather than `not-applicable`.
+actual delivered canvas. Every selected ordinary / creative-safe region must have a
+live `detail-patch` observation bound to the exact detail-plan SHA256 plus an ordered
+`register_blend.py` receipt chain ending at the delivery master's SHA256. For
+hd-master, the same invariant applies per tile using `tile-redraw` observations and
+the exact tile-plan SHA256. A feasible plan without generated-and-blended execution
+evidence is a hard delivery failure rather than `not-applicable`. A legitimate
+zero-region detail plan remains valid without patch calls.
 
 ## Tile redraw plan (tile-plan.json)
 
