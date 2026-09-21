@@ -1051,6 +1051,77 @@ class RegisterBlendReceiptTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 
+    def test_detail_plan_requires_real_patch_and_blend_execution(self):
+        detail_plan = self.root / "detail-plan.json"
+        detail_plan.write_text(json.dumps({
+            "working_canvas": [512, 512],
+            "delivery_canvas": [512, 512],
+            "delivery_scale": 1.0,
+            "region_count": 1,
+            "regions_dropped_for_budget": [],
+            "delivery_feasibility": {"verdict": "native"},
+            "regions": [{
+                "region_type": "face",
+                "region_role": "face",
+                "crop": {"x": 128, "y": 128, "width": 256, "height": 256},
+                "subject_box": {"x": 128, "y": 128, "width": 256, "height": 256},
+                "patch_size_planned": [256, 256],
+            }],
+        }), encoding="utf-8")
+        data = json.loads(self.job.read_text(encoding="utf-8"))
+        data["execution_mode"] = "photo-refinement"
+        data["creative_output"] = None
+        self.job.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+        no_execution = self.invoke(
+            "delivery_gate.py", self.job,
+            "--master", self.base,
+            "--final", self.base,
+            "--plan", detail_plan,
+            ok=False,
+        )
+        self.assertEqual(no_execution.returncode, 3, no_execution.stdout + no_execution.stderr)
+        self.assertFalse(json.loads(no_execution.stdout)["budget"]["execution_evidence"]["accepted"])
+
+        observed = self.invoke(
+            "record_patch_observation.py", self.job,
+            "--patch", self.patch,
+            "--region-type", "face",
+            "--region-role", "face",
+            "--requested-size", "256x256",
+            "--plan", detail_plan,
+            "--planner-region-index", 0,
+        )
+        self.assertTrue(json.loads(observed.stdout)["budget_recheck"]["accepted"])
+
+        blended = self.invoke(
+            "register_blend.py",
+            "--base", self.base,
+            "--target", self.target,
+            "--patch", self.patch,
+            "--output", self.output,
+            "--x", 128,
+            "--y", 128,
+            "--region-type", "face",
+            "--min-inliers", 20,
+            "--job", self.job,
+            "--plan", detail_plan,
+            "--planner-region-index", 0,
+        )
+        receipt = json.loads(blended.stdout)["blend_receipt"]
+        self.assertEqual(receipt["kind"], "detail-patch")
+        self.assertEqual(receipt["planner_region_index"], 0)
+
+        gate = self.invoke(
+            "delivery_gate.py", self.job,
+            "--master", self.output,
+            "--final", self.output,
+            "--plan", detail_plan,
+        )
+        gate_report = json.loads(gate.stdout)
+        self.assertEqual(gate_report["verdict"], "pass")
+        self.assertTrue(gate_report["budget"]["execution_evidence"]["accepted"])
+
     def test_register_blend_records_a_live_tile_hash_chain_receipt(self):
         observed = self.invoke(
             "record_patch_observation.py", self.job,
