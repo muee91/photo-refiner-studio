@@ -1,7 +1,7 @@
 {
   "name": "photo-refiner-studio",
-  "version": "1.2.0",
-  "description": "Interactive Photo Refiner settings, deterministic review workflow, and creative translation for ChatGPT and Codex.",
+  "version": "1.3.0",
+  "description": "Interactive Photo Refiner settings, deterministic review workflow, resumable jobs, per-frame batch authority, and creative translation for ChatGPT and Codex.",
   "author": {
     "name": "muee"
   },
@@ -17,7 +17,7 @@
   "interface": {
     "displayName": "Photo Refiner Studio",
     "shortDescription": "Review-first photo refinement",
-    "longDescription": "Refine photographs with a focused Studio while Photo Refiner automatically handles original-resolution source backing, review checkpoints, high-resolution recovery, optional spatial guards, patch evidence, registration, blending, and delivery checks.",
+    "longDescription": "Refine photographs with Studio settings, button-based review checkpoints, resumable job state, per-frame batch authority, source-backed original-resolution recovery, creative translation, and auditable delivery.",
     "developerName": "muee",
     "category": "Creative",
     "capabilities": [
@@ -26,8 +26,8 @@
     ],
     "defaultPrompt": [
       "Open Photo Refiner Studio for these photos",
-      "Retouch this portrait and let me approve the look before final delivery",
-      "Use Photo Refiner to create a recipe-faithful creative version of this photo"
+      "Continue my most recent Photo Refiner job",
+      "Retouch this portrait and let me review it with buttons before final delivery"
     ],
     "brandColor": "#1C8878",
     "composerIcon": "./assets/photo-refiner.svg",
