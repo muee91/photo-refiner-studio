@@ -26,7 +26,16 @@ ASPECT_RATIO_RE = re.compile(r"^[1-9]\d*:[1-9]\d*$")
 RESOLUTION_RE = re.compile(r"^[1-9]\d*x[1-9]\d*$", re.IGNORECASE)
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".heic", ".heif"}
 SKILL_ROOT = Path(__file__).resolve().parents[1]
-CREATIVE_CATALOG_PATH = SKILL_ROOT / "references" / "starryear" / "catalog.json"
+# Creative recipe payloads live in the companion skill in the portable plugin.
+# Keep a core-skill fallback for callers that still run the legacy standalone
+# layout, but prefer the companion catalog whenever it is installed.
+CORE_CREATIVE_CATALOG_PATH = SKILL_ROOT / "references" / "starryear" / "catalog.json"
+COMPANION_CREATIVE_CATALOG_PATH = SKILL_ROOT.parent / "photo-refiner-creative" / "references" / "starryear" / "catalog.json"
+CREATIVE_CATALOG_PATH = (
+    COMPANION_CREATIVE_CATALOG_PATH
+    if COMPANION_CREATIVE_CATALOG_PATH.is_file()
+    else CORE_CREATIVE_CATALOG_PATH
+)
 
 
 def normalize_source_path(value: Path) -> Path:
@@ -229,6 +238,7 @@ def main() -> None:
     parser.add_argument("--aspect-ratio", type=validate_aspect_ratio, default="original")
     parser.add_argument("--framing", choices=["preserve", "crop", "outpaint", "contain"], default="preserve")
     parser.add_argument("--resolution", type=validate_resolution, default="source-width")
+    parser.add_argument("--delivery-mode", choices=["preview-first", "one-click"], default=None, help="Text-only fallback delivery flow; Studio confirmations keep their frozen value")
     parser.add_argument("--output-format", choices=["png", "jpg", "both"], default="png")
     parser.add_argument("--consistency", choices=["strict", "balanced", "creative"], default="balanced")
     parser.add_argument("--master-frame", default="auto")
@@ -292,7 +302,7 @@ def main() -> None:
             resolved_prompt = resolve_prompt(args.preset, args.custom_prompt, args.custom_avoid)
         except (OSError, ValueError, KeyError) as exc:
             raise SystemExit(str(exc)) from exc
-        delivery_mode = "preview-first"
+        delivery_mode = args.delivery_mode or "preview-first"
         ui_mode = "simple"
         args.detail_budget = args.detail_budget or "balanced"
 
