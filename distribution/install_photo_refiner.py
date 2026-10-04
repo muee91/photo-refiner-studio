@@ -92,6 +92,47 @@ def update_marketplace(path: Path, dry_run: bool) -> None:
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def enable_plugin(plugin_id: str, dry_run: bool) -> None:
+    """Register the local plugin with Codex so new app sessions expose its MCP tools."""
+    command = shutil.which("codex")
+    print(f"启用 Codex 插件：codex plugin add {plugin_id}")
+    if dry_run:
+        return
+    if not command:
+        fail("找不到 codex CLI，无法把 Photo Refiner 加入 Codex 工具注册表")
+
+    added = subprocess.run(
+        [command, "plugin", "add", plugin_id, "--json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if added.returncode:
+        detail = (added.stderr or added.stdout).strip()
+        fail(f"Codex 插件启用失败：{detail or f'退出码 {added.returncode}'}")
+
+    listed = subprocess.run(
+        [command, "plugin", "list", "--marketplace", "personal", "--json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if listed.returncode:
+        detail = (listed.stderr or listed.stdout).strip()
+        fail(f"无法验证 Codex 插件状态：{detail or f'退出码 {listed.returncode}'}")
+    try:
+        entries = json.loads(listed.stdout)
+    except json.JSONDecodeError as exc:
+        fail(f"Codex 插件状态不是有效 JSON：{exc}")
+    installed = next(
+        (item for item in entries.get("installed", []) if item.get("pluginId") == plugin_id),
+        None,
+    )
+    if not installed or installed.get("enabled") is not True:
+        fail(f"Codex 插件未处于已安装且启用状态：{plugin_id}")
+    print(f"Codex 插件已启用：{plugin_id} @ {installed.get('version', 'unknown')}")
+
+
 def run_dependency_check(skill_target: Path) -> None:
     checker = skill_target / "scripts" / "check_dependencies.py"
     result = subprocess.run([sys.executable, str(checker)], capture_output=True, text=True, check=False)
@@ -131,6 +172,7 @@ def main() -> int:
     copy_tree(plugin_source, plugin_target, args.dry_run)
     copy_tree(plugin_source, cache_target, args.dry_run)
     update_marketplace(marketplace, args.dry_run)
+    enable_plugin(f"{PLUGIN_NAME}@personal", args.dry_run)
 
     if not args.dry_run and not args.skip_dependency_check:
         run_dependency_check(skill_target)

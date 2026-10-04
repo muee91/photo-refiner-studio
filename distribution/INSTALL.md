@@ -35,8 +35,8 @@ python3 install_photo_refiner.py --dry-run
 2. 安装新版 Skill 到 `~/.codex/skills/photo-refiner/`；
 3. 安装插件源到 `~/plugins/photo-refiner-studio/`；
 4. 写入新版插件缓存并更新 `~/.agents/plugins/marketplace.json`；
-5. 检查 Pillow/ImageCms、NumPy、PyYAML、OpenCV 和 SIFT 支持。
-
+5. 调用 codex plugin add photo-refiner-studio@personal，把插件标记为已安装并启用；
+6. 检查 Pillow/ImageCms、NumPy、PyYAML、OpenCV 和 SIFT 支持。
 旧版不会保留备份，也无法通过安装器恢复。安装结束后完全退出 Codex，再重新打开并新建任务。
 
 ## 手动安装

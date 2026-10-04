@@ -46,6 +46,158 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   });
 }
 
+// ── Widget HTML quality gates ──────────────────────────────────────────────
+// These are the defects an audit found in the shipped panel; each one is now a
+// gate so a future edit cannot reintroduce it silently.
+const WCAG_SRGB = (channel) => {
+  const s = channel / 255;
+  return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+};
+function contrastRatio(rgbA, rgbB) {
+  const lum = ([r, g, b]) => 0.2126 * WCAG_SRGB(r) + 0.7152 * WCAG_SRGB(g) + 0.0722 * WCAG_SRGB(b);
+  const [hi, lo] = [lum(rgbA), lum(rgbB)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+function parseColor(value) {
+  const hex = value.trim().match(/^#([0-9a-f]{6})$/i);
+  if (hex) return [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16));
+  const rgb = value.match(/rgba?\(([^)]+)\)/);
+  if (rgb) {
+    const parts = rgb[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+    return parts.slice(0, 3);
+  }
+  return null;
+}
+function rootTokens(styleBlock) {
+  const declaration = styleBlock.match(/:root\s*\{([^}]*)\}/);
+  if (!declaration) throw new Error("gate: no :root block");
+  const tokens = {};
+  for (const [, name, value] of declaration[1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) tokens[name] = value.trim();
+  return tokens;
+}
+function widgetHtmlInvariants(html) {
+  const styleBlock = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1];
+  assert.ok(styleBlock, "gate: Widget must ship one inline <style> block");
+  const scriptBlock = (html.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/) || [])[1];
+  assert.ok(scriptBlock, "gate: Widget script not found");
+  const tokens = rootTokens(styleBlock);
+  // Collect every violation: a fail-fast gate hides all but the first defect.
+  const problems = [];
+  const need = (condition, message) => {
+    if (!condition) problems.push(message);
+  };
+
+  need(/<title>[^<\s][^<]*<\/title>/.test(html), "Widget needs a non-empty <title> (WCAG 2.4.2)");
+
+  // Every custom property referenced in CSS must be declared in :root. The blue
+  // leftovers from the pre-darkroom theme rendered the lightbox CTA invisible.
+  const undefinedTokens = [...new Set([...styleBlock.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))].filter((name) => !(name in tokens));
+  need(undefinedTokens.length === 0, `CSS references tokens that :root never declares: ${undefinedTokens.join(", ")}`);
+
+  // Contrast floors for the text roles that carry decisions. A missing token is
+  // itself a failure, and must report as one instead of crashing the gate.
+  const colorOf = (name) => {
+    if (!(name in tokens)) {
+      problems.push(`${name} is not declared in :root`);
+      return null;
+    }
+    const parsed = parseColor(tokens[name]);
+    if (!parsed) {
+      problems.push(`${name} is not a plain hex/rgb color, so the gate cannot check it`);
+      return null;
+    }
+    return parsed;
+  };
+  const bg = colorOf("--bg");
+  if (bg) {
+    for (const role of ["--ink", "--muted", "--faint"]) {
+      const fg = colorOf(role);
+      if (!fg) continue;
+      const ratio = contrastRatio(fg, bg);
+      need(ratio >= 4.5, `${role} on --bg is ${ratio.toFixed(2)}:1, needs 4.5:1`);
+    }
+  }
+  const ctaInk = colorOf("--cta-ink");
+  for (const stop of ["--cta-top", "--cta-bottom"]) {
+    const color = colorOf(stop);
+    if (!ctaInk || !color) continue;
+    const ratio = contrastRatio(ctaInk, color);
+    need(ratio >= 4.5, `--cta-ink on ${stop} is ${ratio.toFixed(2)}:1, needs 4.5:1`);
+  }
+
+  // No hard-coded panel version: the manifest is the only version source.
+  need(!/V0\.\d/.test(html), "Widget must not hard-code its own version label");
+  need(/payload\.widgetVersion/.test(scriptBlock), "Widget should render the version from the payload");
+
+  // Strings from stored preferences and synced recipe text may only reach
+  // innerHTML through esc().
+  for (const [, template] of scriptBlock.matchAll(/innerHTML=`([^`]*)`/g)) {
+    for (const [, expr] of template.matchAll(/\$\{([^}]*)\}/g)) {
+      need(/^esc\(/.test(expr.trim()), `unescaped \${${expr}} interpolated into innerHTML`);
+    }
+  }
+
+  // Selection and disclosure state must be exposed, not painted.
+  need((html.match(/aria-pressed=/g) || []).length >= 12, "toggle controls need aria-pressed in markup");
+  need((scriptBlock.match(/setAttribute\(['"]aria-pressed['"]/g) || []).length >= 5, "JS must keep aria-pressed in sync");
+  need(/setAttribute\(['"]aria-expanded['"]/.test(scriptBlock), "pickers must expose aria-expanded");
+  need(/id="lightbox"[^>]*role="dialog"/.test(html), "recipe lightbox needs dialog semantics");
+  need(/id="lightbox"[^>]*aria-modal="true"/.test(html), "recipe lightbox needs aria-modal");
+  need(/id="status"[^>]*role="status"/.test(html), "the status line must be a live region");
+  need(!/<label>([^<]*)<\/label>/.test(html), "bare <label> without a control cannot name anything");
+  // The pro-drawer "已调整"回显 is a data attribute written purely to be styled;
+  // without a CSS consumer the affordance silently never appears.
+  if (/dataset\.tuned\s*=/.test(scriptBlock)) {
+    need(/\[data-tuned/.test(styleBlock), "dataset.tuned is written but no CSS reads [data-tuned]");
+  }
+
+  // Keyboard contract: Enter must not steal a focused control's activation.
+  need(/ACTIVATABLE/.test(scriptBlock), "Enter handler has to skip controls that activate on Enter");
+  need(/event\.source===window\.parent/.test(scriptBlock), "inbound postMessage must be source-checked");
+  need(/entry\.timer=setTimeout/.test(scriptBlock), "bridge requests need a timeout so submit cannot hang");
+
+  // The preview picker was a display:none file input, unreachable by keyboard.
+  need(/<input type="file" id="lightboxFile" class="sr-only"/.test(html), "file input must stay focusable");
+  need(!/id="lightboxFile"[^>]*\shidden/.test(html), "file input must not be hidden");
+
+  // Touch-target floor on the dense controls (WCAG 2.5.8).
+  const rules = new Map();
+  for (const [, selectorText, bodyText] of styleBlock.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    for (const selector of selectorText.split(",").map((part) => part.trim())) {
+      if (!rules.has(selector)) rules.set(selector, bodyText);
+    }
+  }
+  for (const selector of [".row-btn", ".chip", ".btn", ".tabs button", ".recipe-detail", ".library-item button", "#submit", ".mode-card", ".opt-card", ".preset-row"]) {
+    const body = rules.get(selector);
+    if (body === undefined) {
+      problems.push(`no CSS rule for ${selector}`);
+      continue;
+    }
+    const px = [...body.matchAll(/(?:min-height|height|width|min-width):\s*(\d+)px/g)].map((m) => Number(m[1]));
+    if (/min-height:\s*var\(--tap/.test(body)) px.push(32);
+    need(px.length > 0 && Math.min(...px) >= 24, `${selector} has a hit area under 24px`);
+  }
+  need(/@media\(max-width:5\d\dpx\)\{[\s\S]{0,40}\.lightbox-panel\{grid-template-columns:1fr/.test(styleBlock), "lightbox needs a single-column breakpoint");
+
+  // Markup nesting: an unclosed wrapper silently relies on the parser.
+  const body = html.slice(html.indexOf("<body>") + "<body>".length, html.indexOf("<script id="));
+  const voids = new Set(["img", "input", "br", "hr", "meta", "link", "source"]);
+  const stack = [];
+  let nesting = "";
+  for (const [, kind, name] of body.matchAll(/<(\/?)([a-z0-9]+)[^>]*?>/gi)) {
+    const tag = name.toLowerCase();
+    if (voids.has(tag)) continue;
+    if (kind === "/") {
+      const open = stack.pop();
+      if (open !== tag) nesting += `</${tag}> does not close <${open || "nothing"}>; `;
+    } else stack.push(tag);
+  }
+  if (stack.length) nesting += `unclosed <${stack.join(">, <")}>; `;
+  need(nesting === "", `body markup nesting is malformed: ${nesting}`);
+
+  if (problems.length) assert.fail(`Widget quality gates failed:\n  - ${problems.join("\n  - ")}`);
+}
+
 (async () => {
   // A user-authored prompt containing `$&`-style sequences must survive the
   // Widget payload serialization verbatim instead of being interpreted as a
@@ -118,6 +270,7 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.equal(opened.content[1].resource.mimeType, "text/html;profile=mcp-app");
   const openedPayloadMatch = opened.content[1].resource.text.match(/<script id="photoRefinerInitialPayload" type="application\/json">([\s\S]*?)<\/script>/);
   assert.ok(openedPayloadMatch, "tool-result Widget must contain an initial payload");
+  widgetHtmlInvariants(opened.content[1].resource.text);
   const openedPayload = JSON.parse(openedPayloadMatch[1]);
   assert.equal(openedPayload.promptLibrary.custom[0].prompt, "keep $& and $' and $$ intact");
   assert.equal(openedPayload._photoRefinerFallback, undefined);
@@ -197,7 +350,7 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.match(resourceHtml, /addEventListener\('change',handleFieldChange\)/);
   // interactive wiring must exist for every control group — a dropped wiring
   // leaves controls dead while the panel still renders (0.7.0 regression)
-  for (const wiring of ["querySelectorAll\\('#recipeFilters \\.chip'\\)", "querySelectorAll\\('.chip\\[data-frag\\]'\\)", "querySelectorAll\\('.opt-card\\[data-delivery\\]'\\)", "querySelectorAll\\('#resSeg \\.chip'\\)", "getElementById\\('resApply'\\)", "querySelectorAll\\('#proTabs button'\\)", "querySelectorAll\\('.row-btn\\[data-pick\\]'\\)"]) {
+  for (const wiring of ["querySelectorAll\\('#recipeFilters \\.chip'\\)", "querySelectorAll\\('.chip\\[data-frag\\]'\\)", "querySelectorAll\\('.opt-card\\[data-delivery\\]'\\)", "querySelectorAll\\('#resSeg \\.chip'\\)", "getElementById\\('resApply'\\)", "querySelectorAll\\('#proTabs \\[role=\\\"tab\\\"\\]'\\)", "querySelectorAll\\('.row-btn\\[data-pick\\]'\\)"]) {
     assert.match(resourceHtml, new RegExp(wiring), `missing wiring: ${wiring}`);
   }
   assert.match(resourceHtml, /未收到初始设置/);

@@ -162,6 +162,7 @@ const FALLBACK_WIDGET_PAYLOAD = {
   ok: true,
   kind: "photo-refiner-settings",
   schemaVersion: 3,
+  widgetVersion: MANIFEST.version.split("+")[0],
   _photoRefinerFallback: true,
   presets: PRESETS,
   creativeRecipes: creativeRecipesForClient(),
@@ -607,7 +608,7 @@ function callTool(name, args) {
       ...(typeof item?.preset === "string" && PRESETS.presets[item.preset] ? {preset: item.preset} : {}),
       ...(typeof item?.styleStrength === "number" && item.styleStrength >= 0 && item.styleStrength <= 100 ? {styleStrength: item.styleStrength} : {}),
     })).filter((item) => item.prompt) : [];
-    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 3, presets: PRESETS, creativeRecipes: creativeRecipesForClient(), defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
+    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 3, widgetVersion: MANIFEST.version.split("+")[0], presets: PRESETS, creativeRecipes: creativeRecipesForClient(), defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
   }
   if (name === "submit_photo_refiner_settings") {
     if (args.userConfirmed !== true) throw new Error("Explicit user confirmation is required");

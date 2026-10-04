@@ -2,9 +2,10 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#070908" />
+  <title>Photo Refiner Studio · 出片设置确认</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='9' fill='%23070908'/%3E%3Crect x='6' y='6' width='20' height='20' rx='7' fill='rgba(255,255,255,.08)'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='%231C8878'/%3E%3C/svg%3E" />
   <style>
     :root{
@@ -12,17 +13,35 @@
       --bg:#070908;
       --ink:#EEF0EA;
       --muted:#9AA29B;
-      --faint:#6B736C;
+      /* --faint carries decision copy (row notes, field notes, summaries), so it
+         clears AA at 5.8:1; the previous #6B736C sat at 4.08:1. */
+      --faint:#848C85;
       --line:rgba(255,255,255,.10);
       --line-soft:rgba(255,255,255,.06);
+      --hairline:rgba(255,255,255,.12);
       --glass:rgba(255,255,255,.04);
       --glass-2:rgba(255,255,255,.07);
       --pick:rgba(6,10,8,.55);
-      --teal:#1C8878;
+      --surface:rgba(0,0,0,.25);
+      --surface-2:rgba(0,0,0,.28);
+      --field:rgba(0,0,0,.30);
+      --thumb-empty:#0A0C0B;
+      --preview-empty:#0A0C10;
+      --pill-bg:#0E1512;
+      --scrim:rgba(5,7,11,.62);
+      --bar-bg:rgba(8,11,10,.75);
+      --teal-rgb:28,136,120;
       --teal-strong:#3FC3AC;
-      --teal-dim:rgba(28,136,120,.16);
+      --teal-dim:rgba(var(--teal-rgb),.16);
       --teal-line:rgba(63,195,172,.45);
+      --cta-top:#35B79C;
+      --cta-bottom:#21927D;
+      --cta-ink:#04120E;
+      --amber:rgba(214,138,74,.05);
       --danger:#E5705F;
+      --eave:0 14px 44px rgba(0,0,0,.40);
+      --tap:44px;
+      --tap-dense:32px;
       --sans:-apple-system,'PingFang SC','Hiragino Sans GB','Segoe UI','Microsoft YaHei',sans-serif;
       --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
       --spring:cubic-bezier(.34,1.4,.64,1);
@@ -30,9 +49,10 @@
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html{background:var(--bg)}
     body{margin:0;min-height:100vh;color:var(--ink);background:var(--bg);font:13.5px/1.55 var(--sans)}
+    .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
     .darkroom{position:fixed;inset:0;z-index:-1;background:
-      radial-gradient(720px 420px at 15% -8%,rgba(28,136,120,.13),transparent 62%),
-      radial-gradient(680px 420px at 85% 110%,rgba(214,138,74,.05),transparent 60%),
+      radial-gradient(720px 420px at 15% -8%,rgba(var(--teal-rgb),.13),transparent 62%),
+      radial-gradient(680px 420px at 85% 110%,var(--amber),transparent 60%),
       var(--bg)}
     .darkroom::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.035;
       background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
@@ -43,25 +63,26 @@
     button:active{transform:scale(.985)}
     :focus-visible{outline:2px solid var(--teal-strong);outline-offset:2px;border-radius:6px}
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
-    .glass{background:var(--glass);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.10),0 14px 44px rgba(0,0,0,.40);border-radius:20px}
-    .sheet{max-width:920px;margin:0 auto;padding:24px 18px 118px}
+    @media(prefers-reduced-transparency:reduce){.glass,.actions,.lightbox-backdrop{backdrop-filter:none;-webkit-backdrop-filter:none}}
+    .glass{background:var(--glass);backdrop-filter:blur(12px) saturate(145%);-webkit-backdrop-filter:blur(12px) saturate(145%);border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--hairline),var(--eave);border-radius:20px}
+    .sheet{max-width:920px;margin:0 auto;padding:24px 18px calc(126px + env(safe-area-inset-bottom))}
 
     /* ── 品牌行 ── */
     .brand-row{display:flex;align-items:center;gap:12px;margin-bottom:18px}
     .brand-mark{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font:800 12px var(--mono);letter-spacing:.06em;color:var(--teal-strong);background:var(--teal-dim);border:1px solid var(--teal-line);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
-    .brand-row b{display:block;font:700 17px/1.2 var(--sans);letter-spacing:.01em}
+    .brand-name{display:block;margin:0;font:700 17px/1.2 var(--sans);letter-spacing:.01em}
     .brand-row small{display:block;color:var(--faint);font:500 10px var(--mono);letter-spacing:.14em;margin-top:2px}
 
     /* ── 推荐区 ── */
-    .recommendation{border:1px solid var(--teal-line);border-radius:16px;background:linear-gradient(180deg,var(--teal-dim),transparent),var(--glass);backdrop-filter:blur(24px) saturate(160%);padding:14px 15px;margin-bottom:12px}
-    .recommendation strong{display:block;margin-bottom:2px;font-size:12.5px}
-    .recommendation span{color:var(--muted);font-size:11.5px}
+    .recommendation{border:1px solid var(--teal-line);border-radius:16px;background:linear-gradient(180deg,var(--teal-dim),transparent),var(--glass);padding:14px 15px;margin-bottom:12px}
+    .recommendation h2{display:block;margin:0 0 2px;font-size:12.5px;font-weight:700;letter-spacing:0}
+    .recommendation span{color:var(--muted);font-size:13px}
     .direction-list{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
-    .direction-card{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--glass-2);text-align:left;position:relative;transition:border-color .15s var(--spring),background-color .15s ease}
+    .direction-card{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--glass-2);text-align:left;position:relative;min-height:var(--tap);transition:border-color .15s var(--spring),background-color .15s ease}
     .direction-card.selected{border-color:var(--teal-line);background:var(--teal-dim)}
-    .direction-card strong{display:block;font-size:11.5px;margin-bottom:2px}
-    .direction-card small{color:var(--muted);font-size:10.5px;line-height:1.4;display:block}
-    .direction-card .applied{display:block;color:var(--teal-strong);font-size:10px;font-weight:650;margin-top:5px}
+    .direction-card strong{display:block;font-size:12.5px;margin-bottom:2px}
+    .direction-card small{color:var(--muted);font-size:12.5px;line-height:1.45;display:block}
+    .direction-card .applied{display:block;color:var(--teal-strong);font-size:12px;font-weight:650;margin-top:5px}
 
     /* ── 站位卡片(三站 + 专业抽屉)── */
     .proposal{display:flex;flex-direction:column;gap:12px}
@@ -69,148 +90,164 @@
     .row-main{display:flex;align-items:center;gap:14px;padding:15px 16px}
     .row-no{flex:0 0 auto;font:700 13px var(--mono);font-variant-numeric:tabular-nums;letter-spacing:.14em;color:var(--teal-strong)}
     .row-text{flex:1;min-width:0}
-    .row-text b{display:flex;align-items:baseline;gap:8px;font-size:15px;font-weight:680}
-    .row-en{font:600 9.5px var(--mono);letter-spacing:.18em;color:var(--faint)}
-    .row-note{display:block;color:var(--faint);font-size:10.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .row-sum{flex:0 1 auto;min-width:0;max-width:38%;padding:5px 12px;border-radius:999px;border:1px solid var(--teal-line);background:var(--teal-dim);color:var(--teal-strong);font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .row-btn{flex:0 0 auto;padding:7px 16px;border-radius:999px;border:1px solid var(--line);background:var(--glass-2);color:var(--muted);font-size:11.5px;font-weight:650;transition:border-color .15s ease,background-color .15s ease,color .15s ease}
+    .row-text h2{display:flex;align-items:baseline;gap:8px;margin:0;font-size:15px;font-weight:680}
+    .row-en{font:600 12px var(--mono);letter-spacing:.18em;color:var(--faint)}
+    .row-note{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--faint);font-size:13px;margin-top:2px}
+    .row-sum{flex:0 1 auto;min-width:0;max-width:38%;padding:5px 12px;border-radius:999px;border:1px solid var(--teal-line);background:var(--teal-dim);color:var(--teal-strong);font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .row-btn{flex:0 0 auto;min-height:var(--tap-dense);padding:7px 16px;border-radius:999px;border:1px solid var(--line);background:var(--glass-2);color:var(--muted);font-size:11.5px;font-weight:650;transition:border-color .15s ease,background-color .15s ease,color .15s ease}
     .row-btn:hover{border-color:var(--faint);color:var(--ink)}
     .row-btn.on{border-color:var(--teal-line);background:var(--teal-dim);color:var(--teal-strong)}
     .row-pick{margin:0 14px 14px;padding:14px;border-radius:14px;background:var(--pick);border:1px solid var(--line-soft)}
     .row-pick[hidden]{display:none}
-    .pick-title{font:600 10.5px var(--mono);letter-spacing:.16em;color:var(--teal-strong);opacity:.85;margin:0 0 10px}
+    .pick-title{font:600 12px var(--mono);letter-spacing:.04em;color:var(--teal-strong);opacity:.85;margin:0 0 10px}
+    .group-label{display:block;font-weight:650;font-size:12px;margin-bottom:6px}
 
     /* ── 通用控件 ── */
     .card{border:1px solid var(--line-soft);border-radius:12px;background:var(--glass-2);padding:12px;margin-bottom:10px}
-    .hint{font-size:11px;color:var(--muted);margin-top:5px}
+    .hint{font-size:13.5px;line-height:1.5;color:var(--muted);margin-top:5px}
     label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:650;font-size:12px;margin-bottom:6px}
-    .field-note{font-size:10.5px;color:var(--faint);font-weight:500}
-    select,input[type=text],input[type=number],textarea{width:100%;background:rgba(0,0,0,.30);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:8px 10px;outline:none;font-size:12.5px}
+    .field-note{font-size:12.5px;color:var(--faint);font-weight:500}
+    select,input[type=text],input[type=number],textarea{width:100%;background:var(--field);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:8px 10px;min-height:var(--tap-dense);outline:none;font-size:13.5px}
     select:focus,input:focus,textarea:focus{border-color:var(--teal-line)}
     textarea{min-height:74px;resize:vertical}
     ::placeholder{color:var(--faint)}
-    .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;background:rgba(0,0,0,.25);border:1px solid var(--line);font-size:10.5px;color:var(--muted)}
+    .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-size:12px;color:var(--muted)}
     .badge.accent{background:var(--teal-dim);color:var(--teal-strong);border-color:var(--teal-line)}
 
     /* ── 站 01 LOOK ── */
     .mode-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-    .mode-card{border:1px solid var(--line);border-radius:12px;padding:12px;background:rgba(0,0,0,.25);text-align:left;transition:border-color .15s var(--spring),background-color .15s ease,box-shadow .15s ease}
+    .mode-card{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface);text-align:left;min-height:var(--tap);transition:border-color .15s var(--spring),background-color .15s ease,box-shadow .15s ease}
     .mode-card:hover{border-color:var(--faint)}
-    .mode-card.selected{border-color:var(--teal-line);background:var(--teal-dim);box-shadow:0 0 0 1px var(--teal-line)}
+    .mode-card.selected{border-color:var(--teal-line);background:var(--teal-dim);box-shadow:inset 0 0 0 1px var(--teal-line)}
     .mode-card strong{display:block;font-size:12.5px;margin-bottom:3px}
-    .mode-card small{color:var(--muted);font-size:10.5px;line-height:1.4;display:block}
+    .mode-card small{color:var(--muted);font-size:12.5px;line-height:1.45;display:block}
     .preset-list{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:8px}
-    .preset-row{border:1px solid var(--line-soft);border-radius:10px;padding:9px 11px;background:rgba(0,0,0,.25);text-align:left;min-width:0;transition:border-color .15s ease,background-color .15s ease}
+    .preset-row{border:1px solid var(--line-soft);border-radius:10px;padding:9px 11px;background:var(--surface);text-align:left;min-width:0;min-height:var(--tap);transition:border-color .15s ease,background-color .15s ease}
     .preset-row:hover{border-color:var(--faint)}
     .preset-row.selected{border-color:var(--teal-line);background:var(--teal-dim)}
     .preset-row strong{display:block;font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .preset-row small{display:block;color:var(--muted);font-size:10px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .strength{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;margin-top:12px;padding:12px;border:1px solid var(--line-soft);border-radius:12px;background:rgba(0,0,0,.25)}
-    input[type=range]{width:100%;accent-color:var(--teal-strong);height:26px}
-    .strength-pill{font:700 14px var(--mono);font-variant-numeric:tabular-nums;color:var(--teal-strong);background:#0E1512;padding:5px 12px;border-radius:999px;border:1px solid var(--teal-line);white-space:nowrap}
+    .preset-row small{display:block;color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    .strength{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;margin-top:12px;padding:12px;border:1px solid var(--line-soft);border-radius:12px;background:var(--surface)}
+    input[type=range]{width:100%;accent-color:var(--teal-strong);height:var(--tap-dense)}
+    .strength-pill{font:700 14px var(--mono);font-variant-numeric:tabular-nums;color:var(--teal-strong);background:var(--pill-bg);padding:5px 12px;border-radius:999px;border:1px solid var(--teal-line);white-space:nowrap}
     .chip-row{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
-    .chip{padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.25);color:var(--muted);font-size:11px;transition:border-color .15s var(--spring),color .15s ease,background-color .15s ease}
+    .chip{min-height:var(--tap-dense);padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12px;transition:border-color .15s var(--spring),color .15s ease,background-color .15s ease}
     .chip:hover{border-color:var(--faint);color:var(--ink)}
     .chip.on{background:var(--teal-dim);border-color:var(--teal-line);color:var(--teal-strong)}
-    .chip-group-label{font:600 10px var(--mono);letter-spacing:.16em;color:var(--faint);margin:10px 0 2px}
+    .chip-group-label{font:600 12px var(--mono);letter-spacing:.04em;color:var(--faint);margin:10px 0 2px}
 
     /* ── 站 02 CREATE:缩略图主导 ── */
     .recipe-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px}
-    .recipe-card{position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:rgba(0,0,0,.28);text-align:left;padding:0;min-width:0;transition:border-color .15s var(--spring),box-shadow .15s ease}
+    .recipe-card{position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface-2);text-align:left;padding:0;min-width:0;transition:border-color .15s var(--spring),box-shadow .15s ease}
     .recipe-card:hover{border-color:var(--faint)}
-    .recipe-card img{display:block;width:100%;height:120px;object-fit:cover;background:#0a0c0b}
-    .recipe-thumb-empty{display:grid;place-items:center;width:100%;height:120px;background:#0a0c0b;color:var(--faint);font-size:11px}
-    .recipe-no{position:absolute;top:6px;left:6px;padding:2px 7px;border-radius:6px;background:rgba(0,0,0,.5);color:var(--ink);font:600 9.5px var(--mono);letter-spacing:.08em}
-    .recipe-card-label{display:block;padding:7px 9px 9px;min-width:0}
-    .recipe-card-label strong{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .recipe-card-label small{display:block;color:var(--faint);font-size:9.5px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .recipe-card.selected{border-color:var(--teal-line);box-shadow:0 0 0 1px var(--teal-line),0 8px 24px rgba(28,136,120,.18)}
+    .recipe-select{display:block;width:100%;min-height:100%;padding:0;border:0;border-radius:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+    .recipe-select:focus-visible{position:relative;z-index:1;outline-offset:-3px;border-radius:11px}
+    .recipe-select:disabled{opacity:.42;cursor:not-allowed}
+    .recipe-card img{display:block;width:100%;height:120px;object-fit:cover;background:var(--thumb-empty)}
+    .recipe-thumb-empty{display:grid;place-items:center;width:100%;height:120px;background:var(--thumb-empty);color:var(--faint);font-size:12px}
+    .recipe-no{position:absolute;top:6px;left:6px;padding:2px 7px;border-radius:6px;background:rgba(0,0,0,.5);color:var(--ink);font:600 12px var(--mono);letter-spacing:.08em}
+    .recipe-card-label{display:block;padding:7px 72px 9px 9px;min-width:0}
+    .recipe-card-label strong{display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .recipe-card-label small{display:-webkit-box;font-size:12px;margin-top:1px;overflow:hidden;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    .recipe-card.selected{border-color:var(--teal-line);box-shadow:inset 0 0 0 1px var(--teal-line),0 8px 24px rgba(0,0,0,.28)}
     .recipe-card.selected .recipe-card-label strong{color:var(--teal-strong)}
-    .recipe-card:disabled{opacity:.4;cursor:not-allowed}
-    .filters{display:flex;gap:6px;margin:0 0 10px}
+    .recipe-card[aria-disabled="true"]{border-style:dashed}
+    .filters{display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap}
 
     /* ── 站 03 DELIVER ── */
     .opt-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-    .opt-card{border:1px solid var(--line);border-radius:12px;padding:12px;background:rgba(0,0,0,.25);text-align:left;transition:border-color .15s var(--spring),background-color .15s ease}
+    .opt-card{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface);text-align:left;min-height:var(--tap);transition:border-color .15s var(--spring),background-color .15s ease}
     .opt-card:hover{border-color:var(--faint)}
     .opt-card.selected{border-color:var(--teal-line);background:var(--teal-dim)}
     .opt-card strong{display:block;font-size:13px;margin-bottom:3px}
-    .opt-card small{color:var(--muted);font-size:11px;line-height:1.5;display:block}
+    .opt-card small{color:var(--muted);font-size:12.5px;line-height:1.5;display:block}
     .seg{display:flex;gap:6px;flex-wrap:wrap}
     .seg .chip{font-size:11.5px;padding:6px 12px}
-    .res-custom{display:flex;gap:6px;align-items:center;margin-top:8px}
+    .res-custom{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap}
     .res-custom input{width:88px;font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:center}
     .res-custom .x{color:var(--faint)}
-    .btn{border:1px solid var(--teal-line);background:var(--teal-dim);color:var(--teal-strong);border-radius:8px;padding:6px 12px;font-weight:650;font-size:11.5px}
+    .btn{min-height:var(--tap-dense);border:1px solid var(--teal-line);background:var(--teal-dim);color:var(--teal-strong);border-radius:8px;padding:6px 12px;font-weight:650;font-size:11.5px}
     #planStage{font:600 12px/1.7 var(--mono);font-variant-numeric:tabular-nums;color:var(--teal-strong)}
-    .sum-line{font-size:10.5px;color:var(--faint);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sum-line{font-size:12px;color:var(--faint);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
     /* ── 站 04 PRO 专业抽屉 ── */
     details.pro-drawer{border-radius:20px;margin-top:0}
-    details.pro-drawer>summary{cursor:pointer;padding:15px 16px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px}
+    details.pro-drawer>summary{cursor:pointer;padding:15px 16px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:var(--tap)}
     .pro-head{display:flex;align-items:baseline;gap:10px;min-width:0}
-    .pro-head b{font-size:15px;font-weight:680}
+    .pro-head h2{margin:0;font-size:15px;font-weight:680}
     .pro-head .field-note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     details.pro-drawer>summary::after{content:'▾';color:var(--faint);transition:transform .2s var(--spring)}
     details.pro-drawer[open]>summary::after{content:'▴'}
+    /* 收起后也要看得见“专业参数已改”，否则调完就失联 */
+    details.pro-drawer[data-tuned="dirty"]>summary>.pro-head::after{content:attr(data-tuned-note);color:var(--teal-strong);font:650 12px var(--mono);white-space:nowrap}
     .pro-body{padding:0 14px 14px}
-    .tabs{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:14px;padding:4px;border-radius:999px;background:rgba(0,0,0,.30);border:1px solid var(--line-soft);width:fit-content;max-width:100%}
-    .tabs button{padding:6px 14px;border-radius:999px;border:0;color:var(--muted);font-size:11.5px;font-weight:650;background:transparent}
+    .tabs{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:14px;padding:4px;border-radius:999px;background:var(--field);border:1px solid var(--line-soft);width:fit-content;max-width:100%}
+    .tabs button{min-height:var(--tap-dense);padding:6px 14px;border-radius:999px;border:0;color:var(--muted);font-size:11.5px;font-weight:650;background:transparent}
     .tabs button.selected{background:var(--teal-dim);color:var(--teal-strong);box-shadow:inset 0 0 0 1px var(--teal-line)}
     .tab-panel[hidden]{display:none}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .wide{grid-column:1/-1}
     .range{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px}
-    .range output{font:600 11px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);min-width:34px;text-align:right}
-    .check{justify-content:flex-start;gap:8px}
-    .check input{width:16px;height:16px;accent-color:var(--teal-strong)}
+    .range output{font:600 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);min-width:34px;text-align:right}
+    .check{justify-content:flex-start;gap:8px;min-height:var(--tap-dense)}
+    .check input{width:18px;height:18px;accent-color:var(--teal-strong)}
+    /* 未启用的分组只锁控件，标签保持可读，整块压暗会把“为什么不能动”一起抹掉 */
+    .locked input[type=range]{opacity:.4;pointer-events:none}
+    .locked .range output{opacity:.55}
     .danger-label{color:var(--danger)}
-    .strategy{border-left:2px solid var(--teal-line);padding:8px 10px;font-size:11.5px;color:var(--muted);border-radius:0 8px 8px 0;background:rgba(0,0,0,.25)}
+    .strategy{border-left:1px solid var(--teal-line);padding:8px 10px;font-size:13px;line-height:1.5;color:var(--muted);border-radius:0 8px 8px 0;background:var(--surface)}
     .library-list{display:grid;grid-template-columns:1fr;gap:5px;max-height:210px;overflow:auto;overscroll-behavior:contain;margin-top:8px}
     .library-list::-webkit-scrollbar{width:8px}
-    .library-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:4px}
+    .library-list::-webkit-scrollbar-thumb{background:var(--hairline);border-radius:4px}
     .library-list::-webkit-scrollbar-track{background:transparent}
-    .library-item{border:1px solid var(--line-soft);border-radius:10px;padding:8px 10px;background:rgba(0,0,0,.25);display:flex;justify-content:space-between;gap:8px;align-items:center}
-    .library-main{cursor:pointer;min-width:0}
-    .library-main strong{display:block;font-size:11.5px}
-    .library-main small{display:block;color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .library-kind{font-size:9.5px;color:var(--faint);white-space:nowrap}
+    .library-item{border:1px solid var(--line-soft);border-radius:10px;padding:8px 10px;background:var(--surface);display:flex;justify-content:space-between;gap:8px;align-items:center}
+    .library-main{cursor:pointer;min-width:0;min-height:var(--tap-dense)}
+    .library-main strong{display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .library-main small{display:block;color:var(--muted);font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    .library-meta{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+    .library-kind{font-size:12px;color:var(--faint);white-space:nowrap}
     .library-kind.builtin{color:var(--teal-strong)}
-    .library-item button{color:var(--danger);font-size:10.5px;white-space:nowrap}
+    .library-item button{color:var(--danger);font-size:11.5px;white-space:nowrap;min-height:var(--tap);padding:5px 9px}
     details.fold{border-top:1px solid var(--line-soft);margin-top:12px;padding-top:10px}
-    details.fold>summary{cursor:pointer;font-weight:650;font-size:12px;list-style:none;display:flex;justify-content:space-between;color:var(--muted)}
+    details.fold>summary{cursor:pointer;font-weight:650;font-size:12px;list-style:none;display:flex;justify-content:space-between;align-items:center;min-height:var(--tap-dense);color:var(--muted)}
     details.fold>summary::after{content:'＋';color:var(--faint)}
     details.fold[open]>summary::after{content:'−'}
     details.fold>div{padding-top:8px}
 
     /* ── 底部浮动操作条 ── */
-    .actions{position:fixed;z-index:20;left:50%;bottom:12px;transform:translateX(-50%);width:min(920px,calc(100% - 20px));display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:999px;background:rgba(8,11,10,.75);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 16px 44px rgba(0,0,0,.5)}
-    #status{flex:0 1 auto;min-width:0;max-width:32%;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .plan-chip{flex:1;min-width:0;font:500 10.5px var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:1px solid var(--line);padding-left:12px}
-    #submit{flex:0 0 auto;border:0;border-radius:999px;padding:11px 22px;background:linear-gradient(180deg,#35B79C,#1C8878);color:#04120E;font-weight:750;font-size:12.5px;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 8px 22px rgba(28,136,120,.32);white-space:nowrap;transition:filter .15s ease,transform .15s var(--spring)}
+    .actions{position:fixed;z-index:20;left:50%;bottom:max(12px,env(safe-area-inset-bottom));transform:translateX(-50%);width:min(920px,calc(100% - 20px));display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:999px;background:var(--bar-bg);backdrop-filter:blur(12px) saturate(145%);-webkit-backdrop-filter:blur(12px) saturate(145%);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 16px 44px rgba(0,0,0,.5)}
+    #status{flex:0 1 auto;min-width:0;max-width:32%;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .plan-chip{flex:1;min-width:0;font:500 12px var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:1px solid var(--line);padding-left:12px}
+    #submit{flex:0 0 auto;border:0;border-radius:999px;min-height:var(--tap);padding:11px 22px;background:linear-gradient(180deg,var(--cta-top),var(--cta-bottom));color:var(--cta-ink);font-weight:750;font-size:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 8px 22px rgba(0,0,0,.30);white-space:nowrap;transition:filter .15s ease,transform .15s var(--spring)}
     #submit:hover{filter:brightness(1.07)}
     #submit:disabled{opacity:.5;cursor:wait}
     .lightbox{position:fixed;inset:0;z-index:40}
     .lightbox[hidden]{display:none}
-    .lightbox-backdrop{position:absolute;inset:0;background:rgba(5,7,11,.62);backdrop-filter:blur(10px)}
+    .lightbox-backdrop{position:absolute;inset:0;background:var(--scrim);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
     .lightbox-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(880px,calc(100% - 24px));max-height:calc(100vh - 40px);overflow:auto;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(240px,1fr);gap:14px;padding:14px;border-radius:16px}
-    .lightbox-media img{display:block;width:100%;max-height:58vh;object-fit:contain;border-radius:10px;background:#0a0c10}
-    .lightbox-media .empty{display:grid;place-items:center;height:240px;color:var(--faint);font-size:11px;background:#0a0c10;border-radius:10px}
-    .lightbox-close{position:absolute;top:10px;right:10px;width:30px;height:30px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.3);color:var(--muted)}
-    .lightbox-title{font:650 16px var(--sans);margin-bottom:2px}
-    .lightbox-sub{color:var(--faint);font-size:11px;margin-bottom:8px}
+    .lightbox-media img{display:block;width:100%;max-height:58vh;object-fit:contain;border-radius:10px;background:var(--preview-empty)}
+    .lightbox-media .empty{display:grid;place-items:center;height:240px;color:var(--faint);font-size:12.5px;background:var(--preview-empty);border-radius:10px}
+    .lightbox-close{position:absolute;top:10px;right:10px;width:var(--tap);height:var(--tap);border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);display:grid;place-items:center}
+    .lightbox-title{font:650 16px var(--sans);margin:0 0 2px}
+    /* 隐藏的文件输入仍可聚焦；脚本把焦点状态代理到可见 label，:has()
+       只作为支持时的同步增强。 */
+    .file-label.is-focused{outline:2px solid var(--teal-strong);outline-offset:2px}
+    @supports selector(:has(*)){
+      label.btn:has(+ .sr-only:focus-visible){outline:2px solid var(--teal-strong);outline-offset:2px}
+    }
+    .lightbox-sub{color:var(--faint);font-size:12px;margin-bottom:8px}
     .lightbox-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-    .lightbox-summary{color:var(--muted);font-size:11.5px;line-height:1.6;margin-bottom:10px}
+    .lightbox-summary{color:var(--muted);font-size:13px;line-height:1.6;margin-bottom:10px}
     .lightbox-actions{display:flex;flex-wrap:wrap;gap:8px}
-    .btn.primary{background:var(--blue);border-color:var(--blue);color:#06111f}
     .btn.ghost{background:transparent}
-    .rc-line{display:flex;justify-content:space-between;align-items:center;gap:6px}
-    .recipe-detail{color:var(--faint);font-size:9.5px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;white-space:nowrap}
-    .recipe-detail:hover{color:var(--blue-strong);border-color:var(--blue-line)}
+    /* 主操作沿用 CTA 实心态：暗底上描边胶囊和实心胶囊才是可用的层级差 */
+    .btn.primary{background:linear-gradient(180deg,var(--cta-top),var(--cta-bottom));border-color:var(--teal-line);color:var(--cta-ink);font-weight:750}
+    .recipe-detail{position:absolute;right:8px;bottom:7px;z-index:2;min-height:var(--tap);font-size:12px;color:var(--faint);border:1px solid var(--line);border-radius:999px;padding:5px 9px;white-space:nowrap;background:var(--surface)}
+    .recipe-detail:hover{color:var(--teal-strong);border-color:var(--teal-line)}
     .recipe-thumb{display:block}
-    #customFields{display:none}
     @media(max-width:720px){
-      .sheet{padding:16px 12px 118px}
+      .sheet{padding:16px 12px calc(126px + env(safe-area-inset-bottom))}
+      select,input[type=text],input[type=number],textarea{font-size:16px}
       .direction-list{grid-template-columns:1fr}
       .grid{grid-template-columns:1fr}
       .mode-grid{grid-template-columns:1fr}
@@ -219,53 +256,61 @@
       .row-sum{max-width:100%;order:3}
       .row-btn{margin-left:auto}
     }
+    @media(max-width:560px){
+      .lightbox-panel{grid-template-columns:1fr;max-height:calc(100vh - 24px)}
+      .lightbox-media img{max-height:42vh}
+      .preset-list{grid-template-columns:1fr}
+      .strength{grid-template-columns:1fr}
+    }
+    /* 触屏上没有 hover，命中区直接抬到 44 */
+    @media(pointer:coarse){:root{--tap-dense:44px}}
   </style>
 </head>
 <body>
 <div class="darkroom" aria-hidden="true"></div>
 <main class="sheet">
-  <header class="brand-row"><span class="brand-mark">PR</span><div><b>Photo Refiner Studio</b><small>精修 × 创意 × 高清 · V0.6</small></div></header>
+  <header class="brand-row"><span class="brand-mark" aria-hidden="true">PR</span><div><h1 class="brand-name">Photo Refiner Studio</h1><small id="panelVersion">精修 × 创意 × 高清</small></div></header>
 
-  <div class="recommendation" id="recommendation" hidden><strong>✦ 根据照片的建议</strong><span id="recommendationText"></span><div class="direction-list" id="directionList"></div></div>
+  <div class="recommendation" id="recommendation" hidden><h2>根据照片的建议</h2><span id="recommendationText"></span><div class="direction-list" id="directionList" role="group" aria-label="创作方向"></div></div>
 
   <div class="proposal">
-    <section class="row glass" id="rowLook">
+    <section class="row glass" id="rowLook" aria-labelledby="rowLookTitle">
       <div class="row-main">
-        <span class="row-no">01</span>
-        <div class="row-text"><b>风格<span class="row-en">LOOK</span></b><small class="row-note">决定成片观感，也是创意图的底色</small></div>
+        <span class="row-no" aria-hidden="true">01</span>
+        <div class="row-text"><h2 id="rowLookTitle">风格<span class="row-en">LOOK</span></h2><small class="row-note" title="决定成片观感，也是创意图的底色">决定成片观感，也是创意图的底色</small></div>
         <small class="row-sum" id="lookSummary">—</small>
-        <button type="button" class="row-btn" id="lookToggle" data-pick="look">更换</button>
+        <button type="button" class="row-btn" id="lookToggle" data-pick="look" aria-expanded="false" aria-controls="lookPick">更换</button>
       </div>
-      <div class="row-pick" id="lookPick" hidden>
-        <div class="pick-title">LOOK · 先选择风格和强度</div>
-        <div class="mode-grid" id="modeCards" aria-label="修图模式">
-          <button type="button" class="mode-card" data-mode="fidelity"><strong>保真精修</strong><small>接近原片，只整理光影、肤质和清晰度。</small></button>
-          <button type="button" class="mode-card" data-mode="cinematic"><strong>电影成片</strong><small>建立明确的色彩、氛围和胶片质感。</small></button>
-          <button type="button" class="mode-card" data-mode="reshape"><strong>强风格重塑</strong><small>更大胆的光线与环境重塑，漂移风险更高。</small></button>
+      <div class="row-pick" id="lookPick" hidden role="group" aria-labelledby="lookPickTitle">
+        <div class="pick-title" id="lookPickTitle">LOOK · 先选择风格和强度</div>
+        <div class="mode-grid" id="modeCards" role="group" aria-label="修图模式">
+          <button type="button" class="mode-card" data-mode="fidelity" aria-pressed="false"><strong>保真精修</strong><small>接近原片，只整理光影、肤质和清晰度。</small></button>
+          <button type="button" class="mode-card" data-mode="cinematic" aria-pressed="false"><strong>电影成片</strong><small>建立明确的色彩、氛围和胶片质感。</small></button>
+          <button type="button" class="mode-card" data-mode="reshape" aria-pressed="false"><strong>强风格重塑</strong><small>更大胆的光线与环境重塑，漂移风险更高。</small></button>
         </div>
         <select id="preset" data-path="preset" hidden></select>
-        <div class="preset-list" id="presetList"></div>
-        <div class="strength"><div><label for="strengthRange">风格强度 <span class="field-note">0–100 · 生成前映射为语义档位</span></label><div class="range"><input id="strengthRange" type="range" min="0" max="100" data-path="styleStrength" aria-label="风格强度" /><output></output></div><div class="hint" id="styleStrengthHint"></div></div><span class="strength-pill" id="strengthPill">—</span></div>
-        <div class="card" id="customFields" style="display:none">
+        <div class="preset-list" id="presetList" role="group" aria-label="风格预设"></div>
+        <div class="strength"><div><label for="strengthRange">风格强度 <span class="field-note" id="strengthNote">0–100 · 生成前映射为语义档位</span></label><div class="range"><input id="strengthRange" type="range" min="0" max="100" data-path="styleStrength" aria-describedby="strengthNote" /><output></output></div><div class="hint" id="styleStrengthHint"></div></div><output class="strength-pill" id="strengthPill" aria-hidden="true">—</output></div>
+        <div class="card" id="customFields" hidden>
           <div class="chip-group-label">提示词工作台 · 风格修饰词</div>
           <div class="hint" style="margin:2px 0 4px">点选修饰词会拼进自定义提示词；首次点选会带入当前预设的完整提示词作为基底。</div>
-          <div class="chip-group-label">光线</div><div class="chip-row" data-group="light">
-            <button type="button" class="chip" data-frag="rim backlight contouring the subject">侧逆光轮廓</button>
-            <button type="button" class="chip" data-frag="soft diffused haze">柔雾漫射</button>
-            <button type="button" class="chip" data-frag="golden dusk light">黄昏金调</button>
-            <button type="button" class="chip" data-frag="cool moonlit ambience">冷月清辉</button>
+          <div class="chip-group-label" id="fragLightLabel">光线</div><div class="chip-row" data-group="light" role="group" aria-labelledby="fragLightLabel">
+            <button type="button" class="chip" data-frag="rim backlight contouring the subject" aria-pressed="false">侧逆光轮廓</button>
+            <button type="button" class="chip" data-frag="soft diffused haze" aria-pressed="false">柔雾漫射</button>
+            <button type="button" class="chip" data-frag="golden dusk light" aria-pressed="false">黄昏金调</button>
+            <button type="button" class="chip" data-frag="cool moonlit ambience" aria-pressed="false">冷月清辉</button>
           </div>
-          <div class="chip-group-label">色彩</div><div class="chip-row" data-group="color">
-            <button type="button" class="chip" data-frag="teal and orange cinematic contrast">青橙对比</button>
-            <button type="button" class="chip" data-frag="muted Morandi palette">莫兰迪灰调</button>
-            <button type="button" class="chip" data-frag="faded analog film warmth">胶片暖褪</button>
-            <button type="button" class="chip" data-frag="black-and-white silver gelatin rendering">黑白银盐</button>
+          <div class="chip-group-label" id="fragColorLabel">色彩</div><div class="chip-row" data-group="color" role="group" aria-labelledby="fragColorLabel">
+            <button type="button" class="chip" data-frag="teal and orange cinematic contrast" aria-pressed="false">青橙对比</button>
+            <button type="button" class="chip" data-frag="muted Morandi palette" aria-pressed="false">莫兰迪灰调</button>
+            <button type="button" class="chip" data-frag="faded analog film warmth" aria-pressed="false">胶片暖褪</button>
+            <button type="button" class="chip" data-frag="black-and-white silver gelatin rendering" aria-pressed="false">黑白银盐</button>
           </div>
-          <div class="chip-group-label">质感与氛围</div><div class="chip-row" data-group="mood">
-            <button type="button" class="chip" data-frag="fine film grain texture">细腻颗粒</button>
-            <button type="button" class="chip" data-frag="matte painterly finish">哑光绘画感</button>
-            <button type="button" class="chip" data-frag="quiet narrative mood, generous negative space">静谧留白叙事</button>
-            <button type="button" class="chip" data-frag="epic vast atmosphere">史诗辽阔</button>
+          <div class="chip-group-label" id="fragMoodLabel">质感与氛围</div><div class="chip-row" data-group="mood" role="group" aria-labelledby="fragMoodLabel">
+            <button type="button" class="chip" data-frag="fine film grain texture" aria-pressed="false">细腻颗粒</button>
+            <button type="button" class="chip" data-frag="matte painterly finish" aria-pressed="false">哑光绘画感</button>
+            <button type="button" class="chip" data-frag="quiet narrative mood, generous negative space" aria-pressed="false">静谧留白叙事</button>
+            <button type="button" class="chip" data-frag="epic vast atmosphere" aria-pressed="false">史诗辽阔</button>
           </div>
           <label for="customPrompt" style="margin-top:8px">自定义提示词</label><textarea id="customPrompt" data-path="customPrompt"></textarea>
           <label for="customAvoid">不希望出现</label><textarea id="customAvoid" data-path="customAvoid"></textarea>
@@ -273,21 +318,21 @@
       </div>
     </section>
 
-    <section class="row glass" id="rowCreative">
+    <section class="row glass" id="rowCreative" aria-labelledby="rowCreativeTitle">
       <div class="row-main">
-        <span class="row-no">02</span>
-        <div class="row-text"><b>创意 · 可选<span class="row-en">CREATE</span></b><small class="row-note">把照片再创作成艺术画；不选则普通修图</small></div>
+        <span class="row-no" aria-hidden="true">02</span>
+        <div class="row-text"><h2 id="rowCreativeTitle">创意 · 可选<span class="row-en">CREATE</span></h2><small class="row-note" title="把照片再创作成艺术画；不选则普通修图">把照片再创作成艺术画；不选则普通修图</small></div>
         <small class="row-sum" id="creativeSummary">不使用 · 普通精修</small>
-        <button type="button" class="row-btn" id="creativeToggle" data-pick="creative">选择</button>
+        <button type="button" class="row-btn" id="creativeToggle" data-pick="creative" aria-expanded="false" aria-controls="creativePick">选择</button>
       </div>
-      <div class="row-pick" id="creativePick" hidden>
-        <div class="pick-title">Starryear 二次创作（缩略图只帮助选型，不参与生成；来源 Starryear，仅限原作者许可范围内使用）</div>
-        <div class="filters" id="recipeFilters">
-          <button type="button" class="chip on" data-filter="all">全部</button>
-          <button type="button" class="chip" data-filter="single">单图配方</button>
-          <button type="button" class="chip" data-filter="multi">多图配方</button>
+      <div class="row-pick" id="creativePick" hidden role="group" aria-labelledby="creativePickTitle">
+        <div class="pick-title" id="creativePickTitle">Starryear 二次创作（缩略图只帮助选型，不参与生成；来源 Starryear，仅限原作者许可范围内使用）</div>
+        <div class="filters" id="recipeFilters" role="group" aria-label="配方筛选">
+          <button type="button" class="chip on" data-filter="all" aria-pressed="true">全部</button>
+          <button type="button" class="chip" data-filter="single" aria-pressed="false">单图配方</button>
+          <button type="button" class="chip" data-filter="multi" aria-pressed="false">多图配方</button>
         </div>
-        <div class="recipe-grid" id="recipeGrid"></div>
+        <div class="recipe-grid" id="recipeGrid" role="group" aria-label="创意配方"></div>
         <div id="creativeMeta" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px"></div>
         <div id="creativeOutputWrap" hidden>
           <details class="fold">
@@ -308,61 +353,61 @@
           <label class="check"><input type="checkbox" data-path="creativeUpscale" />非补丁区域 4X-UltraSharp 超分（推荐 · 内置安装器）</label>
           <div class="hint">创意定稿确认后，先整图 4× 超分再做细节恢复：非补丁区域保持真实锐度，AI 痕迹只限补丁区。引擎未装时回退普通放大并在报告注明；首次使用运行 upscale_image.py --install-engine（无需 ComfyUI）。高清创意链下重绘即原生，无需此步。</div>
         </div>
-        <div class="hint" id="creativeWarning" style="margin-top:8px"></div>
+        <div class="hint" id="creativeWarning" role="status" style="margin-top:8px"></div>
       </div>
     </section>
 
-    <section class="row glass" id="rowShip">
+    <section class="row glass" id="rowShip" aria-labelledby="rowShipTitle">
       <div class="row-main">
-        <span class="row-no">03</span>
-        <div class="row-text"><b>出片<span class="row-en">DELIVER</span></b><small class="row-note">先确认风格底图，再做高清细节恢复</small></div>
+        <span class="row-no" aria-hidden="true">03</span>
+        <div class="row-text"><h2 id="rowShipTitle">出片<span class="row-en">DELIVER</span></h2><small class="row-note" title="先确认风格底图，再做高清细节恢复">先确认风格底图，再做高清细节恢复</small></div>
         <small class="row-sum" id="shipSummary">—</small>
-        <button type="button" class="row-btn" id="shipToggle" data-pick="ship">调整</button>
+        <button type="button" class="row-btn" id="shipToggle" data-pick="ship" aria-expanded="false" aria-controls="shipPick">调整</button>
       </div>
-      <div class="row-pick" id="shipPick" hidden>
-        <div class="pick-title">DELIVERY · 高清出图是灵魂：先定原生分辨率，放大只做如实标注</div>
+      <div class="row-pick" id="shipPick" hidden role="group" aria-labelledby="shipPickTitle">
+        <div class="pick-title" id="shipPickTitle">DELIVERY · 高清出图是灵魂：先定原生分辨率，放大只做如实标注</div>
         <div class="card">
-          <label>执行方式</label>
-          <div class="opt-grid">
-            <button type="button" class="opt-card" data-delivery="preview-first"><strong>先看效果图（推荐）</strong><small>生成后停下等你确认风格底图，再继续高清细节恢复。</small></button>
-            <button type="button" class="opt-card" data-delivery="one-click"><strong>确认并开始 · 一次成片</strong><small>不暂停，直接走完整质量门链路到交付。</small></button>
+          <span class="group-label" id="deliveryLabel">执行方式</span>
+          <div class="opt-grid" role="group" aria-labelledby="deliveryLabel">
+            <button type="button" class="opt-card" data-delivery="preview-first" aria-pressed="false"><strong>先看效果图（推荐）</strong><small>生成后停下等你确认风格底图，再继续高清细节恢复。</small></button>
+            <button type="button" class="opt-card" data-delivery="one-click" aria-pressed="false"><strong>确认并开始 · 一次成片</strong><small>不暂停，直接走完整质量门链路到交付。</small></button>
           </div>
         </div>
         <div class="card">
-          <label>输出分辨率 <span class="field-note">生成器按此画布原生出图；想要更大就给它更大</span></label>
-          <div class="seg" id="resSeg">
-            <button type="button" class="chip" data-res="source-width">原图尺寸</button>
-            <button type="button" class="chip" data-res="4k">4K</button>
-            <button type="button" class="chip" data-res="custom">自定义宽高</button>
+          <span class="group-label" id="resLabel">输出分辨率 <span class="field-note">生成器按此画布原生出图；想要更大就给它更大</span></span>
+          <div class="seg" id="resSeg" role="group" aria-labelledby="resLabel">
+            <button type="button" class="chip" data-res="source-width" aria-pressed="false">原图尺寸</button>
+            <button type="button" class="chip" data-res="4k" aria-pressed="false">4K</button>
+            <button type="button" class="chip" data-res="custom" aria-pressed="false">自定义宽高</button>
           </div>
           <div class="res-custom" id="resCustom" hidden>
-            <input type="number" id="resW" min="320" max="8192" step="1" placeholder="宽…" /> <span class="x">×</span> <input type="number" id="resH" min="320" max="8192" step="1" placeholder="高…" />
+            <label class="sr-only" for="resW">自定义宽度（像素）</label><input type="number" id="resW" min="320" max="8192" step="1" placeholder="宽…" /> <span class="x" aria-hidden="true">×</span> <label class="sr-only" for="resH">自定义高度（像素）</label><input type="number" id="resH" min="320" max="8192" step="1" placeholder="高…" />
             <button type="button" class="btn" id="resApply">应用</button>
           </div>
           <div class="hint">细节恢复只为照片模式补真实细节；创意作品保持配方原生画布，需要更大尺寸时按同一配方重新生成，不做假放大。</div>
         </div>
-        <div class="card" style="background:rgba(0,0,0,.28)">
-          <label>本次将执行 <span class="field-note">由当前设置实时推导</span></label>
-          <div id="planStage"></div>
+        <div class="card" style="background:var(--surface-2)">
+          <span class="group-label" id="planLabel">本次将执行 <span class="field-note">由当前设置实时推导</span></span>
+          <div id="planStage" role="group" aria-labelledby="planLabel"></div>
           <div class="sum-line" id="summaryText">正在读取设置…</div>
         </div>
       </div>
     </section>
 
     <details class="pro-drawer glass" id="proDrawer">
-      <summary><span class="pro-head"><span class="row-no">04</span><b>专业参数</b><span class="row-en">PRO</span><span class="field-note">构图 · 色彩 · 人像 · 身材 · 服装 · 背景 · 细节 · 提示词库</span></span></summary>
+      <summary><span class="pro-head" data-tuned-note="· 已调整"><span class="row-no" aria-hidden="true">04</span><h2 id="proDrawerTitle">专业参数</h2><span class="row-en">PRO</span><span class="field-note" title="构图 · 色彩 · 人像 · 身材 · 服装 · 背景 · 细节 · 提示词库">构图 · 色彩 · 人像 · 身材 · 服装 · 背景 · 细节 · 提示词库</span></span></summary>
       <div class="pro-body">
-        <div class="tabs" id="proTabs">
-          <button type="button" class="selected" data-tab="compose">构图</button>
-          <button type="button" data-tab="color">色彩</button>
-          <button type="button" data-tab="portrait">人像</button>
-          <button type="button" data-tab="body">身材</button>
-          <button type="button" data-tab="clothing">服装</button>
-          <button type="button" data-tab="background">背景</button>
-          <button type="button" data-tab="detail">细节</button>
-          <button type="button" data-tab="library">提示词库</button>
+        <div class="tabs" id="proTabs" role="tablist" aria-label="专业参数分组">
+          <button type="button" role="tab" id="proTab-compose" class="selected" data-tab="compose" aria-selected="true" aria-controls="proPanel-compose" tabindex="0">构图</button>
+          <button type="button" role="tab" id="proTab-color" data-tab="color" aria-selected="false" aria-controls="proPanel-color" tabindex="-1">色彩</button>
+          <button type="button" role="tab" id="proTab-portrait" data-tab="portrait" aria-selected="false" aria-controls="proPanel-portrait" tabindex="-1">人像</button>
+          <button type="button" role="tab" id="proTab-body" data-tab="body" aria-selected="false" aria-controls="proPanel-body" tabindex="-1">身材</button>
+          <button type="button" role="tab" id="proTab-clothing" data-tab="clothing" aria-selected="false" aria-controls="proPanel-clothing" tabindex="-1">服装</button>
+          <button type="button" role="tab" id="proTab-background" data-tab="background" aria-selected="false" aria-controls="proPanel-background" tabindex="-1">背景</button>
+          <button type="button" role="tab" id="proTab-detail" data-tab="detail" aria-selected="false" aria-controls="proPanel-detail" tabindex="-1">细节</button>
+          <button type="button" role="tab" id="proTab-library" data-tab="library" aria-selected="false" aria-controls="proPanel-library" tabindex="-1">提示词库</button>
         </div>
-        <div class="tab-panel" data-tab="compose">
+        <div class="tab-panel" id="proPanel-compose" role="tabpanel" aria-labelledby="proTab-compose" tabindex="0" data-tab="compose">
           <div class="grid">
             <div class="field"><label for="workflow">工作流</label><select id="workflow" data-path="workflow"><option value="auto">自动判断</option><option value="single">单张</option><option value="batch">批量同场景</option></select></div>
             <div class="field"><label for="aspectRatio">画幅</label><select id="aspectRatio" data-path="aspectRatio"><option>original</option><option>16:9</option><option>3:2</option><option>4:5</option><option>1:1</option><option>9:16</option></select><div class="hint">改画幅会自动要求选择裁切/扩图等方式，绝不拉伸。</div></div>
@@ -371,93 +416,111 @@
             <div class="wide"><label class="check"><input type="checkbox" data-path="keepIntermediates" />保留中间文件</label></div>
           </div>
         </div>
-        <div class="tab-panel" data-tab="color" hidden><div class="grid" id="globalControls"></div></div>
-        <div class="tab-panel" data-tab="portrait" hidden>
+        <div class="tab-panel" id="proPanel-color" role="tabpanel" aria-labelledby="proTab-color" tabindex="0" data-tab="color" hidden><div class="grid" id="globalControls"></div></div>
+        <div class="tab-panel" id="proPanel-portrait" role="tabpanel" aria-labelledby="proTab-portrait" tabindex="0" data-tab="portrait" hidden>
           <div class="grid"><div class="wide"><label class="check"><input type="checkbox" data-path="portrait.enabled" />启用人像美颜</label><div class="hint">默认关闭；不会自动改变五官比例。</div></div><div id="portraitControls" class="wide grid"></div></div>
         </div>
-        <div class="tab-panel" data-tab="body" hidden>
+        <div class="tab-panel" id="proPanel-body" role="tabpanel" aria-labelledby="proTab-body" tabindex="0" data-tab="body" hidden>
           <div class="grid"><div class="wide"><label class="check"><input type="checkbox" data-path="body.enabled" />启用身材塑形</label><div class="hint danger-label">几何调整会影响真实性，范围限制为 0–40；建议 5–15。</div></div><div id="bodyControls" class="wide grid"></div></div>
         </div>
-        <div class="tab-panel" data-tab="clothing" hidden><div class="grid" id="clothingControls"></div></div>
-        <div class="tab-panel" data-tab="background" hidden><div class="grid" id="backgroundControls"></div></div>
-        <div class="tab-panel" data-tab="detail" hidden>
+        <div class="tab-panel" id="proPanel-clothing" role="tabpanel" aria-labelledby="proTab-clothing" tabindex="0" data-tab="clothing" hidden><div class="grid" id="clothingControls"></div></div>
+        <div class="tab-panel" id="proPanel-background" role="tabpanel" aria-labelledby="proTab-background" tabindex="0" data-tab="background" hidden><div class="grid" id="backgroundControls"></div></div>
+        <div class="tab-panel" id="proPanel-detail" role="tabpanel" aria-labelledby="proTab-detail" tabindex="0" data-tab="detail" hidden>
           <div class="grid">
             <div class="wide strategy"><strong>人物恢复策略：</strong>优先合并大区域，默认不拆细碎 Mask。古风人物通常按服装结构 → 头发/发饰 → 完整人脸（含下巴）处理；只有高价值手部/道具才增加额外 Patch。</div>
             <div class="field"><label for="detailMode">细节模式</label><select id="detailMode" data-path="detail.mode"><option value="adaptive">自动识别</option><option value="base-only">仅整体处理</option><option value="face">优先人脸</option><option value="explicit">指定区域</option></select></div>
             <div class="field"><label for="generationBudget">细节生成预算</label><select id="generationBudget" data-path="detail.generationBudget"><option value="fast">省时间（最多 1 块）</option><option value="balanced">平衡（默认）</option><option value="max">高投入（更多局部生成）</option></select><div class="hint">这是上限而非配额：交付分辨率越大，需要的有效细节越多，预算不足时规划器会直接拒绝规划这些补丁。</div></div>
             <div class="field"><label for="patchScope">人物细节恢复范围</label><select id="patchScope" data-path="detail.patchScope"><option value="head-and-face">头部 + 人脸（推荐）</option><option value="face-only">仅人脸</option><option value="custom">自定义范围</option></select><div class="hint">头发/发饰与完整人脸按大块处理，不按五官拆分。</div></div>
-            <div class="field"><label>细节强度</label><div class="range"><input type="range" min="0" max="100" data-path="detail.strength" aria-label="细节强度" /><output></output></div></div>
+            <div class="field"><label for="detailStrength">细节强度</label><div class="range"><input id="detailStrength" type="range" min="0" max="100" data-path="detail.strength" /><output></output></div></div>
             <div class="field"><label for="consistency">批量一致性</label><select id="consistency" data-path="batch.consistency"><option value="strict">严格一致</option><option value="balanced">平衡</option><option value="creative">允许环境变化</option></select></div>
             <div class="wide"><label for="detailRegions">指定区域</label><input id="detailRegions" type="text" data-path="detail.regions" placeholder="例如：脸、手、衣服刺绣、山体、云层…" /></div>
           </div>
         </div>
-        <div class="tab-panel" data-tab="library" hidden>
-          <div class="library-list" id="libraryList"></div>
+        <div class="tab-panel" id="proPanel-library" role="tabpanel" aria-labelledby="proTab-library" tabindex="0" data-tab="library" hidden>
+          <div class="library-list" id="libraryList" role="group" aria-label="提示词库"></div>
           <div class="hint">内置可直接使用 · 自定义可删除；点击条目即载入为自定义提示词。</div>
         </div>
       </div>
     </details>
-  </main>
-</div>
-<div class="lightbox" id="lightbox" hidden>
+  </div>
+</main>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-labelledby="lightboxTitle" hidden>
   <div class="lightbox-backdrop" id="lightboxBackdrop"></div>
   <div class="lightbox-panel glass">
-    <button type="button" class="lightbox-close" id="lightboxClose" aria-label="关闭">✕</button>
-    <div class="lightbox-media"><img id="lightboxImg" alt="配方效果图" /><div class="empty" id="lightboxEmpty" hidden>该配方暂无效果图，可直接替换为你的成片。</div></div>
+    <button type="button" class="lightbox-close" id="lightboxClose" aria-label="关闭配方详情">✕</button>
+    <div class="lightbox-media"><img id="lightboxImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" /><div class="empty" id="lightboxEmpty" hidden>该配方暂无效果图，可直接替换为你的成片。</div></div>
     <div class="lightbox-side">
-      <div class="lightbox-title" id="lightboxTitle"></div>
+      <h3 class="lightbox-title" id="lightboxTitle"></h3>
       <div class="lightbox-sub" id="lightboxSub"></div>
       <div class="lightbox-badges" id="lightboxBadges"></div>
       <div class="lightbox-summary" id="lightboxSummary"></div>
       <div class="lightbox-actions">
         <button type="button" class="btn primary" id="lightboxUse">使用此配方</button>
-        <label class="btn" for="lightboxFile">替换效果图<input type="file" id="lightboxFile" accept="image/jpeg,image/png" hidden /></label>
+        <label class="btn file-label" id="lightboxFileLabel" for="lightboxFile">替换效果图</label><input type="file" id="lightboxFile" class="sr-only" accept="image/jpeg,image/png" />
         <button type="button" class="btn ghost" id="lightboxReset" hidden>恢复默认图</button>
         <a class="btn ghost" id="lightboxSource" target="_blank" rel="noreferrer">原版仓库 ↗</a>
       </div>
-      <div class="hint" id="lightboxStatus"></div>
+      <div class="hint" id="lightboxStatus" role="status"></div>
     </div>
   </div>
 </div>
-<div class="actions">
-  <span id="status">正在加载设置…</span>
+<footer class="actions">
+  <span id="status" role="status" aria-live="polite">正在加载设置…</span>
   <div class="plan-chip" id="planChip"></div>
   <button id="submit" type="button" disabled>确认开跑</button>
-</div>
+</footer>
 <script id="photoRefinerInitialPayload" type="application/json">__PHOTO_REFINER_INITIAL_PAYLOAD__</script>
 <script>
-  const state={presets:{version:2,presets:{}},creativeRecipes:{version:1,recipes:[]},config:null,library:{custom:[]},directions:[],requestId:0,pending:new Map(),strengthDirty:false,ready:false,recipeFilter:'all',openPick:null};
+  const state={presets:{version:2,presets:{}},creativeRecipes:{version:1,recipes:[]},config:null,library:{custom:[]},directions:[],requestId:0,pending:new Map(),strengthDirty:false,ready:false,recipeFilter:'all',openPick:null,dirty:new Map(),proDirty:new Set(),recipeRevision:0};
+  /* Every string that reaches innerHTML comes from stored preferences or from
+     recipe text synced out of the vendored Starryear catalog, so it is escaped
+     at the sink instead of trusted at the source. */
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const markDirty=(path,value)=>{if(state.config)state.dirty.set(path,value===undefined?getDeep(state.config,path):value)};
   const rangeGroups={global:[['exposure','曝光',-2,2,.1],['contrast','对比度',-100,100,1],['highlights','高光',-100,100,1],['shadows','阴影',-100,100,1],['temperature','色温',-100,100,1],['tint','色调',-100,100,1],['saturation','饱和度',-100,100,1],['vibrance','自然饱和度',-100,100,1],['clarity','清晰度',-100,100,1],['dehaze','去雾',-100,100,1],['denoise','降噪',0,100,1],['sharpen','锐化',0,100,1],['grain','颗粒',0,100,1]],portrait:[['skinSmoothing','磨皮',0,100,1],['blemishRemoval','祛痘祛瑕',0,100,1],['skinToneEven','均匀肤色',0,100,1],['eyeEnhance','眼神光',0,100,1],['teethWhiten','牙齿美白',0,100,1],['faceSlim','瘦脸',0,40,1],['jawline','下颌线',0,40,1],['eyeSize','眼睛大小',0,40,1]],body:[['waistSlim','瘦腰',0,40,1],['armSlim','瘦手臂',0,40,1],['legSlim','瘦腿',0,40,1],['legLength','腿长',0,40,1],['shoulderAdjust','肩部调整',0,40,1]],clothing:[['wrinkleReduction','去衣服褶皱',0,100,1],['preserveTexture','保留面料纹理',0,100,1],['lintRemoval','去毛屑',0,100,1],['stainRemoval','去污点',0,100,1],['silhouetteCleanup','服装轮廓整理',0,100,1]],background:[['cleanup','背景净化',0,100,1],['removeDistractors','去除干扰物',0,100,1],['bokeh','背景虚化',0,100,1],['skyEnhance','天空增强',0,100,1],['foliageEnhance','植被增强',0,100,1],['architectureLines','建筑线条保护',0,100,1]]};
-  function addRanges(group,containerId){const el=document.getElementById(containerId);for(const [key,label,min,max,step] of rangeGroups[group]){const wrap=document.createElement('div');wrap.className='field';wrap.innerHTML=`<label>${label}</label><div class="range"><input type="range" min="${min}" max="${max}" step="${step}" data-path="${group}.${key}" aria-label="${label}"/><output></output></div>`;el.appendChild(wrap)}} addRanges('global','globalControls');addRanges('portrait','portraitControls');addRanges('body','bodyControls');addRanges('clothing','clothingControls');addRanges('background','backgroundControls');
+  function addRanges(group,containerId){const el=document.getElementById(containerId);for(const [key,label,min,max,step] of rangeGroups[group]){const id=`r-${group}-${key}`;const wrap=document.createElement('div');wrap.className='field';wrap.innerHTML=`<label for="${esc(id)}">${esc(label)}</label><div class="range"><input id="${esc(id)}" type="range" min="${esc(min)}" max="${esc(max)}" step="${esc(step)}" data-path="${esc(group)}.${esc(key)}"/><output></output></div>`;el.appendChild(wrap)}} addRanges('global','globalControls');addRanges('portrait','portraitControls');addRanges('body','bodyControls');addRanges('clothing','clothingControls');addRanges('background','backgroundControls');
   function setDeep(obj,path,value){const parts=path.split('.');let cur=obj;for(let i=0;i<parts.length-1;i++)cur=cur[parts[i]];cur[parts.at(-1)]=value} function getDeep(obj,path){return path.split('.').reduce((v,k)=>v?.[k],obj)}
   function styleStrengthDescription(v){if(v<25)return'保真：只做轻微校正。';if(v<50)return'轻电影：变化克制，原片感仍是主导。';if(v<75)return'电影成片：风格清晰可见。';if(v<90)return'强电影：色彩、光线和氛围明显建立。';return'重塑：风格变化很强，身份与结构风险更高。'} function modeForStrength(v){return v<50?'fidelity':(v<90?'cinematic':'reshape')}
-  function updateModeCards(){const mode=modeForStrength(Number(state.config?.styleStrength??45));document.querySelectorAll('.mode-card').forEach(card=>card.classList.toggle('selected',card.dataset.mode===mode))}
+  function updateModeCards(){const mode=modeForStrength(Number(state.config?.styleStrength??45));document.querySelectorAll('.mode-card').forEach(card=>{const on=card.dataset.mode===mode;card.classList.toggle('selected',on);card.setAttribute('aria-pressed',String(on))})}
   /* proposal-sheet accordion: at most one picker open at a time */
   const PICKS={look:'lookPick',creative:'creativePick',ship:'shipPick'};
   const PICK_BTNS={look:'lookToggle',creative:'creativeToggle',ship:'shipToggle'};
-  function setPick(name,open){state.openPick=open?name:null;for(const [n,id] of Object.entries(PICKS)){const el=document.getElementById(id);if(el)el.hidden=!(n===name&&open)}for(const [n,id] of Object.entries(PICK_BTNS)){const b=document.getElementById(id);if(b)b.classList.toggle('on',n===name&&open)}}
+  const PICK_LABELS={look:['更换','收起'],creative:['选择','收起'],ship:['调整','收起']};
+  function setPick(name,open){state.openPick=open?name:null;for(const [n,id] of Object.entries(PICKS)){const el=document.getElementById(id);if(el)el.hidden=!(n===name&&open)}for(const [n,id] of Object.entries(PICK_BTNS)){const b=document.getElementById(id);if(!b)continue;const on=n===name&&open;b.classList.toggle('on',on);b.setAttribute('aria-expanded',String(on));b.textContent=PICK_LABELS[n][on?1:0]}}
   document.querySelectorAll('.row-btn[data-pick]').forEach(btn=>btn.addEventListener('click',()=>{const name=btn.dataset.pick;const el=document.getElementById(PICKS[name]);setPick(name,Boolean(el.hidden))}));
   function selectedCreativeRecipe(){return(state.creativeRecipes.recipes||[]).find(recipe=>recipe.id===state.config?.creativeRecipe)} function sourceCountText(recipe){const min=recipe?.sourceCount?.min,max=recipe?.sourceCount?.max;return min===max?`${min} 张原图`:`${min}–${max} 张原图`}
-  function renderCreativeRecipes(){const grid=document.getElementById('recipeGrid');if(!grid)return;grid.innerHTML='';const count=Number(state.config?.sourceCount||1);const filter=state.recipeFilter||'all';const makeCard=(id,label,sub,thumb)=>{const card=document.createElement('button');card.type='button';card.className='recipe-card'+(String(state.config?.creativeRecipe||'none')===id?' selected':'');card.dataset.recipe=id;if(id!=='none'){const recipe=state.creativeRecipes.recipes.find(item=>item.id===id);if(recipe){const no=document.createElement('span');no.className='recipe-no';no.textContent=recipe.number;card.appendChild(no)}if(recipe&&(count<recipe.sourceCount.min||count>recipe.sourceCount.max)){card.disabled=true;sub=`需 ${sourceCountText(recipe)}`}}if(thumb){const wrap=document.createElement('span');wrap.className='recipe-thumb';const image=document.createElement('img');image.src=thumb;image.alt='';image.loading='lazy';wrap.appendChild(image);card.appendChild(wrap)}else{const ph=document.createElement('span');ph.className='recipe-thumb-empty';ph.textContent=id==='none'?'—':'待补效果图';card.appendChild(ph)}const box=document.createElement('span');box.className='recipe-card-label';const line=document.createElement('span');line.className='rc-line';const st=document.createElement('strong');st.textContent=label;if(id!=='none'){const db=document.createElement('button');db.type='button';db.className='recipe-detail';db.textContent='详情';db.addEventListener('click',e=>{e.stopPropagation();openLightbox(id)});line.append(st,db)}else{line.append(st)}const sm=document.createElement('small');sm.textContent=sub;box.append(line,sm);card.appendChild(box);card.addEventListener('click',()=>{if(card.disabled)return;state.config.creativeRecipe=id;renderCreativeRecipes();updateSummary();syncGates();if(id!=='none')setPick('creative',false)});grid.appendChild(card)};makeCard('none','普通精修','不二次创作',null);for(const recipe of state.creativeRecipes.recipes||[]){if(filter==='single'&&recipe.sourceCount.max>1)continue;if(filter==='multi'&&recipe.sourceCount.max===1)continue;makeCard(recipe.id,`${recipe.number} · ${recipe.titleZh}`,recipe.titleEn||'',recipe.preview?.status==='available'?recipe.preview.dataUri:null)}updateCreativeRecipe()}
-  function updateCreativeRecipe(){const recipe=selectedCreativeRecipe();const meta=document.getElementById('creativeMeta');const wrap=document.getElementById('creativeOutputWrap');const hint=document.getElementById('creativeOutputHint');const warning=document.getElementById('creativeWarning');const rowSum=document.getElementById('creativeSummary');if(!meta)return;if(!recipe){meta.innerHTML='<span class="badge">未启用二次创作</span>';if(rowSum)rowSum.textContent='不使用 · 普通精修';if(wrap)wrap.hidden=true;if(warning)warning.textContent='';return}if(wrap)wrap.hidden=false;const mode=state.config?.creativeAssemblyMode||'direct-effect';const hdw=document.getElementById('hdChainWrap');if(hdw)hdw.hidden=mode==='original-assembly'||recipe.sourceCount.max>1;const usw=document.getElementById('upscaleWrap');if(usw)usw.hidden=!recipe;if(rowSum)rowSum.textContent=`${recipe.number} · ${recipe.titleZh}`;if(hint)hint.textContent=mode==='original-assembly'?'明确选择：严格使用原版 Skill 的原图证据区、生成区和确定性拼接。':(recipe.sourceCount.min===1&&recipe.sourceCount.max===1?'默认：在所选风格预设的基础上生成一张完整效果图，不拼接；输出画幅继承画幅设置（简单模式下即原图比例）。':'默认：在所选风格预设的基础上生成一张完整效果图，不拼接。');const partner=(state.creativeRecipes.recipes||[]).find(item=>item.id===recipe.sharedWorkflowWith);const sharedBadge=partner?`<span class="badge">与${partner.number}共享当前工作流</span>`:'';meta.innerHTML=mode==='original-assembly'?`<span class="badge accent">${sourceCountText(recipe)}</span>${sharedBadge}<span class="badge">原版结构：${recipe.output.layoutZh}</span><span class="badge">${recipe.output.aspectRatio}</span><span class="badge">原版 ${recipe.sourceCommit.slice(0,7)}</span>`:`<span class="badge accent">${sourceCountText(recipe)}</span>${sharedBadge}<span class="badge">单张完整效果图</span><span class="badge">不拼接</span><span class="badge">原版 ${recipe.sourceCommit.slice(0,7)}</span>`;if(warning)warning.textContent=mode==='original-assembly'?'原版多联拼接会保留真实原图证据区，再执行生成区与确定性拼接；缩略图只帮助选型，不参与生成。':'默认只生成一张完整创意效果图：不附带原图证据区、不执行拼接；缩略图只帮助选型，不参与生成。'}
+  /* Recipe cards are built once per recipe set; filtering and selecting only
+     toggle state in place so 14 inline base64 thumbnails stop re-decoding on
+     every click. */
+  let recipeSig=null;
+  function previewSignature(preview){const data=preview?.dataUri||'';return `${preview?.status||'-'}:${preview?.overridden?1:0}:${data.length}:${data.slice(0,24)}:${data.slice(-24)}`}
+  function recipeCardSig(){return `${state.recipeRevision}|${Number(state.config?.sourceCount||1)}|${(state.creativeRecipes.recipes||[]).map(r=>`${r.id}:${previewSignature(r.preview)}`).join(',')}`}
+  function buildRecipeCard(grid,id,label,sub,thumb,recipe){const card=document.createElement('div');card.className='recipe-card';card.dataset.recipe=id;card.setAttribute('role','group');card.setAttribute('aria-label',label);const select=document.createElement('button');select.type='button';select.className='recipe-select';select.dataset.recipe=id;select.setAttribute('aria-pressed','false');if(recipe){const no=document.createElement('span');no.className='recipe-no';no.textContent=recipe.number;select.appendChild(no)}if(thumb){const wrap=document.createElement('span');wrap.className='recipe-thumb';const image=document.createElement('img');image.src=thumb;image.alt='';image.loading='lazy';wrap.appendChild(image);select.appendChild(wrap)}else{const ph=document.createElement('span');ph.className='recipe-thumb-empty';ph.textContent=id==='none'?'—':'待补效果图';select.appendChild(ph)}const box=document.createElement('span');box.className='recipe-card-label';const st=document.createElement('strong');st.textContent=label;const sm=document.createElement('small');sm.textContent=sub;box.append(st,sm);select.appendChild(box);select.addEventListener('click',()=>{if(select.disabled)return;state.config.creativeRecipe=id;markDirty('creativeRecipe',id);renderCreativeRecipes();syncGates();if(id!=='none')setPick('creative',false)});card.appendChild(select);if(recipe){const db=document.createElement('button');db.type='button';db.className='recipe-detail';db.textContent='详情';db.setAttribute('aria-label',`查看「${label}」的详情`);db.addEventListener('click',()=>openLightbox(id));card.appendChild(db)}card.__pr={recipe,label,sub,select};grid.appendChild(card)}
+  function syncRecipeCards(){const count=Number(state.config?.sourceCount||1);const filter=state.recipeFilter||'all';const selected=String(state.config?.creativeRecipe||'none');for(const card of document.querySelectorAll('#recipeGrid .recipe-card')){const p=card.__pr||{},recipe=p.recipe;let hidden=false;if(recipe){if(filter==='single'&&recipe.sourceCount.max>1)hidden=true;if(filter==='multi'&&recipe.sourceCount.max===1)hidden=true}card.hidden=hidden;const blocked=Boolean(recipe)&&(count<recipe.sourceCount.min||count>recipe.sourceCount.max);card.setAttribute('aria-disabled',String(blocked));if(p.select)p.select.disabled=blocked;const sub=blocked?`需 ${sourceCountText(recipe)}`:p.sub;const sm=card.querySelector('.recipe-card-label small');if(sm&&sm.textContent!==sub){sm.textContent=sub;if(recipe)sm.title=sub}const on=selected===card.dataset.recipe;card.classList.toggle('selected',on);if(p.select)p.select.setAttribute('aria-pressed',String(on))}}
+  function renderCreativeRecipes(){const grid=document.getElementById('recipeGrid');if(!grid)return;const sig=recipeCardSig();if(sig!==recipeSig){grid.innerHTML='';recipeSig=sig;buildRecipeCard(grid,'none','普通精修','不二次创作',null,null);for(const recipe of state.creativeRecipes.recipes||[])buildRecipeCard(grid,recipe.id,`${recipe.number} · ${recipe.titleZh}`,recipe.titleEn||'',recipe.preview?.dataUri||null,recipe)}syncRecipeCards();updateCreativeRecipe()}
+  function updateCreativeRecipe(){const recipe=selectedCreativeRecipe();const meta=document.getElementById('creativeMeta');const wrap=document.getElementById('creativeOutputWrap');const hint=document.getElementById('creativeOutputHint');const warning=document.getElementById('creativeWarning');const rowSum=document.getElementById('creativeSummary');if(!meta)return;if(!recipe){meta.innerHTML='<span class="badge">未启用二次创作</span>';if(rowSum)rowSum.textContent='不使用 · 普通精修';if(wrap)wrap.hidden=true;if(warning)warning.textContent='';return}if(wrap)wrap.hidden=false;const mode=state.config?.creativeAssemblyMode||'direct-effect';const hdw=document.getElementById('hdChainWrap');if(hdw)hdw.hidden=mode==='original-assembly'||recipe.sourceCount.max>1;const usw=document.getElementById('upscaleWrap');if(usw)usw.hidden=!recipe;if(rowSum)rowSum.textContent=`${recipe.number} · ${recipe.titleZh}`;if(hint)hint.textContent=mode==='original-assembly'?'明确选择：严格使用原版 Skill 的原图证据区、生成区和确定性拼接。':(recipe.sourceCount.min===1&&recipe.sourceCount.max===1?'默认：在所选风格预设的基础上生成一张完整效果图，不拼接；输出画幅继承画幅设置（简单模式下即原图比例）。':'默认：在所选风格预设的基础上生成一张完整效果图，不拼接。');const partner=(state.creativeRecipes.recipes||[]).find(item=>item.id===recipe.sharedWorkflowWith);const sharedBadge=partner?`<span class="badge">与${esc(partner.number)}共享当前工作流</span>`:'';meta.innerHTML=mode==='original-assembly'?`<span class="badge accent">${esc(sourceCountText(recipe))}</span>${sharedBadge}<span class="badge">原版结构：${esc(recipe.output.layoutZh)}</span><span class="badge">${esc(recipe.output.aspectRatio)}</span><span class="badge">原版 ${esc(recipe.sourceCommit.slice(0,7))}</span>`:`<span class="badge accent">${esc(sourceCountText(recipe))}</span>${sharedBadge}<span class="badge">单张完整效果图</span><span class="badge">不拼接</span><span class="badge">原版 ${esc(recipe.sourceCommit.slice(0,7))}</span>`;if(warning)warning.textContent=mode==='original-assembly'?'原版多联拼接会保留真实原图证据区，再执行生成区与确定性拼接；缩略图只帮助选型，不参与生成。':'默认只生成一张完整创意效果图：不附带原图证据区、不执行拼接；缩略图只帮助选型，不参与生成。'}
 function executionPlan(){const steps=[];const recipe=selectedCreativeRecipe();const preview=state.config?.deliveryMode==='preview-first';if(recipe){const mode=state.config?.creativeAssemblyMode==='original-assembly';const single=recipe.sourceCount.min===1&&recipe.sourceCount.max===1;const hd=Boolean(state.config?.creativeHdChain)&&!mode&&single;const twoStage=Boolean(state.config?.creativeFromBase)&&!mode&&single&&!hd;if(hd){steps.push('①主图（待你确认）','②高清细节恢复','③创意定稿（待你确认）','④分块重绘（原生分辨率）')}else if(twoStage){steps.push('①主图（待你确认）','②创意效果图'+(preview?'（待你确认）':''))}else{steps.push('①创意'+(mode?'拼图（原图证据+生成区）':'效果图')+(preview?'（待你确认）':''));if(state.config?.creativeUpscale)steps.push('②UltraSharp 超分');steps.push((state.config?.creativeUpscale?'③':'②')+'细节恢复（'+(state.config?.detail?.mode==='adaptive'?'创意安全':state.config?.detail?.mode==='explicit'?'指定区域':'优先人脸')+'）')}}else{steps.push('①效果图'+(preview?'（待你确认）':''));const detail=state.config?.detail?.mode;if(detail!=='base-only')steps.push('②智能细节恢复（'+(detail==='adaptive'?'通常 0–3 次':detail==='explicit'?'指定区域':'优先人脸')+'）')}steps.push('交付 '+({'4k':'4K','source-width':'原图尺寸'}[state.config?.resolution]||state.config?.resolution));return '本次将执行：'+steps.join(' → ')}
-  function updateSummary(){document.querySelectorAll('#planStage,#planChip').forEach(node=>{node.textContent=executionPlan()});const creative=selectedCreativeRecipe();const delivery=state.config?.deliveryMode==='one-click'?'一次成片':'先看效果图';if(creative){const preview=creative.preview?.status==='available'?'有效果图':'待补效果图';const upstream=state.presets.presets[state.config?.preset];const upstreamLabel=upstream?.labelZh||upstream?.label||'自定义';const mode=state.config?.creativeAssemblyMode==='original-assembly'?'原版多联拼接':'单张直接效果图（不拼接）';document.getElementById('summaryText').textContent=`风格预设 ${upstreamLabel} → ${creative.number} · ${creative.titleZh} 二次创作 · ${mode} · ${delivery} · ${sourceCountText(creative)} · ${preview}`;return}const p=state.presets.presets[state.config?.preset];const label=p?.labelZh||p?.label||'自定义';const strength=Number(state.config?.styleStrength??45);const mode={fidelity:'保真精修',cinematic:'电影成片',reshape:'强风格重塑'}[modeForStrength(strength)];const resolution={'4k':'4K','source-width':'原图尺寸'}[state.config?.resolution]||state.config?.resolution;const detail=state.config?.detail?.mode==='base-only'?'无局部恢复':'智能细节 · 通常 0–3 次，复杂场景最多 6 次';document.getElementById('summaryText').textContent=`${label} · ${mode} ${strength} · ${delivery} · ${resolution} · ${detail}`}
-  function updateRowSummaries(){const p=state.presets.presets[state.config?.preset];const label=p?.labelZh||p?.label||'自定义';const s1=document.getElementById('lookSummary');if(s1)s1.textContent=`${label} · 强度 ${Number(state.config?.styleStrength??45)}`;const res=String(state.config?.resolution||'source-width');const resLabel={'4k':'4K','source-width':'原图尺寸'}[res]||res;const s3=document.getElementById('shipSummary');if(s3)s3.textContent=`${state.config?.deliveryMode==='one-click'?'确认并开始 · 一次成片':'先看效果图'} · ${resLabel}`;const s4=document.getElementById('proDrawer');if(s4){const tuned=(state.config?.portrait?.enabled||state.config?.body?.enabled)?'已启用人像/身材':'默认参数';s4.dataset.tuned=tuned}}
-  function updateDeliveryUI(){const mode=state.config?.deliveryMode||'preview-first';document.querySelectorAll('.opt-card[data-delivery]').forEach(c=>c.classList.toggle('selected',c.dataset.delivery===mode))}
-  function updateResUI(){const res=String(state.config?.resolution||'source-width');const custom=/^\d+x\d+$/.test(res);document.querySelectorAll('#resSeg .chip').forEach(c=>{const v=c.dataset.res;c.classList.toggle('on',custom?v==='custom':v===res)});const box=document.getElementById('resCustom');if(box)box.hidden=!custom;if(custom){const parts=res.split('x');const wEl=document.getElementById('resW'),hEl=document.getElementById('resH');if(wEl&&!wEl.value)wEl.value=parts[0];if(hEl&&!hEl.value)hEl.value=parts[1]}}
-  function applyPreset(id,applyDefault=true){state.config.preset=id;document.getElementById('preset').value=id;const p=state.presets.presets[id];if(applyDefault&&!state.strengthDirty&&p&&typeof p.defaultStrength==='number'){state.config.styleStrength=p.defaultStrength;const slider=document.querySelector('[data-path="styleStrength"]');if(slider){slider.value=String(p.defaultStrength);slider.parentElement.querySelector('output').value=slider.value}}updatePrompt();syncGates()}
-  function renderPresetList(){const container=document.getElementById('presetList');container.innerHTML='';for(const [id,p] of Object.entries(state.presets.presets)){const row=document.createElement('button');row.type='button';row.className='preset-row';row.dataset.preset=id;row.innerHTML=`<strong>${p.labelZh||p.label}</strong><small>${p.summary}</small>`;row.addEventListener('click',()=>applyPreset(id,true));container.appendChild(row)}const custom=document.createElement('button');custom.type='button';custom.className='preset-row';custom.dataset.preset='custom';custom.innerHTML='<strong>自定义提示词</strong><small>完全自定义光线、色彩和质感方向</small>';custom.addEventListener('click',()=>applyPreset('custom',false));container.appendChild(custom)} function updatePresetList(){document.querySelectorAll('.preset-row').forEach(row=>row.classList.toggle('selected',row.dataset.preset===state.config?.preset))}
-  function updatePrompt(){const id=document.getElementById('preset').value;const custom=id==='custom';document.getElementById('customFields').style.display=custom?'block':'none';const strength=Number(state.config?.styleStrength??45);document.getElementById('strengthPill').textContent=String(strength);document.getElementById('styleStrengthHint').textContent=styleStrengthDescription(strength);refreshComposerChips();updatePresetList();updateModeCards();updateSummary()}
-  function loadPromptEntry(entry){if(!entry?.prompt)return;state.config.preset='custom';state.config.customPrompt=entry.prompt;state.config.customAvoid=entry.avoid||'';document.getElementById('preset').value='custom';document.getElementById('customPrompt').value=entry.prompt;document.getElementById('customAvoid').value=entry.avoid||'';updatePrompt();syncGates()}
-  function renderPromptLibrary(library){state.library=library||{custom:[]};const list=document.getElementById('libraryList');list.innerHTML='';const builtins=Object.entries(state.presets.presets).map(([id,p])=>({id,preset:id,label:p.labelZh||p.label,prompt:p.prompt,avoid:p.avoid,summary:p.summary,kind:'builtin'}));const customs=(state.library.custom||[]).map(item=>({...item,kind:'custom'}));for(const item of [...builtins,...customs]){const row=document.createElement('div');row.className='library-item';const main=document.createElement('div');main.className='library-main';main.innerHTML=`<strong>${item.label||'自定义提示词'}</strong><small>${item.summary||((item.prompt||'').slice(0,90))}</small>`;main.addEventListener('click',()=>loadPromptEntry(item));const meta=document.createElement('div');meta.className='library-meta';const kind=document.createElement('span');kind.className=`library-kind ${item.kind==='builtin'?'builtin':''}`;kind.textContent=item.kind==='builtin'?'内置可直接使用':'自定义提示词';meta.append(kind);if(item.kind==='custom'){const del=document.createElement('button');del.type='button';del.textContent='删除';del.addEventListener('click',async()=>{const result=await request('tools/call',{name:'delete_photo_refiner_prompt',arguments:{collection:'custom',entryId:item.id}});const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(payload.ok)renderPromptLibrary(payload.promptLibrary)});meta.append(del)}row.append(main,meta);list.appendChild(row)}}
-  function renderCreativeDirections(directions){const box=document.getElementById('directionList');box.innerHTML='';(directions||[]).forEach((direction,index)=>{const card=document.createElement('button');card.type='button';card.className='direction-card';card.dataset.directionIndex=String(index);card.innerHTML=`<strong>${direction.label}</strong><small>${direction.summary||'点击应用这一创作方向'}</small>`;card.addEventListener('click',()=>{document.querySelectorAll('.direction-card').forEach(item=>{item.classList.remove('selected');item.querySelector('.applied')?.remove()});card.classList.add('selected');const applied=document.createElement('span');applied.className='applied';applied.textContent='已应用到本次设置';card.appendChild(applied);if(direction.preset&&state.presets.presets[direction.preset]){applyPreset(direction.preset,false)}else{state.config.preset='custom';state.config.customPrompt=direction.prompt||'';state.config.customAvoid=direction.avoid||'';document.getElementById('preset').value='custom';document.getElementById('customPrompt').value=state.config.customPrompt;document.getElementById('customAvoid').value=state.config.customAvoid;updatePrompt();syncGates()}if(typeof direction.styleStrength==='number'){state.config.styleStrength=direction.styleStrength;const slider=document.querySelector('[data-path="styleStrength"]');if(slider){slider.value=String(direction.styleStrength);slider.parentElement.querySelector('output').value=slider.value}updatePrompt();syncGates()}document.getElementById('status').textContent=`已应用建议：${direction.label}`}) ;box.appendChild(card)})}
-  function refreshComposerChips(){const text=state.config?.customPrompt||'';document.querySelectorAll('.chip[data-frag]').forEach(chip=>chip.classList.toggle('on',Boolean(text)&&text.includes(chip.dataset.frag)))}
-  function syncGates(){for(const group of ['portrait','body']){const enabled=Boolean(state.config?.[group]?.enabled);const container=document.getElementById(`${group}Controls`);container.style.opacity=enabled?'1':'.42';container.querySelectorAll('input').forEach(input=>input.disabled=!enabled)}const explicit=state.config?.detail?.mode==='explicit';document.getElementById('detailRegions').disabled=!explicit;document.getElementById('submit').textContent=state.config?.deliveryMode==='one-click'?'确认开跑 · 一次成片':'确认开跑';updateModeCards();updateRowSummaries();updateDeliveryUI();updateResUI();updateSummary()}
-function bind(config){state.config=structuredClone(config);document.querySelectorAll('[data-path]').forEach(el=>{const value=getDeep(config,el.dataset.path);if(el.type==='checkbox')el.checked=Boolean(value);else if(value!==undefined)el.value=value;const out=el.parentElement?.querySelector('output');if(out)out.value=el.value;if(el.__prcBound)return;el.__prcBound=true;const handleFieldChange=()=>{let v=el.type==='checkbox'?el.checked:el.value;if(el.type==='range')v=Number(v);setDeep(state.config,el.dataset.path,v);if(out)out.value=el.value;if(el.dataset.path==='styleStrength')state.strengthDirty=true;if(el.id==='preset'){applyPreset(el.value,true);return}if(['customPrompt','customAvoid','styleStrength'].includes(el.id)||el.dataset.path==='styleStrength')updatePrompt();syncGates()};el.addEventListener('input',handleFieldChange);el.addEventListener('change',handleFieldChange)});document.querySelectorAll('.mode-card').forEach(card=>{if(card.__prcBound)return;card.__prcBound=true;card.addEventListener('click',()=>{const values={fidelity:35,cinematic:75,reshape:95};state.config.styleStrength=values[card.dataset.mode];state.strengthDirty=true;const slider=document.querySelector('[data-path="styleStrength"]');slider.value=String(values[card.dataset.mode]);slider.parentElement.querySelector('output').value=slider.value;updatePrompt();syncGates()})});updatePrompt();syncGates()}
-  function setInteractive(enabled,message){document.querySelectorAll('main button,main select,main input,main textarea,#submit').forEach(el=>{el.disabled=!enabled});if(message)document.getElementById('status').textContent=message}
+  function updateSummary(){document.querySelectorAll('#planStage,#planChip').forEach(node=>{const plan=executionPlan();node.textContent=plan;node.title=plan});const creative=selectedCreativeRecipe();const delivery=state.config?.deliveryMode==='one-click'?'一次成片':'先看效果图';if(creative){const preview=creative.preview?.dataUri?'有效果图':'待补效果图';const upstream=state.presets.presets[state.config?.preset];const upstreamLabel=upstream?.labelZh||upstream?.label||'自定义';const mode=state.config?.creativeAssemblyMode==='original-assembly'?'原版多联拼接':'单张直接效果图（不拼接）';setSummary(`风格预设 ${upstreamLabel} → ${creative.number} · ${creative.titleZh} 二次创作 · ${mode} · ${delivery} · ${sourceCountText(creative)} · ${preview}`);return}const p=state.presets.presets[state.config?.preset];const label=p?.labelZh||p?.label||'自定义';const strength=Number(state.config?.styleStrength??45);const mode={fidelity:'保真精修',cinematic:'电影成片',reshape:'强风格重塑'}[modeForStrength(strength)];const resolution={'4k':'4K','source-width':'原图尺寸'}[state.config?.resolution]||state.config?.resolution;const detail=state.config?.detail?.mode==='base-only'?'无局部恢复':'智能细节 · 通常 0–3 次，复杂场景最多 6 次';setSummary(`${label} · ${mode} ${strength} · ${delivery} · ${resolution} · ${detail}`)}
+  function setSummary(text){const el=document.getElementById('summaryText');el.textContent=text;el.title=text}
+  function updateRowSummaries(){const p=state.presets.presets[state.config?.preset];const label=p?.labelZh||p?.label||'自定义';const s1=document.getElementById('lookSummary');if(s1){s1.textContent=`${label} · 强度 ${Number(state.config?.styleStrength??45)}`;s1.title=s1.textContent}const res=String(state.config?.resolution||'source-width');const resLabel={'4k':'4K','source-width':'原图尺寸'}[res]||res;const s3=document.getElementById('shipSummary');if(s3){s3.textContent=`${state.config?.deliveryMode==='one-click'?'确认并开始 · 一次成片':'先看效果图'} · ${resLabel}`;s3.title=s3.textContent}const s4=document.getElementById('proDrawer');if(s4){const tuned=state.proDirty.size>0;if(tuned)s4.dataset.tuned='dirty';else delete s4.dataset.tuned}}
+  function updateDeliveryUI(){const mode=state.config?.deliveryMode||'preview-first';document.querySelectorAll('.opt-card[data-delivery]').forEach(c=>{const on=c.dataset.delivery===mode;c.classList.toggle('selected',on);c.setAttribute('aria-pressed',String(on))})}
+  function updateResUI(){const res=String(state.config?.resolution||'source-width');const custom=/^\d+x\d+$/.test(res);document.querySelectorAll('#resSeg .chip').forEach(c=>{const v=c.dataset.res;const on=custom?v==='custom':v===res;c.classList.toggle('on',on);c.setAttribute('aria-pressed',String(on))});const box=document.getElementById('resCustom');if(box)box.hidden=!custom;if(custom){const parts=res.split('x');const wEl=document.getElementById('resW'),hEl=document.getElementById('resH');if(wEl&&!wEl.value)wEl.value=parts[0];if(hEl&&!hEl.value)hEl.value=parts[1]}}
+  function applyPreset(id,applyDefault=true){state.config.preset=id;markDirty('preset',id);document.getElementById('preset').value=id;const p=state.presets.presets[id];if(applyDefault&&!state.strengthDirty&&p&&typeof p.defaultStrength==='number'){state.config.styleStrength=p.defaultStrength;markDirty('styleStrength',p.defaultStrength);const slider=document.querySelector('[data-path="styleStrength"]');if(slider){slider.value=String(p.defaultStrength);slider.parentElement.querySelector('output').value=slider.value}}updatePrompt();syncGates()}
+  function renderPresetList(){const container=document.getElementById('presetList');container.innerHTML='';for(const [id,p] of Object.entries(state.presets.presets)){const row=document.createElement('button');row.type='button';row.className='preset-row';row.dataset.preset=id;row.setAttribute('aria-pressed','false');row.innerHTML=`<strong>${esc(p.labelZh||p.label)}</strong><small>${esc(p.summary)}</small>`;row.title=p.summary||'';row.addEventListener('click',()=>applyPreset(id,true));container.appendChild(row)}const custom=document.createElement('button');custom.type='button';custom.className='preset-row';custom.dataset.preset='custom';custom.setAttribute('aria-pressed','false');custom.innerHTML='<strong>自定义提示词</strong><small>完全自定义光线、色彩和质感方向</small>';custom.addEventListener('click',()=>applyPreset('custom',false));container.appendChild(custom)} function updatePresetList(){document.querySelectorAll('.preset-row').forEach(row=>{const on=row.dataset.preset===state.config?.preset;row.classList.toggle('selected',on);row.setAttribute('aria-pressed',String(on))})}
+  function updatePrompt(){const id=document.getElementById('preset').value;const custom=id==='custom';document.getElementById('customFields').hidden=!custom;const strength=Number(state.config?.styleStrength??45);document.getElementById('strengthPill').textContent=String(strength);document.getElementById('styleStrengthHint').textContent=styleStrengthDescription(strength);refreshComposerChips();updatePresetList();updateModeCards();updateSummary()}
+  function loadPromptEntry(entry){if(!entry?.prompt)return;state.config.preset='custom';state.config.customPrompt=entry.prompt;state.config.customAvoid=entry.avoid||'';markDirty('preset','custom');markDirty('customPrompt',entry.prompt);markDirty('customAvoid',entry.avoid||'');document.getElementById('preset').value='custom';document.getElementById('customPrompt').value=entry.prompt;document.getElementById('customAvoid').value=entry.avoid||'';updatePrompt();syncGates();setStatus(`已载入提示词：${entry.label||'自定义提示词'}`)}
+  function renderPromptLibrary(library){state.library=library||{custom:[]};const list=document.getElementById('libraryList');list.innerHTML='';const builtins=Object.entries(state.presets.presets).map(([id,p])=>({id,preset:id,label:p.labelZh||p.label,prompt:p.prompt,avoid:p.avoid,summary:p.summary,kind:'builtin'}));const customs=(state.library.custom||[]).map(item=>({...item,kind:'custom'}));for(const item of [...builtins,...customs]){const row=document.createElement('div');row.className='library-item';const main=document.createElement('button');main.type='button';main.className='library-main';main.innerHTML=`<strong>${esc(item.label||'自定义提示词')}</strong><small>${esc(item.summary||(item.prompt||'').slice(0,90))}</small>`;main.title=item.summary||item.prompt||'';main.setAttribute('aria-label',`载入提示词 ${item.label||'自定义提示词'}`);main.addEventListener('click',()=>loadPromptEntry(item));const meta=document.createElement('div');meta.className='library-meta';const kind=document.createElement('span');kind.className=`library-kind ${item.kind==='builtin'?'builtin':''}`;kind.textContent=item.kind==='builtin'?'内置可直接使用':'自定义提示词';meta.append(kind);if(item.kind==='custom'){const del=document.createElement('button');del.type='button';del.textContent='删除';del.setAttribute('aria-label',`删除提示词 ${item.label||'自定义提示词'}`);del.addEventListener('click',async()=>{const result=await request('tools/call',{name:'delete_photo_refiner_prompt',arguments:{collection:'custom',entryId:item.id}});const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(payload.ok)renderPromptLibrary(payload.promptLibrary)});meta.append(del)}row.append(main,meta);list.appendChild(row)}}
+  function renderCreativeDirections(directions){const box=document.getElementById('directionList');box.innerHTML='';(directions||[]).forEach((direction,index)=>{const card=document.createElement('button');card.type='button';card.className='direction-card';card.dataset.directionIndex=String(index);card.setAttribute('aria-pressed','false');card.innerHTML=`<strong>${esc(direction.label)}</strong><small>${esc(direction.summary||'点击应用这一创作方向')}</small>`;card.addEventListener('click',()=>{document.querySelectorAll('.direction-card').forEach(item=>{item.classList.remove('selected');item.setAttribute('aria-pressed','false');item.querySelector('.applied')?.remove()});card.classList.add('selected');card.setAttribute('aria-pressed','true');const applied=document.createElement('span');applied.className='applied';applied.textContent='已应用到本次设置';card.appendChild(applied);if(direction.preset&&state.presets.presets[direction.preset]){applyPreset(direction.preset,false)}else{state.config.preset='custom';state.config.customPrompt=direction.prompt||'';state.config.customAvoid=direction.avoid||'';markDirty('preset','custom');markDirty('customPrompt',state.config.customPrompt);markDirty('customAvoid',state.config.customAvoid);document.getElementById('preset').value='custom';document.getElementById('customPrompt').value=state.config.customPrompt;document.getElementById('customAvoid').value=state.config.customAvoid;updatePrompt();syncGates()}if(typeof direction.styleStrength==='number'){state.config.styleStrength=direction.styleStrength;markDirty('styleStrength',direction.styleStrength);const slider=document.querySelector('[data-path="styleStrength"]');if(slider){slider.value=String(direction.styleStrength);slider.parentElement.querySelector('output').value=slider.value}updatePrompt();syncGates()}setStatus(`已应用建议：${direction.label}`)}) ;box.appendChild(card)})}
+  function refreshComposerChips(){const text=state.config?.customPrompt||'';document.querySelectorAll('.chip[data-frag]').forEach(chip=>{const on=Boolean(text)&&text.includes(chip.dataset.frag);chip.classList.toggle('on',on);chip.setAttribute('aria-pressed',String(on))})}
+  function setStatus(message){const el=document.getElementById('status');el.textContent=message;el.title=message}
+  function syncGates(){for(const group of ['portrait','body']){const enabled=Boolean(state.config?.[group]?.enabled);const container=document.getElementById(`${group}Controls`);container.classList.toggle('locked',!enabled);container.setAttribute('aria-disabled',String(!enabled));container.querySelectorAll('input').forEach(input=>input.disabled=!enabled)}const explicit=state.config?.detail?.mode==='explicit';document.getElementById('detailRegions').disabled=!explicit;document.getElementById('submit').textContent=state.config?.deliveryMode==='one-click'?'确认开跑 · 一次成片':'确认开跑';updateModeCards();updateRowSummaries();updateDeliveryUI();updateResUI();syncRecipeCards();updateSummary()}
+  function bind(config){const incoming=structuredClone(config);/* A late real payload replaces the fallback baseline, but a field the
+   user already touched stays as they set it — silently reverting their edits
+   under a confirmation gate is worse than a stale suggestion. */for(const [path,value] of state.dirty)if(value!==undefined)setDeep(incoming,path,value);state.config=incoming;document.querySelectorAll('[data-path]').forEach(el=>{const value=getDeep(incoming,el.dataset.path);if(el.type==='checkbox')el.checked=Boolean(value);else if(value!==undefined)el.value=value;const out=el.parentElement?.querySelector('output');if(out)out.value=el.value;if(el.__prcBound)return;el.__prcBound=true;const handleFieldChange=()=>{let v=el.type==='checkbox'?el.checked:el.value;if(el.type==='range')v=Number(v);setDeep(state.config,el.dataset.path,v);markDirty(el.dataset.path,v);if(el.closest('#proDrawer'))state.proDirty.add(el.dataset.path);if(out)out.value=el.value;if(el.dataset.path==='styleStrength')state.strengthDirty=true;if(el.id==='preset'){applyPreset(el.value,true);return}if(['customPrompt','customAvoid','styleStrength'].includes(el.id)||el.dataset.path==='styleStrength')updatePrompt();syncGates()};el.addEventListener('input',handleFieldChange);el.addEventListener('change',handleFieldChange)});document.querySelectorAll('.mode-card').forEach(card=>{if(card.__prcBound)return;card.__prcBound=true;card.addEventListener('click',()=>{const values={fidelity:35,cinematic:75,reshape:95};state.config.styleStrength=values[card.dataset.mode];markDirty('styleStrength',values[card.dataset.mode]);state.strengthDirty=true;const slider=document.querySelector('[data-path="styleStrength"]');slider.value=String(values[card.dataset.mode]);slider.parentElement.querySelector('output').value=slider.value;updatePrompt();syncGates()})});updatePrompt();syncGates()}
+  function setInteractive(enabled,message){document.querySelectorAll('main button,main select,main input,main textarea,#submit').forEach(el=>{el.disabled=!enabled});if(message)setStatus(message)}
   function normalizePayload(value){let payload=value;if(typeof payload==='string'){try{payload=JSON.parse(payload)}catch{return null}}if(!payload||typeof payload!=='object')return null;if(payload.structuredContent)return normalizePayload(payload.structuredContent);if(payload.result?.structuredContent)return normalizePayload(payload.result.structuredContent);if(payload.toolResult?.structuredContent)return normalizePayload(payload.toolResult.structuredContent);return payload?.defaults&&payload?.presets?.presets?payload:null}
   function embeddedInitialPayload(){const node=document.getElementById('photoRefinerInitialPayload');return node?normalizePayload(node.textContent):null}
-  function load(rawPayload){const payload=normalizePayload(rawPayload);if(!payload)return false;state.payloadIsFallback=payload._photoRefinerFallback===true;state.presets=payload.presets;state.creativeRecipes=payload.creativeRecipes||{version:1,recipes:[]};if(payload.recommendation||payload.creativeDirections?.length){document.getElementById('recommendation').hidden=false;document.getElementById('recommendationText').textContent=payload.recommendation||'按照片内容生成了几种可编辑的创作方向。';renderCreativeDirections(payload.creativeDirections)}const select=document.getElementById('preset');select.innerHTML='';for(const [id,p] of Object.entries(payload.presets.presets)){const o=document.createElement('option');o.value=id;o.textContent=`${p.labelZh||p.label} — ${p.summary}`;select.appendChild(o)}const custom=document.createElement('option');custom.value='custom';custom.textContent='自定义提示词';select.appendChild(custom);renderPresetList();renderPromptLibrary(payload.promptLibrary);bind(payload.defaults);renderCreativeRecipes();state.ready=true;setInteractive(true);syncGates();document.getElementById('status').textContent='等待确认 · 设置不会自动开始生成';return true}
+  function load(rawPayload){const payload=normalizePayload(rawPayload);if(!payload)return false;state.payloadIsFallback=payload._photoRefinerFallback===true;const version=document.getElementById('panelVersion');if(version&&payload.widgetVersion)version.textContent=`精修 × 创意 × 高清 · V${payload.widgetVersion}`;state.presets=payload.presets;state.creativeRecipes=payload.creativeRecipes||{version:1,recipes:[]};if(payload.recommendation||payload.creativeDirections?.length){document.getElementById('recommendation').hidden=false;document.getElementById('recommendationText').textContent=payload.recommendation||'按照片内容生成了几种可编辑的创作方向。';renderCreativeDirections(payload.creativeDirections)}const select=document.getElementById('preset');select.innerHTML='';for(const [id,p] of Object.entries(payload.presets.presets)){const o=document.createElement('option');o.value=id;o.textContent=`${p.labelZh||p.label} — ${p.summary}`;select.appendChild(o)}const custom=document.createElement('option');custom.value='custom';custom.textContent='自定义提示词';select.appendChild(custom);renderPresetList();renderPromptLibrary(payload.promptLibrary);bind(payload.defaults);renderCreativeRecipes();state.ready=true;setInteractive(true);syncGates();setStatus('等待确认 · 设置不会自动开始生成');return true}
   function loadRealPayload(){return load(window.openai?.toolOutput)||load(window.openai?.toolResult)||load(window.openai?.initialToolOutput)}
   function bootstrap(){return load(embeddedInitialPayload())||loadRealPayload()}
   // A resource-mounted panel starts on the server's fallback baseline. Keep
@@ -465,34 +528,50 @@ function bind(config){state.config=structuredClone(config);document.querySelecto
   // saved prompts) even after that baseline rendered, and give up with an
   // honest message only after the host had a fair chance to deliver it.
   function watchRealPayload(){if(state.watch)return;state.watch=true;const started=Date.now();const timer=setInterval(()=>{if(Date.now()-started>12000){clearInterval(timer);state.watch=false;if(!state.ready)setInteractive(false,'未收到宿主设置；已保留默认配置，请重新打开面板。');return}if(!state.ready){bootstrap();return}if(state.payloadIsFallback)loadRealPayload()},400)}
-  window.addEventListener('message',event=>{const m=event.data;if(!m||m.jsonrpc!=='2.0')return;if(m.id&&state.pending.has(m.id)){const{resolve,reject}=state.pending.get(m.id);state.pending.delete(m.id);m.error?reject(new Error(m.error.message)):resolve(m.result);return}if(m.method==='ui/notifications/tool-result')load(m.params?.structuredContent||m.params?.result?.structuredContent||m.params?.toolResult)}); function request(method,params){if(method==='tools/call'&&window.openai?.callTool){/* Try the host bridge first; if that broker rejects the params, retry over the JSON-RPC postMessage bridge before surfacing the failure. */return window.openai.callTool({name:params.name,arguments:params.arguments}).then(direct=>{if(direct)return direct;return bridgeRequest(method,params)},()=>bridgeRequest(method,params))}return bridgeRequest(method,params)}
-  function bridgeRequest(method,params){const id=++state.requestId;window.parent.postMessage({jsonrpc:'2.0',id,method,params},'*');return new Promise((resolve,reject)=>state.pending.set(id,{resolve,reject}))}
-  async function submit(){const button=document.getElementById('submit');const status=document.getElementById('status');if(!state.ready||!state.config){setInteractive(false,'未收到初始设置，无法确认；请重新打开面板。');return}if(button.dataset.submitted==='true')return;button.disabled=true;status.textContent='正在校验并冻结设置…';try{const result=await request('tools/call',{name:'submit_photo_refiner_settings',arguments:{userConfirmed:true,config:state.config}});const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(!payload.ok||!payload.confirmationPath)throw new Error(payload.error||'确认结果缺少 confirmationPath');status.textContent='已确认 · 正在交给 Photo Refiner';const message=`PHOTO_REFINER_PANEL_SUBMITTED\nconfirmationPath: ${payload.confirmationPath}\nconfirmationId: ${payload.confirmationId}\n\n这是面板已经提交的设置，不是新的问题。请直接使用该 confirmationPath 继续 Photo Refiner 流程：不要再次打开设置面板、不要再次询问是否确认、不要要求用户重复描述设置。若 deliveryMode 为 preview-first，继续生成效果图并等待审看。`;if(window.openai?.sendFollowUpMessage)await window.openai.sendFollowUpMessage({prompt:message});else await request('ui/message',{role:'user',content:[{type:'text',text:message}]});button.dataset.submitted='true';button.textContent='已确认'}catch(error){status.textContent=`提交失败：${error.message}`;button.disabled=false}} document.getElementById('submit').addEventListener('click',submit);
+  /* The host relays tool results back over postMessage. Accept only our parent
+     window, and only payloads that still look like a settings result: a
+     sibling frame must not be able to rewrite the settings sitting under the
+     confirm button. */
+  function fromHost(event){return event.source===window.parent}
+  window.addEventListener('message',event=>{if(!fromHost(event))return;const m=event.data;if(!m||m.jsonrpc!=='2.0')return;if(m.id&&state.pending.has(m.id)){const entry=state.pending.get(m.id);state.pending.delete(m.id);clearTimeout(entry.timer);m.error?entry.reject(new Error(m.error.message)):entry.resolve(m.result);return}if(m.method==='ui/notifications/tool-result'){const p=m.params?.structuredContent||m.params?.result?.structuredContent||m.params?.toolResult;if(p&&typeof p==='object'&&p.defaults&&p.presets?.presets)load(p)}}); function request(method,params){if(method==='tools/call'&&window.openai?.callTool){/* Try the host bridge first; if that broker rejects the params, retry over the JSON-RPC postMessage bridge before surfacing the failure. */return window.openai.callTool({name:params.name,arguments:params.arguments}).then(direct=>{if(direct)return direct;return bridgeRequest(method,params)},()=>bridgeRequest(method,params))}return bridgeRequest(method,params)}
+  function bridgeRequest(method,params){const id=++state.requestId;window.parent.postMessage({jsonrpc:'2.0',id,method,params},'*');return new Promise((resolve,reject)=>{const entry={resolve,reject};entry.timer=setTimeout(()=>{if(state.pending.delete(id))reject(new Error('宿主未在 20 秒内应答，请重试确认'))},20000);state.pending.set(id,entry)})}
+  async function submit(){const button=document.getElementById('submit');if(!state.ready||!state.config){setInteractive(false,'未收到初始设置，无法确认；请重新打开面板。');return}if(button.dataset.submitted==='true')return;button.disabled=true;setStatus('正在校验并冻结设置…');try{const result=await request('tools/call',{name:'submit_photo_refiner_settings',arguments:{userConfirmed:true,config:state.config}});const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(!payload.ok||!payload.confirmationPath)throw new Error(payload.error||'确认结果缺少 confirmationPath');setStatus('已确认 · 正在交给 Photo Refiner');const message=`PHOTO_REFINER_PANEL_SUBMITTED\nconfirmationPath: ${payload.confirmationPath}\nconfirmationId: ${payload.confirmationId}\n\n这是面板已经提交的设置，不是新的问题。请直接使用该 confirmationPath 继续 Photo Refiner 流程：不要再次打开设置面板、不要再次询问是否确认、不要要求用户重复描述设置。若 deliveryMode 为 preview-first，继续生成效果图并等待审看。`;if(window.openai?.sendFollowUpMessage)await window.openai.sendFollowUpMessage({prompt:message});else await request('ui/message',{role:'user',content:[{type:'text',text:message}]});button.dataset.submitted='true';button.textContent='已确认'}catch(error){setStatus(`提交失败：${error.message}`);button.disabled=false;button.focus()}} document.getElementById('submit').addEventListener('click',submit);
   // proposal-row pickers: accordion, one open at a time
   // creative recipe filters
-  document.querySelectorAll('#recipeFilters .chip').forEach(chip=>chip.addEventListener('click',()=>{document.querySelectorAll('#recipeFilters .chip').forEach(c=>c.classList.toggle('on',c===chip));state.recipeFilter=chip.dataset.filter;renderCreativeRecipes()}));
+  document.querySelectorAll('#recipeFilters .chip').forEach(chip=>chip.addEventListener('click',()=>{document.querySelectorAll('#recipeFilters .chip').forEach(c=>{const on=c===chip;c.classList.toggle('on',on);c.setAttribute('aria-pressed',String(on))});state.recipeFilter=chip.dataset.filter;syncRecipeCards()}));
   // prompt composer: chips never clobber manual text — a chip only adds/removes
   // its own fragment; the first activated chip seeds the current preset's full prompt.
-  function escapeRegExp(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
-  document.querySelectorAll('.chip[data-frag]').forEach(chip=>chip.addEventListener('click',()=>{const frag=chip.dataset.frag;const turningOn=!chip.classList.contains('on');chip.classList.toggle('on',turningOn);let text=(state.config?.customPrompt||'').trim();if(turningOn){if(!text&&state.config?.preset&&state.config.preset!=='custom'){const p=state.presets.presets[state.config.preset];if(p?.prompt)text=p.prompt}if(!text.includes(frag))text=text?`${text}, ${frag}`:frag}else if(text.includes(frag)){text=text.split(frag).join(',').replace(/,\s*,/g,', ').replace(/^\s*,\s*|\s*,\s*$/g,'')}state.config.preset='custom';state.config.customPrompt=text;document.getElementById('preset').value='custom';document.getElementById('customPrompt').value=state.config.customPrompt;updatePrompt();syncGates()}));
+  document.querySelectorAll('.chip[data-frag]').forEach(chip=>chip.addEventListener('click',()=>{const frag=chip.dataset.frag;const turningOn=!chip.classList.contains('on');let text=(state.config?.customPrompt||'').trim();if(turningOn){if(!text&&state.config?.preset&&state.config.preset!=='custom'){const p=state.presets.presets[state.config.preset];if(p?.prompt)text=p.prompt}if(!text.includes(frag))text=text?`${text}, ${frag}`:frag}else if(text.includes(frag)){text=text.split(frag).join(',').replace(/,\s*,/g,', ').replace(/^\s*,\s*|\s*,\s*$/g,'')}state.config.preset='custom';state.config.customPrompt=text;markDirty('preset','custom');markDirty('customPrompt',text);document.getElementById('preset').value='custom';document.getElementById('customPrompt').value=state.config.customPrompt;updatePrompt();syncGates()}));
   // delivery + resolution controls
-  document.querySelectorAll('.opt-card[data-delivery]').forEach(card=>card.addEventListener('click',()=>{state.config.deliveryMode=card.dataset.delivery;syncGates()}));
-  document.querySelectorAll('#resSeg .chip').forEach(chip=>chip.addEventListener('click',()=>{const v=chip.dataset.res;if(v==='custom'){document.getElementById('resCustom').hidden=false;document.getElementById('resW').focus();const cur=String(state.config?.resolution||'');if(!/^\d+x\d+$/.test(cur))updateResUI();return}state.config.resolution=v;syncGates()}));
-  document.getElementById('resApply').addEventListener('click',()=>{const clamp=(v)=>Math.min(8192,Math.max(320,Math.round(Number(v)||0)));const w=clamp(document.getElementById('resW').value),h=clamp(document.getElementById('resH').value);if(!w||!h){document.getElementById('status').textContent='自定义分辨率需要 320–8192 之间的宽和高';return}state.config.resolution=`${w}x${h}`;document.getElementById('status').textContent=`已设置自定义输出 ${w}×${h}`;syncGates()});
-  // pro tabs
-  document.querySelectorAll('#proTabs button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('#proTabs button').forEach(x=>x.classList.toggle('selected',x===b));const tab=b.dataset.tab;document.querySelectorAll('.tab-panel').forEach(p=>p.hidden=p.dataset.tab!==tab)}));
-  // Enter confirms (outside textareas); ⌘/Ctrl+Enter works everywhere
-  window.addEventListener('keydown',e=>{if(e.key!=='Enter'||e.isComposing)return;const inTextarea=e.target instanceof Element&&e.target.matches('textarea');if(inTextarea&&!(e.metaKey||e.ctrlKey))return;const b=document.getElementById('submit');if(state.ready&&!b.disabled){e.preventDefault();b.click()}});
+  document.querySelectorAll('.opt-card[data-delivery]').forEach(card=>card.addEventListener('click',()=>{state.config.deliveryMode=card.dataset.delivery;markDirty('deliveryMode',card.dataset.delivery);syncGates()}));
+  document.querySelectorAll('#resSeg .chip').forEach(chip=>chip.addEventListener('click',()=>{const v=chip.dataset.res;if(v==='custom'){document.getElementById('resCustom').hidden=false;document.getElementById('resW').focus();const cur=String(state.config?.resolution||'');if(!/^\d+x\d+$/.test(cur))updateResUI();return}state.config.resolution=v;markDirty('resolution',v);syncGates()}));
+  document.getElementById('resApply').addEventListener('click',()=>{const clamp=(v)=>Math.min(8192,Math.max(320,Math.round(Number(v)||0)));const w=clamp(document.getElementById('resW').value),h=clamp(document.getElementById('resH').value);if(!w||!h){setStatus('自定义分辨率需要 320–8192 之间的宽和高');return}state.config.resolution=`${w}x${h}`;markDirty('resolution',state.config.resolution);setStatus(`已设置自定义输出 ${w}×${h}`);syncGates()});
+  // pro tabs: use the ARIA tab pattern so the groups are announced as tabs and
+  // remain usable without a pointer (Left/Right, Home, End, Enter/Space).
+  const proTabButtons=[...document.querySelectorAll('#proTabs [role="tab"]')];
+  function setProTab(tab,focus=false){const active=proTabButtons.find(button=>button.dataset.tab===tab)||proTabButtons[0];proTabButtons.forEach(button=>{const on=button===active;button.classList.toggle('selected',on);button.setAttribute('aria-selected',String(on));button.tabIndex=on?0:-1});document.querySelectorAll('#proTabs~.tab-panel').forEach(panel=>{panel.hidden=panel.dataset.tab!==active.dataset.tab});if(focus)active.focus()}
+  proTabButtons.forEach((button,index)=>{button.addEventListener('click',()=>setProTab(button.dataset.tab));button.addEventListener('keydown',event=>{let next=index;if(event.key==='ArrowRight'||event.key==='ArrowDown')next=(index+1)%proTabButtons.length;else if(event.key==='ArrowLeft'||event.key==='ArrowUp')next=(index-1+proTabButtons.length)%proTabButtons.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=proTabButtons.length-1;else return;event.preventDefault();setProTab(proTabButtons[next].dataset.tab,true)})});
+  /* Enter confirms — but never by stealing a control's own activation. Bare
+     Enter on a focused button used to submit the whole job instead of pressing
+     that button, so keyboard users could not operate the panel at all.
+     ⌘/Ctrl+Enter confirms from anywhere. */
+  const ACTIVATABLE='button,a[href],summary,input,select,textarea';
+  window.addEventListener('keydown',e=>{if(e.key!=='Enter'||e.isComposing)return;const b=document.getElementById('submit');if(!state.ready||b.disabled)return;if(!document.getElementById('lightbox').hidden)return;const t=e.target instanceof Element?e.target:null;if(e.metaKey||e.ctrlKey){e.preventDefault();b.click();return}if(t&&t.matches('#resW,#resH')){e.preventDefault();document.getElementById('resApply').click();return}if(t&&(t.matches(ACTIVATABLE)||t.matches('textarea')))return;e.preventDefault();b.click()});
   // recipe lightbox: large view + details + preview replacement
   let lightboxRecipeId=null;
-  function openLightbox(recipeId){const recipe=state.creativeRecipes.recipes.find(r=>r.id===recipeId);if(!recipe)return;lightboxRecipeId=recipeId;const img=document.getElementById('lightboxImg');const empty=document.getElementById('lightboxEmpty');const dataUri=recipe.preview?.dataUri||'';img.hidden=!dataUri;empty.hidden=Boolean(dataUri);if(dataUri)img.src=dataUri;document.getElementById('lightboxTitle').textContent=`${recipe.number} · ${recipe.titleZh}`;document.getElementById('lightboxSub').textContent=[recipe.titleEn,recipe.output?.layoutZh,recipe.output?.aspectRatio].filter(Boolean).join(' · ');document.getElementById('lightboxBadges').innerHTML=`<span class="badge accent">${sourceCountText(recipe)}</span>`+(recipe.preview?.overridden?'<span class="badge accent">已替换效果图</span>':'<span class="badge">默认效果图</span>')+(recipe.sharedWorkflowWith?'<span class="badge">与同伴共享工作流</span>':'');document.getElementById('lightboxSummary').textContent=recipe.summaryZh||'';document.getElementById('lightboxSource').href=recipe.sourceUrl||'#';document.getElementById('lightboxReset').hidden=!recipe.preview?.overridden;const status=document.getElementById('lightboxStatus');status.textContent='正在加载大图…';const useBtn=document.getElementById('lightboxUse');const selected=String(state.config?.creativeRecipe||'none')===recipeId;useBtn.textContent=selected?'当前已选':'使用此配方';useBtn.disabled=selected;document.getElementById('lightbox').hidden=false;request('tools/call',{name:'get_photo_refiner_recipe_preview',arguments:{recipeId}}).then(result=>{const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(payload.ok&&payload.dataUri&&lightboxRecipeId===recipeId){img.hidden=false;empty.hidden=true;img.src=payload.dataUri;status.textContent=payload.source==='user'?'大图 · 你替换的效果图':'大图 · 原版效果图'}else if(lightboxRecipeId===recipeId){status.textContent='大图暂不可用，当前为选型缩略图'}}).catch(()=>{if(lightboxRecipeId===recipeId)status.textContent='大图暂不可用，当前为选型缩略图'})}
-  function closeLightbox(){document.getElementById('lightbox').hidden=true;lightboxRecipeId=null}
+  let lightboxTrigger=null;
+  function setLightboxStatus(message){const el=document.getElementById('lightboxStatus');el.textContent=message;el.title=message}
+  function openLightbox(recipeId){const recipe=state.creativeRecipes.recipes.find(r=>r.id===recipeId);if(!recipe)return;const dialog=document.getElementById('lightbox');if(dialog.hidden)lightboxTrigger=document.activeElement;lightboxRecipeId=recipeId;const img=document.getElementById('lightboxImg');const empty=document.getElementById('lightboxEmpty');const dataUri=recipe.preview?.dataUri||'';const title=`${recipe.number} · ${recipe.titleZh}`;img.hidden=!dataUri;empty.hidden=Boolean(dataUri);if(dataUri){img.src=dataUri;img.alt=`${title} 效果图`}document.getElementById('lightboxTitle').textContent=title;document.getElementById('lightboxSub').textContent=[recipe.titleEn,recipe.output?.layoutZh,recipe.output?.aspectRatio].filter(Boolean).join(' · ');document.getElementById('lightboxSub').setAttribute('lang','en');document.getElementById('lightboxBadges').innerHTML=`<span class="badge accent">${esc(sourceCountText(recipe))}</span>`+(recipe.preview?.overridden?'<span class="badge accent">已替换效果图</span>':'<span class="badge">默认效果图</span>')+(recipe.sharedWorkflowWith?'<span class="badge">与同伴共享工作流</span>':'');document.getElementById('lightboxSummary').textContent=recipe.summaryZh||'';const source=document.getElementById('lightboxSource');if(recipe.sourceUrl){source.href=recipe.sourceUrl;source.hidden=false}else source.hidden=true;document.getElementById('lightboxReset').hidden=!recipe.preview?.overridden;setLightboxStatus('正在加载大图…');const useBtn=document.getElementById('lightboxUse');const selected=String(state.config?.creativeRecipe||'none')===recipeId;useBtn.textContent=selected?'当前已选':'使用此配方';useBtn.disabled=selected;dialog.hidden=false;document.getElementById('lightboxClose').focus();request('tools/call',{name:'get_photo_refiner_recipe_preview',arguments:{recipeId}}).then(result=>{const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(payload.ok&&payload.dataUri&&lightboxRecipeId===recipeId){img.hidden=false;empty.hidden=true;img.src=payload.dataUri;img.alt=`${title} 大图`;setLightboxStatus(payload.source==='user'?'大图 · 你替换的效果图':'大图 · 原版效果图')}else if(lightboxRecipeId===recipeId){setLightboxStatus('大图暂不可用，当前为选型缩略图')}}).catch(()=>{if(lightboxRecipeId===recipeId)setLightboxStatus('大图暂不可用，当前为选型缩略图')})}
+  function closeLightbox(){document.getElementById('lightbox').hidden=true;lightboxRecipeId=null;lightboxTrigger?.focus?.();lightboxTrigger=null}
   document.getElementById('lightboxClose').addEventListener('click',closeLightbox);
   document.getElementById('lightboxBackdrop').addEventListener('click',closeLightbox);
-  document.getElementById('lightboxUse').addEventListener('click',()=>{if(!lightboxRecipeId)return;state.config.creativeRecipe=lightboxRecipeId;renderCreativeRecipes();updateSummary();syncGates();closeLightbox();document.getElementById('status').textContent='已选择该创意配方'});
-  document.getElementById('lightboxReset').addEventListener('click',async()=>{if(!lightboxRecipeId)return;const result=await request('tools/call',{name:'set_photo_refiner_recipe_preview',arguments:{recipeId:lightboxRecipeId,reset:true}});const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(payload.ok){const recipe=state.creativeRecipes.recipes.find(r=>r.id===lightboxRecipeId);if(recipe&&payload.dataUri){recipe.preview.dataUri=payload.dataUri;delete recipe.preview.overridden}renderCreativeRecipes();openLightbox(lightboxRecipeId)}});
-  document.getElementById('lightboxFile').addEventListener('change',function(){const file=this.files?.[0];if(!file||!lightboxRecipeId)return;const recipeId=lightboxRecipeId;const reader=new FileReader();reader.onload=()=>{const image=new Image();image.onload=()=>{const max=640;const scale=Math.min(1,max/Math.max(image.width,image.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);const dataUri=canvas.toDataURL('image/jpeg',0.72);request('tools/call',{name:'set_photo_refiner_recipe_preview',arguments:{recipeId,dataUri}}).then(result=>{const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');const status=document.getElementById('lightboxStatus');if(payload.ok){const recipe=state.creativeRecipes.recipes.find(r=>r.id===recipeId);if(recipe){recipe.preview.dataUri=payload.dataUri;recipe.preview.overridden=true}renderCreativeRecipes();if(lightboxRecipeId===recipeId){const img=document.getElementById('lightboxImg');img.hidden=false;document.getElementById('lightboxEmpty').hidden=true;img.src=dataUri}document.getElementById('lightboxReset').hidden=false;status.textContent='已替换：此配方的选型图已更新'}else{status.textContent=`替换失败：${payload.error||'未知错误'}`}}).catch(error=>{document.getElementById('lightboxStatus').textContent=`替换失败：${error.message}`})};image.onerror=()=>{document.getElementById('lightboxStatus').textContent='无法读取该图片'};image.src=reader.result};reader.readAsDataURL(file);this.value=''});
-  window.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.getElementById('lightbox').hidden)closeLightbox()});
+  document.getElementById('lightboxUse').addEventListener('click',()=>{if(!lightboxRecipeId)return;state.config.creativeRecipe=lightboxRecipeId;markDirty('creativeRecipe',lightboxRecipeId);renderCreativeRecipes();syncGates();closeLightbox();setStatus('已选择该创意配方')});
+  document.getElementById('lightboxReset').addEventListener('click',async()=>{if(!lightboxRecipeId)return;const result=await request('tools/call',{name:'set_photo_refiner_recipe_preview',arguments:{recipeId:lightboxRecipeId,reset:true}});const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(payload.ok){const recipe=state.creativeRecipes.recipes.find(r=>r.id===lightboxRecipeId);if(recipe){recipe.preview=recipe.preview||{};recipe.preview.dataUri=payload.dataUri||'';delete recipe.preview.overridden;state.recipeRevision+=1}renderCreativeRecipes();openLightbox(lightboxRecipeId)}});
+  const fileInput=document.getElementById('lightboxFile');const fileLabel=document.getElementById('lightboxFileLabel');fileInput.addEventListener('focus',()=>fileLabel.classList.add('is-focused'));fileInput.addEventListener('blur',()=>fileLabel.classList.remove('is-focused'));
+  fileInput.addEventListener('change',function(){const file=this.files?.[0];if(!file||!lightboxRecipeId)return;const recipeId=lightboxRecipeId;const reader=new FileReader();reader.onload=()=>{const image=new Image();image.onload=()=>{const max=640;const scale=Math.min(1,max/Math.max(image.width,image.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);const dataUri=canvas.toDataURL('image/jpeg',0.72);request('tools/call',{name:'set_photo_refiner_recipe_preview',arguments:{recipeId,dataUri}}).then(result=>{const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(payload.ok){const recipe=state.creativeRecipes.recipes.find(r=>r.id===recipeId);if(recipe){recipe.preview=recipe.preview||{};recipe.preview.dataUri=payload.dataUri||dataUri;recipe.preview.overridden=true;state.recipeRevision+=1}renderCreativeRecipes();if(lightboxRecipeId===recipeId){const img=document.getElementById('lightboxImg');img.hidden=false;document.getElementById('lightboxEmpty').hidden=true;img.src=payload.dataUri||dataUri}document.getElementById('lightboxReset').hidden=false;setLightboxStatus('已替换：此配方的选型图已更新')}else{setLightboxStatus(`替换失败：${payload.error||'未知错误'}`)}}).catch(error=>{setLightboxStatus(`替换失败：${error.message}`)})};image.onerror=()=>{setLightboxStatus('无法读取该图片')};image.src=reader.result};reader.readAsDataURL(file);this.value=''});
+  /* Modal keyboard contract: Escape closes, Tab stays inside the dialog, and
+     focus returns to the card the detail was opened from. */
+  window.addEventListener('keydown',e=>{const dialog=document.getElementById('lightbox');if(dialog.hidden)return;if(e.key==='Escape'){closeLightbox();return}if(e.key!=='Tab')return;const items=[...dialog.querySelectorAll('button,a[href]:not([hidden]),input:not([disabled])')].filter(el=>!el.disabled&&el.offsetParent!==null);if(!items.length)return;const first=items[0],last=items[items.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}else if(!dialog.contains(document.activeElement)){e.preventDefault();first.focus()}});
   setInteractive(false,'正在加载设置…');if(!bootstrap())setInteractive(false,'正在连接宿主…');watchRealPayload();
 </script>
 </body>
