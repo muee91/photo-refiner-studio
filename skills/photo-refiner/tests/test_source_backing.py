@@ -56,6 +56,20 @@ class SourceBackedRoutingTests(unittest.TestCase):
 
 
 class SourceBackedPlanNormalizationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        inserted = str(SCRIPTS) not in sys.path
+        if inserted:
+            sys.path.insert(0, str(SCRIPTS))
+        import delivery_gate
+        cls.delivery_gate = delivery_gate
+        cls._inserted_scripts_path = inserted
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._inserted_scripts_path:
+            sys.path.remove(str(SCRIPTS))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
