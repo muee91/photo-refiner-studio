@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "photo-refiner-studio",
-  "version": "1.2.0",
-  "description": "Review-first photographic refinement for ChatGPT and Codex with deterministic workflow control, source-backed original-resolution delivery, spatial guards, creative translation, and auditable delivery.",
+  "version": "1.3.0",
+  "description": "Review-first photographic refinement for ChatGPT and Codex with deterministic workflow control, button-based approvals, resumable jobs, per-frame batch authority, source-backed original-resolution delivery, creative translation, and auditable delivery.",
   "author": {
     "name": "muee"
   },
