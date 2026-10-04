@@ -174,7 +174,13 @@ python3 "$SKILL_ROOT/scripts/build_edit_prompt.py" <job.json>
 3. Use the frozen preset/custom prompt plus explicit invariants. SOURCE MASTER remains authoritative for identity/anatomy/geometry; the selected semantic style level controls how visibly the approved look should change.
 4. Generate the Image 2.5 base.
 5. For `preview-first`, show the base and stop at `base_generated`. Do not upscale, regenerate local patches, or blend until the user approves it.
-6. Record approval:
+6. Present a compact **quality review card** with four checks before asking for approval:
+   - **identity** — face shape, feature spacing, gaze, and expression still match SOURCE MASTER;
+   - **anatomy / structure** — fingers, chin, hair ornaments, garment joins, and important props are intact;
+   - **patch readiness** — no visible face drift, duplicated features, rectangular seams, halos, or abrupt local color/sharpness changes;
+   - **overall look** — approved lighting, tone, palette, framing, and source-derived geometry remain coherent.
+   If any check fails, stop at `base_generated` and regenerate the base from SOURCE MASTER. Do not use the failed image as a new source or continue by adding detail patches on top of it. Offer the user the concrete action (`重做主图` or `回退到主图`) instead of asking them to restate the settings.
+7. Record approval:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --approve-base-preview \
@@ -642,7 +648,11 @@ deliver at or below `max_honest_delivery_width`, or switch to the tile-redraw ch
 The gate also writes `preview_vs_final_diff.png` in the job directory: the approved
 preview resized into delivery space minus the delivered file, amplified 4x. Show it
 to the user whenever `diff.changed_pixel_share` is not negligible — "approved equals
-delivered" must be inspectable, not asserted.
+delivered" must be inspectable, not asserted. Pair the diff with the same four-item
+quality review card used at the base checkpoint (identity, anatomy / structure,
+patch seams, overall look). If a face or patch fails that review, keep the latest
+clean accepted composite or LOOK MASTER as the fallback and redo only the failed
+stage; never feed the visibly broken composite into another recovery pass.
 
 The gate binds to the measured size and hash of both files, so editing either one
 afterwards makes the stored verdict stale and `update_job.py` refuses it.

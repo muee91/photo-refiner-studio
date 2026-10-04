@@ -316,6 +316,10 @@ function widgetHtmlInvariants(html) {
   assert.match(resourceHtml, /preset-list/);
   assert.match(resourceHtml, /先选择风格和强度/);
   assert.match(resourceHtml, /先看效果图（推荐）/);
+  assert.match(resourceHtml, /质量检查点/);
+  assert.match(resourceHtml, /重做脸部补丁/);
+  assert.match(resourceHtml, /确认并生成预览/);
+  assert.match(resourceHtml, /无矩形框、重影或色温跳变/);
   assert.match(resourceHtml, /确认并开始/);
   assert.match(resourceHtml, /确认开跑/);
   assert.match(resourceHtml, /单张直接效果图（默认，不拼接）/);
