@@ -389,6 +389,19 @@ class ScriptTests(unittest.TestCase):
             ok=False,
         )
 
+    def test_face_registration_cannot_be_relaxed_to_homography(self) -> None:
+        result = self.run_script(
+            "register_blend.py",
+            "--base", self.root / "base.png",
+            "--target", self.root / "target.png",
+            "--patch", self.root / "patch.png",
+            "--output", self.root / "face-blended.png",
+            "--x", 70, "--y", 60,
+            "--region-type", "face", "--model", "homography",
+            ok=False,
+        )
+        self.assertIn("protected similarity", result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

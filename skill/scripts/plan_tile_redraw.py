@@ -7,7 +7,8 @@ served in one patch. Cutting the area into tiles of `cap / threshold` keeps ever
 tile's own budget satisfied while letting the delivery be as large as the file needs.
 
 Rules enforced here:
-- tile side <= observed cap / region threshold, so a patch can actually fill it;
+- each tile axis <= the corresponding observed cap axis / region threshold, so a
+  rectangular runtime cap is not accidentally treated as square;
 - tiles are generated strictest-first, and a tile already covered by an equal or
   finer neighbour is dropped, so overlapping region boxes are not paid for twice;
 - the union must leave no gap inside the area it was asked to cover.
@@ -33,6 +34,8 @@ from job_contract import (
 
 BLEND_ORDER = {"costume": 10, "architecture": 10, "generic": 10, "background": 10,
                "head": 20, "hand": 25, "prop": 25, "face": 30}
+PROTECTED_REGION_TYPES = {"face", "head", "hand"}
+BROAD_REGION_TYPES = {"generic", "background"}
 CELL = 8  # coverage lattice step in canvas pixels
 
 
@@ -119,12 +122,12 @@ def grid_tiles(box: dict, tile_w: int, tile_h: int, overlap: float, canvas_w: in
     span_x = max(1, x1 - box["x"])
     span_y = max(1, y1 - box["y"])
     tw, th = min(tile_w, span_x), min(tile_h, span_y)
-    if max_area and tw * th > max_area:
-        # Clamping one axis to the region leaves the other too generous: the generator
-        # caps total pixels, so the reachable area bounds both axes together.
-        factor = math.sqrt(max_area / (tw * th))
-        tw = max(1, math.floor(tw * factor))
-        th = max(1, math.floor(th * factor))
+    # `max_area` is retained for callers of the helper from older integrations,
+    # but the planner no longer scales a positioned grid by area.  With a
+    # rectangular observed cap, area scaling can make both axes too large for the
+    # short cap axis and the later shrink leaves gaps between already-chosen offsets.
+    # The caller now derives a budget-safe width and height before asking for offsets.
+    del max_area
     step_x = max(1, math.floor(tw * (1 - overlap)))
     step_y = max(1, math.floor(th * (1 - overlap)))
 
@@ -142,6 +145,54 @@ def grid_tiles(box: dict, tile_w: int, tile_h: int, overlap: float, canvas_w: in
         for tx in offsets(box["x"], span_x, tw, step_x)
         for ty in offsets(box["y"], span_y, th, step_y)
     ]
+
+
+def subtract_rectangles(box: dict, excluded: list[dict]) -> list[dict]:
+    """Cut a box into rectangles that do not touch any protected rectangle.
+
+    Full-canvas generic redraws are a fallback for the parts not served by the
+    strict face/head/hand grids.  Letting one of those broad tiles cross a face
+    means a failed face patch can leave a generic hallucination behind.  Splitting
+    the broad tile before generation keeps that fallback physically out of the
+    protected regions while preserving the rest of the requested coverage.
+    """
+    pieces = [dict(box)]
+    for blocked in excluded:
+        bx0, by0 = blocked["x"], blocked["y"]
+        bx1, by1 = bx0 + blocked["width"], by0 + blocked["height"]
+        next_pieces: list[dict] = []
+        for piece in pieces:
+            px0, py0 = piece["x"], piece["y"]
+            px1, py1 = px0 + piece["width"], py0 + piece["height"]
+            ix0, iy0 = max(px0, bx0), max(py0, by0)
+            ix1, iy1 = min(px1, bx1), min(py1, by1)
+            if ix0 >= ix1 or iy0 >= iy1:
+                next_pieces.append(piece)
+                continue
+            if py0 < iy0:
+                next_pieces.append({"x": px0, "y": py0, "width": piece["width"], "height": iy0 - py0})
+            if iy1 < py1:
+                next_pieces.append({"x": px0, "y": iy1, "width": piece["width"], "height": py1 - iy1})
+            if px0 < ix0:
+                next_pieces.append({"x": px0, "y": iy0, "width": ix0 - px0, "height": iy1 - iy0})
+            if ix1 < px1:
+                next_pieces.append({"x": ix1, "y": iy0, "width": px1 - ix1, "height": iy1 - iy0})
+        pieces = next_pieces
+        if not pieces:
+            break
+    return [piece for piece in pieces if piece["width"] > 0 and piece["height"] > 0]
+
+
+def budget_safe_tile_size(cap: tuple[int, int], threshold: float) -> tuple[int, int]:
+    """Return a tile footprint that its rectangular patch cap can actually serve."""
+    if threshold <= 0:
+        raise ValueError("threshold must be positive")
+    width = max(1, math.floor(cap[0] / threshold))
+    height = max(1, math.floor(cap[1] / threshold))
+    # Rounding in fit_patch_size can put a boundary value a fraction below the
+    # threshold.  Shrink the footprint before offsets are computed, never after.
+    safe = shrink_to_budget({"x": 0, "y": 0, "width": width, "height": height}, cap, threshold)
+    return safe["width"], safe["height"]
 
 
 def mark(covered: np.ndarray, box: dict, value: bool) -> None:
@@ -209,6 +260,22 @@ def main() -> None:
     if not regions:
         raise SystemExit("Nothing to tile: pass --detail-plan, --region-box or --full-canvas")
 
+    protected_regions = [
+        {
+            "region_type": region["region_type"],
+            "region_role": region["region_role"],
+            "box": dict(region["box"]),
+        }
+        for region in regions
+        if region["region_type"] in PROTECTED_REGION_TYPES
+    ]
+    if protected_regions:
+        provenance["protected_regions"] = protected_regions
+        provenance["broad_tile_policy"] = (
+            "generic/background full-canvas tiles are split around face/head/hand regions; "
+            "register_blend.py rejects any residual overlap"
+        )
+
     covered = np.zeros((math.ceil(canvas_h / CELL), math.ceil(canvas_w / CELL)), dtype=bool)
     slivers = np.zeros_like(covered)
     target = np.zeros_like(covered)
@@ -222,9 +289,22 @@ def main() -> None:
     largest_sliver = 0.0
     for region in sorted(regions, key=lambda item: -pixel_budget_threshold(item["region_type"])):
         threshold = pixel_budget_threshold(region["region_type"])
-        reach = max(1, math.floor(max(args.observed_patch_size) / threshold))
-        reach_area = int(args.observed_patch_size[0] * args.observed_patch_size[1] / threshold ** 2)
-        for box in grid_tiles(region["box"], reach, reach, args.overlap, canvas_w, canvas_h, reach_area):
+        reach_w, reach_h = budget_safe_tile_size(args.observed_patch_size, threshold)
+        candidate_boxes = grid_tiles(region["box"], reach_w, reach_h, args.overlap, canvas_w, canvas_h)
+        if (
+            args.full_canvas
+            and region["region_role"] == "full-canvas"
+            and region["region_type"] in BROAD_REGION_TYPES
+            and protected_regions
+        ):
+            candidate_boxes = [
+                fragment
+                for candidate in candidate_boxes
+                for fragment in subtract_rectangles(
+                    candidate, [item["box"] for item in protected_regions]
+                )
+            ]
+        for box in candidate_boxes:
             already = coverage_fraction(covered, box)
             if already >= 1.0:
                 dropped_duplicates += 1
@@ -260,6 +340,7 @@ def main() -> None:
         "tile_overlap": args.overlap,
         "coverage_cell": CELL,
         "provenance": provenance,
+        "protected_regions": protected_regions,
         "source_tiling_request": source_tiling,
         "tile_count": len(tiles),
         "deduplicated_tiles": dropped_duplicates,

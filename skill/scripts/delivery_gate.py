@@ -53,6 +53,21 @@ def measure(path: Path) -> dict:
     return {"path": str(path), "size": size, "sha256": sha256_file(path)}
 
 
+def looks_like_tile_plan(document: object) -> bool:
+    """Detect a tile-redraw manifest passed through the detail-plan flag.
+
+    Tile plans and detail plans are both JSON, so accepting the wrong one can
+    otherwise look like an empty or malformed detail plan and obscure the actual
+    execution failure.  A detail plan owns `regions`/`region_count`; a tile plan
+    owns `tiles`, `blend_sequence`, `coverage`, and `tile_count`.
+    """
+    if not isinstance(document, dict):
+        return False
+    has_tile_shape = any(key in document for key in ("tiles", "blend_sequence", "coverage", "tile_count"))
+    has_detail_shape = "regions" in document or "region_count" in document
+    return has_tile_shape and not has_detail_shape
+
+
 def information_raise(data: dict, reference_size: list[int]) -> tuple[float, list[dict]]:
     """How much larger the canvas genuinely is, starting from the reference image.
 
@@ -202,6 +217,20 @@ def main() -> None:
     detail_required = detail_mode not in {"", "base-only", "not-applicable"}
     hd_master_delivery = creative_binding == "hd-master"
 
+    plan_argument_error = None
+    if args.plan is not None:
+        candidate_path = args.plan.expanduser().resolve()
+        if candidate_path.is_file() and candidate_path.is_relative_to(job_dir):
+            try:
+                candidate_document = json.loads(candidate_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                candidate_document = None
+            if looks_like_tile_plan(candidate_document):
+                plan_argument_error = {
+                    "reason": "tile_plan_passed_as_detail_plan",
+                    "path": str(candidate_path),
+                }
+
     budget = {"verdict": "not-applicable", "dropped_regions": [], "failed_observations": []}
     if hd_master_delivery and args.tile_plan is None:
         budget = {
@@ -226,7 +255,7 @@ def main() -> None:
             "--tile-plan was supplied. Run prepare_hd_working_canvas.py, then follow the route it records."
         )
 
-    if args.plan is not None and not hd_master_delivery:
+    if args.plan is not None and not hd_master_delivery and plan_argument_error is None:
         plan_path = args.plan.expanduser().resolve()
         if not plan_path.is_file():
             raise SystemExit(f"Missing detail plan: {plan_path}")
@@ -715,7 +744,14 @@ def main() -> None:
     # Mandatory evidence remains mandatory even when another optional plan was
     # supplied. Ordinary local recovery may use a detail plan, or the automatic
     # full-canvas fallback when global information cannot honestly reach delivery.
-    if hd_master_delivery and args.tile_plan is None:
+    if plan_argument_error is not None:
+        budget["verdict"] = "fail"
+        budget["reason"] = plan_argument_error["reason"]
+        reasons.append(
+            "budget: --plan received a tile-redraw manifest. Pass it with --tile-plan; "
+            "detail-plan and tile-plan evidence are different execution chains."
+        )
+    elif hd_master_delivery and args.tile_plan is None:
         budget["verdict"] = "fail"
         budget["reason"] = "missing_tile_plan"
     elif detail_required and not hd_master_delivery and args.plan is None and not full_canvas_tile_redraw_accepted:

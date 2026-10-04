@@ -503,6 +503,32 @@ class DeliveryGateTests(unittest.TestCase):
         self.assertEqual(report["budget"]["reason"], "missing_detail_plan_or_full_canvas_tile_plan")
         self.assertIn("--plan", report["required_action"])
 
+    def test_tile_manifest_passed_as_plan_is_rejected_with_correct_route(self):
+        result = self.run_script(
+            "init_job.py", self.source, "--preset", "warm-gold-ancient", "--confirmed",
+            "--detail-mode", "adaptive", "--output-root", self.root / "wrong-plan-jobs",
+        )
+        job_dir = Path(result.stdout.strip().splitlines()[-1])
+        master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
+        final = job_dir / "final.jpg"
+        Image.open(master).save(final, quality=95)
+        tile_plan = job_dir / "tile-plan-grid.json"
+        tile_plan.write_text(json.dumps({
+            "verdict": "pass", "canvas": list(REAL_DELIVERY_CANVAS),
+            "tile_count": 1, "blend_sequence": [0],
+            "coverage": {"hole_area": 0, "sliver_area": 0},
+            "tiles": [{"index": 0, "region_type": "generic", "box": {
+                "x": 0, "y": 0, "width": REAL_DELIVERY_CANVAS[0], "height": REAL_DELIVERY_CANVAS[1],
+            }}],
+        }), encoding="utf-8")
+        gate = self.run_script(
+            "delivery_gate.py", job_dir / "job.json", "--master", master, "--final", final,
+            "--plan", tile_plan, ok=False,
+        )
+        report = json.loads(gate.stdout)
+        self.assertEqual(report["budget"]["reason"], "tile_plan_passed_as_detail_plan")
+        self.assertIn("--tile-plan", report["required_action"])
+
     def test_hd_master_delivery_requires_tile_plan_even_with_passing_detail_plan(self):
         job_dir = self.start_job()
         master = self.drive_to_details_processed(job_dir, REAL_DELIVERY_CANVAS)
@@ -1615,6 +1641,54 @@ class TileRedrawPlannerTests(unittest.TestCase):
         self.assertEqual(plan["coverage"]["uncovered_area"], 0)
         self.assertEqual(plan["coverage"]["hole_area"], 0)
         self.assertEqual(plan["coverage"]["target_area"], 4672 * 7008)
+
+    def test_rectangular_patch_cap_does_not_create_full_canvas_holes(self):
+        """A 1536x1024 return cap must be planned per axis, not as a square."""
+        canvas = self.root / "rectangular-cap.png"
+        Image.new("RGB", (6144, 4096), (90, 120, 150)).save(canvas)
+        result = self.invoke(
+            "plan_tile_redraw.py", "--image", canvas,
+            "--observed-patch-size", "1536x1024", "--full-canvas", "--sliver-margin", "0",
+        )
+        plan = json.loads(result.stdout)
+        self.assertEqual(plan["verdict"], "pass")
+        self.assertEqual(plan["coverage"]["hole_area"], 0)
+        self.assertEqual(plan["coverage"]["uncovered_area"], 0)
+        for tile in plan["tiles"]:
+            self.assertLessEqual(tile["box"]["width"], 3072)
+            self.assertLessEqual(tile["box"]["height"], 2048)
+            self.assertGreaterEqual(tile["budget_ratio"], tile["threshold"])
+
+    def test_broad_full_canvas_tiles_are_split_around_protected_regions(self):
+        canvas = self.root / "protected-canvas.png"
+        Image.new("RGB", (1600, 1200), (90, 120, 150)).save(canvas)
+        detail = self.root / "protected-detail-plan.json"
+        detail.write_text(json.dumps({
+            "working_canvas": [1600, 1200],
+            "regions": [{
+                "region_type": "face", "region_role": "face",
+                "crop": {"x": 650, "y": 250, "width": 300, "height": 400},
+            }],
+            "regions_dropped_for_budget": [],
+        }), encoding="utf-8")
+        result = self.invoke(
+            "plan_tile_redraw.py", "--image", canvas, "--observed-patch-size", "500x300",
+            "--detail-plan", detail, "--full-canvas", "--sliver-margin", "0",
+        )
+        plan = json.loads(result.stdout)
+        self.assertEqual(plan["coverage"]["hole_area"], 0)
+        protected = [item["box"] for item in plan["provenance"]["protected_regions"]]
+        broad = [tile for tile in plan["tiles"] if tile["region_type"] in {"generic", "background"}]
+        self.assertTrue(broad)
+        for tile in broad:
+            for blocked in protected:
+                self.assertFalse(
+                    tile["box"]["x"] < blocked["x"] + blocked["width"]
+                    and blocked["x"] < tile["box"]["x"] + tile["box"]["width"]
+                    and tile["box"]["y"] < blocked["y"] + blocked["height"]
+                    and blocked["y"] < tile["box"]["y"] + tile["box"]["height"],
+                    f"broad tile crosses protected face: {tile['box']}",
+                )
 
     def test_refuses_missing_observed_patch_size(self):
         result = self.invoke("plan_tile_redraw.py", "--image", self.canvas,

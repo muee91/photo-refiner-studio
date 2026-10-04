@@ -29,6 +29,17 @@ AUTO_MODELS = {
     "background": "homography",
     "generic": "homography",
 }
+STRICT_MODELS = {"face": "similarity", "head": "affine", "hand": "affine"}
+
+
+def rectangles_intersect(first: dict, second: dict) -> bool:
+    """Return true when two positive-area boxes share any pixels."""
+    return not (
+        first["x"] + first["width"] <= second["x"]
+        or second["x"] + second["width"] <= first["x"]
+        or first["y"] + first["height"] <= second["y"]
+        or second["y"] + second["height"] <= first["y"]
+    )
 
 
 def smoothstep(value: np.ndarray) -> np.ndarray:
@@ -112,6 +123,11 @@ def main() -> None:
 
     if not 0.0 <= args.detail_gain <= 2.0:
         raise SystemExit("--detail-gain must be between 0 and 2")
+    if args.region_type in STRICT_MODELS and args.model not in {"auto", STRICT_MODELS[args.region_type]}:
+        raise SystemExit(
+            f"{args.region_type} patches must use the protected {STRICT_MODELS[args.region_type]} "
+            "registration model; a looser transform can change identity or anatomy"
+        )
     default_mid = {"face": 0.20, "head": 0.30, "hand": 0.30, "costume": 0.40, "prop": 0.40, "architecture": 0.35, "background": 0.30, "generic": 0.35}
     mid_detail_gain = default_mid[args.region_type] if args.mid_detail_gain is None else args.mid_detail_gain
     if not 0.0 <= mid_detail_gain <= 1.0:
@@ -166,6 +182,16 @@ def main() -> None:
                 raise SystemExit(f"--tile-index {args.tile_index} must match exactly one tile")
             region = matches[0]
             box = region.get("box") or {}
+            if args.region_type in {"generic", "background"}:
+                protected_regions = plan.get("protected_regions") or (plan.get("provenance") or {}).get("protected_regions") or []
+                for protected in protected_regions:
+                    protected_box = protected.get("box") or {}
+                    if all(key in protected_box for key in ("x", "y", "width", "height")) and rectangles_intersect(box, protected_box):
+                        raise SystemExit(
+                            f"Broad {args.region_type} tile {args.tile_index} intersects protected "
+                            f"{protected.get('region_type', 'subject')} region {protected.get('region_role', '')!r}; "
+                            "regenerate the tile plan with protected-region splitting"
+                        )
             evidence_kind = "tile-redraw"
             index_name = "tile_index"
             index_value = args.tile_index
