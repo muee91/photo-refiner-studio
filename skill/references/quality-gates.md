@@ -57,12 +57,29 @@ Reject visible crop seams, halos, hard texture boundaries, local over-sharpening
 
 For portraits in historical or classical costume, the garment is part of the subject. Preserve silhouette, collar, sleeves, waist, hem, embroidery, weave and drape. Reject clothing patches that flatten intentional folds, break embroidery continuity, or change garment construction.
 
+## 6. Optional depth-order gate
+
+Apply this gate only when the active detail plan contains an **active `depth_guard`** produced by `apply_depth_prior.py`. Absence of depth metadata never fails a job.
+
+Depth is advisory. SOURCE MASTER remains the geometry authority. Reject a guarded patch when it visibly:
+
+- moves an object that was in front of the subject behind it, or vice versa;
+- reveals skin, clothing, hair, or object surfaces that were genuinely occluded;
+- erases a legitimate foreground crossing such as a railing, branch, veil, sleeve, or prop;
+- changes hand/prop front-back ordering relative to the torso;
+- creates a hard binary blur boundary when the requested depth-of-field should transition gradually;
+- collapses a requested atmospheric-perspective gradient into a flat mask-like separation.
+
+When `depth_guard.merge_policy` is `do-not-merge-across-depth-boundary`, do not broaden that patch crop across the named discontinuity merely to reduce generation count. When it is `broad-merge-safe`, treat that only as permission to consider a broad crop; it is never a requirement to merge.
+
+Do not fail a patch solely because monocular depth inference disagrees with clear visible SOURCE MASTER evidence. Mirrors, reflections, water, glass, sky, long-lens compression, and ambiguous transparency are common depth failure modes.
+
 ## Retry path
 
 ```text
 two-reference patch
   -> pixel budget passes
-  -> registration + structure/identity + LOOK MASTER + seam gates pass: blend
+  -> registration + structure/identity + LOOK MASTER + optional depth-order + seam gates pass: blend
   -> fails generation/structure: geometry-locked target-only retry
       -> all gates pass: blend and report fallback
       -> fails: reject, preserve clean LOOK MASTER, and report
@@ -75,6 +92,7 @@ Maximum two generation attempts per tile unless the user explicitly asks for mor
 - A passing registration may optionally use `--blend-mask` to reduce rectangular seams; this is a blending aid, not permission to weaken identity or geometry checks.
 - The planner must treat the normal generation count as a **soft budget**, score candidate value/scale, and prefer broad regions over many small regions. Reject plans that create micro-patches for eyes, mouth, ears, sleeves, or single ornaments by default. A balanced plan normally contains 0–3 patches, but may expand to 4–6 only when the remaining regions exceed the overflow-value threshold and still pass Pixel Budget. Six is the balanced hard ceiling.
 - If a broad `head` patch adequately covers hair, ears, and ornaments, do not split it into more generated patches merely to improve the mask.
+- Optional depth metadata may tighten merge safety or visual review, but it does **not** increase the patch budget by itself.
 
 ## Optional landmark structure gate
 
