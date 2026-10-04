@@ -56,6 +56,18 @@ class WorkflowControllerTests(unittest.TestCase):
         self.assertEqual(decision["next_action"], "prepare_hd_working_canvas")
         self.assertFalse(decision["user_input_required"])
 
+    def test_base_only_skips_detail_planner_and_runs_delivery_gate(self):
+        job = self.base_job(
+            base_preview={"required": True, "approved": True},
+            detail={"mode": "base-only"},
+            hd_working_canvas={"route": "source-backed-detail"},
+        )
+        decision = workflow_controller.decide(job, self.job_dir)
+        self.assertEqual(decision["next_action"], "run_delivery_gate")
+        job["delivery_gate"] = {"verdict": "pass"}
+        decision = workflow_controller.decide(job, self.job_dir)
+        self.assertEqual(decision["next_action"], "complete_job")
+
     def test_source_backed_raw_plan_is_normalized_without_user_tiling_choice(self):
         (self.job_dir / "detail-plan.raw.json").write_text(json.dumps({
             "regions": [],
