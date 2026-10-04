@@ -35,6 +35,9 @@ jobs:
       - name: Creative contract
         run: python tests/creative_contract.py
 
+      - name: HD route contract
+        run: python tests/route_contract.py
+
       - name: MCP plugin contract
         run: node tests/plugin_contract.cjs
 
