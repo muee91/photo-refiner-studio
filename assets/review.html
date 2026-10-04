@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Photo Refiner Review</title>
+<style>
+:root{color-scheme:dark;--bg:#070908;--panel:#0d1110;--ink:#eef0ea;--muted:#98a19a;--line:rgba(255,255,255,.11);--teal:#3fc3ac;--teal-bg:rgba(28,136,120,.18);--danger:#e78373}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,BlinkMacSystemFont,'PingFang SC','Segoe UI',sans-serif}.wrap{max-width:760px;margin:auto;padding:16px}.card{border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,var(--teal-bg),transparent 55%),var(--panel);padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.32)}.eyebrow{color:var(--teal);font-size:11px;font-weight:750;letter-spacing:.12em}.title{font-size:19px;font-weight:760;margin:4px 0}.desc{color:var(--muted);margin:0 0 14px}.checks{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:12px 0 16px}.check{border:1px solid var(--line);border-radius:10px;padding:9px;background:rgba(255,255,255,.025)}.check strong{display:block;font-size:12px}.check span{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}.actions{display:flex;gap:8px;flex-wrap:wrap}button{border:1px solid var(--line);border-radius:999px;padding:10px 16px;min-height:42px;color:var(--ink);background:rgba(255,255,255,.045);font:inherit;font-weight:700;cursor:pointer}button.primary{background:linear-gradient(180deg,#35b79c,#21927d);color:#04120e;border-color:rgba(63,195,172,.5)}button.danger{color:#ffd5cf;border-color:rgba(231,131,115,.35)}button:disabled{opacity:.45;cursor:wait}.status{margin-top:12px;color:var(--muted);font-size:12px}.done{color:var(--teal)}@media(max-width:600px){.checks{grid-template-columns:1fr 1fr}.actions button{flex:1 1 100%}}
+</style>
+</head>
+<body>
+<div class="wrap"><section class="card">
+<div class="eyebrow">PHOTO REFINER · REVIEW</div>
+<h1 class="title" id="title">审看当前效果</h1>
+<p class="desc" id="desc">只判断画面是否值得继续，不需要考虑高清路线或补丁数量。</p>
+<div class="checks" role="list"><div class="check" role="listitem"><strong>身份</strong><span>五官、表情、人物关系</span></div><div class="check" role="listitem"><strong>结构</strong><span>手、发饰、服装连接</span></div><div class="check" role="listitem"><strong>整体</strong><span>光线、色彩、构图</span></div><div class="check" role="listitem"><strong>异常</strong><span>重影、错位、伪影</span></div></div>
+<div class="actions"><button class="primary" id="approve">✓ 使用这版并继续</button><button class="danger" id="redo">↻ 重做当前版本</button><button id="adjust">⚙ 调整设置</button></div>
+<div class="status" id="status" role="status" aria-live="polite">等待你的选择</div>
+</section></div>
+<script id="initial" type="application/json">__PHOTO_REFINER_REVIEW_PAYLOAD__</script>
+<script>
+const payload=(()=>{try{return JSON.parse(document.getElementById('initial').textContent)}catch{return{}}})();
+const state={requestId:0,pending:new Map(),busy:false};
+const checkpoint=payload.checkpoint||'base';
+const labels={base:['确认主效果','整体风格通过后，系统会自动完成原图尺寸恢复和必要的局部修复。','✓ 继续高清'],creative:['确认创意定稿','确认创意方向后，系统会继续完成交付分辨率重绘与质量检查。','✓ 使用这版'], 'batch-master':['确认整组风格','这张图只作为整组的色彩、光线和质感参考；其他照片仍保留各自人物、姿态与真实细节。','✓ 作为整组风格']};
+const copy=labels[checkpoint]||labels.base;document.getElementById('title').textContent=copy[0];document.getElementById('desc').textContent=copy[1];document.getElementById('approve').textContent=copy[2];
+function bridgeRequest(method,params){const id=++state.requestId;window.parent.postMessage({jsonrpc:'2.0',id,method,params},'*');return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{state.pending.delete(id);reject(new Error('宿主未响应'))},20000);state.pending.set(id,{resolve,reject,timer})})}
+window.addEventListener('message',event=>{if(event.source!==window.parent)return;const m=event.data;if(!m||m.jsonrpc!=='2.0'||!state.pending.has(m.id))return;const p=state.pending.get(m.id);state.pending.delete(m.id);clearTimeout(p.timer);m.error?p.reject(new Error(m.error.message)):p.resolve(m.result)});
+function request(name,args){if(window.openai?.callTool)return window.openai.callTool({name,arguments:args}).then(v=>v||bridgeRequest('tools/call',{name,arguments:args}),()=>bridgeRequest('tools/call',{name,arguments:args}));return bridgeRequest('tools/call',{name,arguments:args})}
+function setBusy(v,msg){state.busy=v;document.querySelectorAll('button').forEach(b=>b.disabled=v);document.getElementById('status').textContent=msg}
+async function act(event){if(state.busy)return;setBusy(true,'正在记录选择…');try{const result=await request('submit_photo_refiner_review',{jobPath:payload.jobPath,checkpoint,artifactPath:payload.artifactPath,event});const out=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(!out.ok)throw new Error(out.error||'提交失败');document.getElementById('status').innerHTML='<span class="done">已记录，正在继续流程…</span>';document.querySelectorAll('button').forEach(b=>b.disabled=true);const message=`PHOTO_REFINER_REVIEW_SUBMITTED\njobPath: ${out.jobPath}\nevent: ${event}\nnextAction: ${out.decision?.next_action||''}\n\n这是审核按钮已经提交的结果。请直接按 decision 继续，不要再次询问用户同一审核问题。`;if(window.openai?.sendFollowUpMessage)await window.openai.sendFollowUpMessage({prompt:message});else await bridgeRequest('ui/message',{role:'user',content:[{type:'text',text:message}]})}catch(e){setBusy(false,`提交失败：${e.message}`)}}
+document.getElementById('approve').addEventListener('click',()=>act('approve'));document.getElementById('redo').addEventListener('click',()=>act('redo'));document.getElementById('adjust').addEventListener('click',()=>act('adjust'));
+</script>
+</body></html>
