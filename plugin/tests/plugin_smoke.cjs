@@ -221,7 +221,7 @@ function widgetHtmlInvariants(html) {
   assert.equal(listed.tools[1].inputSchema.properties.userConfirmed.const, undefined);
   assert.equal(listed.tools[1].inputSchema.additionalProperties, true);
   assert.equal(listed.tools[2].inputSchema.additionalProperties, true);
-  assert.deepEqual(listed.tools[1].outputSchema.required, ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt"]);
+  assert.deepEqual(listed.tools[1].outputSchema.required, ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt", "confirmationHash"]);
 
   const noSource = await rpc("tools/call", {name: "open_photo_refiner_settings", arguments: {sourceCount: 0}});
   assert.equal(noSource.isError, true);
@@ -375,7 +375,7 @@ function widgetHtmlInvariants(html) {
   assert.equal(submitted.structuredContent.ok, true);
   assert.ok(fs.existsSync(submitted.structuredContent.confirmationPath));
   const confirmation = JSON.parse(fs.readFileSync(submitted.structuredContent.confirmationPath, "utf8"));
-  assert.equal(confirmation.schemaVersion, 3);
+  assert.equal(confirmation.schemaVersion, 4);
   assert.equal(confirmation.executionMode, "photo-refinement");
   assert.equal(confirmation.resolvedCreativeRecipe, null);
   assert.equal(confirmation.config.preset, "natural-landscape");
@@ -432,11 +432,62 @@ function widgetHtmlInvariants(html) {
   assert.equal(creativeSubmitted.structuredContent.summary.creativeFromBase, true);
   assert.equal(creativeSubmitted.structuredContent.summary.creativeHdChain, false);
   assert.equal(creativeSubmitted.structuredContent.summary.creativeUpscale, true);
+  assert.match(creativeSubmitted.structuredContent.confirmationHash, /^[0-9a-f]{64}$/);
   const creativeConfirmation = JSON.parse(fs.readFileSync(creativeSubmitted.structuredContent.confirmationPath, "utf8"));
   assert.equal(creativeConfirmation.resolvedCreativeRecipe.sourceCommit, "b71ad7b187d00a72378a15f32181b655907d32a9");
   assert.equal(creativeConfirmation.config.creativeAssemblyMode, "direct-effect");
   assert.equal(creativeConfirmation.config.creativeFromBase, true);
   assert.equal(creativeConfirmation.creativeOutput.mode, "direct-effect");
+  assert.equal(creativeConfirmation.schemaVersion, 4);
+  assert.match(creativeConfirmation.confirmationHash, /^[0-9a-f]{64}$/);
+
+  // Cross-layer contract: a real Studio confirmation (including uiMode=pro and
+  // the canonical confirmationHash) must be accepted unchanged by init_job.py.
+  const python = process.env.PYTHON || "python3";
+  const smokeSource = path.join(smokeHome, "source.jpg");
+  const makeSource = childProcess.spawnSync(
+    python,
+    ["-c", "from PIL import Image; import sys; Image.new('RGB',(1200,1800),(90,120,150)).save(sys.argv[1], quality=95)", smokeSource],
+    {encoding: "utf8"},
+  );
+  assert.equal(makeSource.status, 0, makeSource.stdout + makeSource.stderr);
+  const initResult = childProcess.spawnSync(
+    python,
+    [
+      path.resolve(ROOT, "..", "skill", "scripts", "init_job.py"),
+      smokeSource,
+      "--confirmation-file", creativeSubmitted.structuredContent.confirmationPath,
+      "--output-root", path.join(smokeHome, "jobs"),
+    ],
+    {encoding: "utf8", env: {...process.env, HOME: smokeHome}},
+  );
+  assert.equal(initResult.status, 0, initResult.stdout + initResult.stderr);
+  const crossJobDir = initResult.stdout.trim().split(/\r?\n/).at(-1);
+  const crossJob = JSON.parse(fs.readFileSync(path.join(crossJobDir, "job.json"), "utf8"));
+  assert.equal(crossJob.ui_mode, "pro");
+  assert.equal(crossJob.creative_output.upstream_binding, "look-master");
+
+  const invalidHdOneClick = JSON.parse(JSON.stringify(creativeConfig));
+  invalidHdOneClick.creativeFromBase = false;
+  invalidHdOneClick.creativeHdChain = true;
+  invalidHdOneClick.deliveryMode = "one-click";
+  const invalidHdSubmitted = await rpc("tools/call", {
+    name: "submit_photo_refiner_settings",
+    arguments: {userConfirmed: true, config: invalidHdOneClick},
+  });
+  assert.equal(invalidHdSubmitted.isError, true);
+  assert.match(invalidHdSubmitted.structuredContent.error, /preview-first/);
+
+  const validHd = JSON.parse(JSON.stringify(invalidHdOneClick));
+  validHd.deliveryMode = "preview-first";
+  const validHdSubmitted = await rpc("tools/call", {
+    name: "submit_photo_refiner_settings",
+    arguments: {userConfirmed: true, config: validHd},
+  });
+  assert.equal(validHdSubmitted.structuredContent.ok, true);
+  assert.equal(validHdSubmitted.structuredContent.summary.creativeHdChain, true);
+  assert.equal(validHdSubmitted.structuredContent.summary.deliveryMode, "preview-first");
+  assert.match(validHdSubmitted.structuredContent.confirmationHash, /^[0-9a-f]{64}$/);
 
   const originalAssembly = JSON.parse(JSON.stringify(creativeConfig));
   originalAssembly.creativeAssemblyMode = "original-assembly";

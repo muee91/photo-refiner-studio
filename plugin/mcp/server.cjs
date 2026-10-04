@@ -72,9 +72,10 @@ const DEFAULTS = {
   // Full HD creative chain: ordinary refinement to an approved HD master,
   // creative draft on it, then style-faithful tiled redraw.
   creativeHdChain: false,
-  // Non-patch areas of direct creative outputs are upscaled with the bundled
-  // 4X-UltraSharp engine before detail recovery (Lanczos fallback, honestly
-  // labeled, when the engine is not installed).
+  // Preference for direct creative outputs: allow the common automatic HD
+  // working-canvas router to use 4X-UltraSharp inside its native information
+  // span. When disabled/unavailable, the router uses full-canvas tile redraw
+  // instead of laundering a plain resize into "HD".
   creativeUpscale: true,
   // Neutral fallback only; normal jobs pass a subject-aware suggestedPreset.
   preset: "natural-cinematic",
@@ -294,6 +295,15 @@ function validateConfig(raw) {
     config.resolution = enumValue(config.resolution, ["preview", "4k", "source-width"], "resolution");
   }
   config.deliveryMode = enumValue(config.deliveryMode, ["preview-first", "one-click"], "deliveryMode");
+  if (config.creativeHdChain) {
+    const hdRecipe = config.creativeRecipe === "none" ? null : CREATIVE_RECIPE_BY_ID[config.creativeRecipe];
+    if (!hdRecipe || config.sourceCount !== 1 || config.creativeAssemblyMode !== "direct-effect") {
+      throw new Error("creativeHdChain requires one source photograph and a single-source direct-effect creative recipe");
+    }
+    if (config.deliveryMode !== "preview-first") {
+      throw new Error("creativeHdChain requires preview-first because both the HD master and creative draft need explicit approval");
+    }
+  }
   config.outputFormat = enumValue(config.outputFormat, ["png", "jpg", "both"], "outputFormat");
   config.keepIntermediates = booleanValue(config.keepIntermediates, "keepIntermediates");
   config.styleStrength = numberIn(config.styleStrength, 0, 100, "styleStrength");
@@ -367,6 +377,24 @@ function resolvedCreativeRecipe(config) {
 
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function confirmationHashPayload(record) {
+  return {
+    config: record.config,
+    executionMode: record.executionMode,
+    resolvedCreativeRecipe: record.resolvedCreativeRecipe,
+    creativeOutput: record.creativeOutput,
+    resolvedPrompt: record.resolvedPrompt,
+  };
 }
 
 function uiMeta() {
@@ -468,7 +496,7 @@ function toolDefinitions() {
       annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false},
       outputSchema: {
         type: "object",
-        required: ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt"],
+        required: ["ok", "kind", "confirmationId", "confirmationPath", "confirmedAt", "confirmationHash"],
         additionalProperties: true,
         properties: {
           ok: {type: "boolean"},
@@ -477,6 +505,7 @@ function toolDefinitions() {
           confirmationPath: {type: "string"},
           confirmedAt: {type: "string"},
           promptHash: {type: "string"},
+          confirmationHash: {type: "string"},
           summary: {type: "object"},
         },
       },
@@ -618,7 +647,7 @@ function callTool(name, args) {
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
     const record = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       confirmationId: id,
       confirmedAt: now,
       confirmedBy: "photo-refiner-studio",
@@ -648,6 +677,7 @@ function callTool(name, args) {
       .slice(0, 30);
     savePreferences(preferences);
     record.promptHash = sha256(JSON.stringify(record.resolvedPrompt));
+    record.confirmationHash = sha256(stableJson(confirmationHashPayload(record)));
     fs.mkdirSync(CONFIRMATION_DIR, {recursive: true, mode: 0o700});
     const confirmationPath = path.join(CONFIRMATION_DIR, `${id}.json`);
     fs.writeFileSync(confirmationPath, `${JSON.stringify(record, null, 2)}\n`, {encoding: "utf8", mode: 0o600, flag: "wx"});
@@ -659,6 +689,7 @@ function callTool(name, args) {
       confirmedAt: now,
       preset: config.preset,
       promptHash: record.promptHash,
+      confirmationHash: record.confirmationHash,
       summary: {
         workflow: config.workflow,
         executionMode: creativeRecipe ? "creative-translation" : "photo-refinement",

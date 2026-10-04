@@ -50,6 +50,8 @@ def main() -> None:
     parser.add_argument("--requested-size", type=parse_size, required=True, help="Size requested from the client image-generation path")
     parser.add_argument("--planner-region-index", type=int)
     parser.add_argument("--plan", type=Path, help="detail-plan.json from plan_detail_tiles.py; re-checks this patch against the planned region geometry")
+    parser.add_argument("--tile-plan", type=Path, help="tile-plan.json from plan_tile_redraw.py; binds an hd-master redraw tile to its exact plan")
+    parser.add_argument("--tile-index", type=int, help="Tile index from --tile-plan")
     parser.add_argument("--attempt", type=int, default=1)
     parser.add_argument("--note", default="")
     args = parser.parse_args()
@@ -58,6 +60,12 @@ def main() -> None:
         raise SystemExit("--attempt must be positive")
     if args.planner_region_index is not None and args.planner_region_index < 0:
         raise SystemExit("--planner-region-index must be zero or greater")
+    if args.tile_index is not None and args.tile_index < 0:
+        raise SystemExit("--tile-index must be zero or greater")
+    if args.plan is not None and args.tile_plan is not None:
+        raise SystemExit("--plan and --tile-plan are mutually exclusive for one generated image")
+    if args.tile_plan is not None and args.tile_index is None:
+        raise SystemExit("--tile-plan requires --tile-index")
 
     job_path = args.job.expanduser().resolve()
     if not job_path.is_file() or job_path.name != "job.json":
@@ -91,10 +99,16 @@ def main() -> None:
     pixel_ratio = actual_pixels / requested_pixels
 
     budget_recheck = None
+    evidence_kind = "unbound-patch"
+    evidence_plan_path = None
+    evidence_plan_sha256 = None
+    tile_index = None
     if args.plan is not None:
         plan_path = args.plan.expanduser().resolve()
         if not plan_path.is_file():
             raise SystemExit(f"Missing detail plan: {plan_path}")
+        if not plan_path.is_relative_to(job_dir):
+            raise SystemExit(f"Detail plan must live inside the job directory: {plan_path}")
         if args.planner_region_index is None:
             raise SystemExit("--plan requires --planner-region-index so the region geometry is unambiguous")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -104,6 +118,10 @@ def main() -> None:
                 f"--planner-region-index {args.planner_region_index} is outside the plan ({len(regions)} regions)"
             )
         region = regions[args.planner_region_index]
+        if region.get("region_type") != args.region_type:
+            raise SystemExit(
+                f"Region type mismatch: plan has {region.get('region_type')!r}, recorder received {args.region_type!r}"
+            )
         crop = region["crop"]
         subject = region.get("subject_box") or crop
         ratio = effective_detail_ratio(
@@ -122,6 +140,49 @@ def main() -> None:
             "accepted": ratio.accepted,
             "recommended_action": ratio.action,
         }
+        evidence_kind = "detail-patch"
+        evidence_plan_path = str(plan_path)
+        evidence_plan_sha256 = sha256_file(plan_path)
+    elif args.tile_plan is not None:
+        tile_plan_path = args.tile_plan.expanduser().resolve()
+        if not tile_plan_path.is_file():
+            raise SystemExit(f"Missing tile plan: {tile_plan_path}")
+        if not tile_plan_path.is_relative_to(job_dir):
+            raise SystemExit(f"Tile plan must live inside the job directory: {tile_plan_path}")
+        tile_plan = json.loads(tile_plan_path.read_text(encoding="utf-8"))
+        matches = [item for item in (tile_plan.get("tiles") or []) if item.get("index") == args.tile_index]
+        if len(matches) != 1:
+            raise SystemExit(f"--tile-index {args.tile_index} must match exactly one tile in the plan")
+        tile = matches[0]
+        if tile.get("region_type") != args.region_type:
+            raise SystemExit(
+                f"Region type mismatch: tile has {tile.get('region_type')!r}, recorder received {args.region_type!r}"
+            )
+        planned_request = tile.get("requested_size")
+        if planned_request != requested_size:
+            raise SystemExit(
+                f"Requested size mismatch: tile plan requires {planned_request}, generation recorded {requested_size}"
+            )
+        box = tile.get("box") or {}
+        if not all(isinstance(box.get(key), int) and box.get(key) > 0 for key in ("width", "height")):
+            raise SystemExit(f"Tile {args.tile_index} has invalid box geometry")
+        threshold = tile.get("threshold")
+        if not isinstance(threshold, (int, float)) or threshold <= 0:
+            raise SystemExit(f"Tile {args.tile_index} has invalid Pixel Budget threshold")
+        detail_ratio = min(actual_size[0] / box["width"], actual_size[1] / box["height"])
+        accepted = detail_ratio >= float(threshold)
+        budget_recheck = {
+            "planned_patch_size": planned_request,
+            "actual_patch_size": actual_size,
+            "detail_ratio": round(detail_ratio, 4),
+            "threshold": float(threshold),
+            "accepted": accepted,
+            "recommended_action": "accept" if accepted else "request_larger_patch_or_reduce_tile",
+        }
+        evidence_kind = "tile-redraw"
+        evidence_plan_path = str(tile_plan_path)
+        evidence_plan_sha256 = sha256_file(tile_plan_path)
+        tile_index = args.tile_index
 
     observations = data.setdefault("patch_observations", [])
     if not isinstance(observations, list):
@@ -135,7 +196,11 @@ def main() -> None:
         "detail_mode": detail_mode,
         "region_type": args.region_type,
         "region_role": args.region_role.strip() or args.region_type,
+        "evidence_kind": evidence_kind,
+        "evidence_plan_path": evidence_plan_path,
+        "evidence_plan_sha256": evidence_plan_sha256,
         "planner_region_index": args.planner_region_index,
+        "tile_index": tile_index,
         "attempt": args.attempt,
         "patch_path": str(patch_path),
         "patch_file_size": patch_path.stat().st_size,

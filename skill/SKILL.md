@@ -28,9 +28,9 @@ Never flatten a bundled creative recipe into a color preset or append its name t
 2. Validate the actual source count against the selected catalog entry.
 3. Read the selected `recipePath/SKILL.md` completely, then read every prompt, reference, and script that recipe requires.
 4. Resolve `creative_assembly_mode` from the confirmed settings. It defaults to `direct-effect`; `original-assembly` is an explicit alternative. Direct-effect generates one complete creative effect image using the frozen normal preset as its upstream visual direction plus the recipe's theme, prompt semantics, references, source-derived motifs, and visual grammar; it must not attach an unchanged source-evidence strip, place the original beside/below the artwork, crop an original assembly, or act as a simple filter. Original-assembly follows the recipe literally: preserve its evidence regions with actual source pixels, generate only its translated regions, and use its compositor. For single-source direct-effect jobs the creative canvas follows the confirmed panel aspect ratio (`original` means the source photograph's own ratio) instead of the recipe's documented output ratio; original-assembly and multi-photo recipes keep the recipe's documented output structure. `creative_output.aspect_ratio_source` / `effective_aspect_ratio` in `job.json` record the resolved choice. When `creative_output.upstream_binding` is `look-master` (`--creative-from-base`, offered conversationally: for a single-source direct-effect creative job in preview-first mode, ask once whether to 直接开始创意 or 先按预设出主图、确认后再创意), first run the Section 7 base pass with the frozen preset, show that main image, and continue only after explicit approval; the creative pass then anchors identity and motifs to the original source photograph and uses the approved main image only as its look reference, and the formal base-preview gate still applies to the creative artwork itself. When `creative_output.upstream_binding` is `hd-master` (the panel's 高清创意链 toggle or `--creative-hd-chain`), run the full ordinary refinement first — Section 7 base pass, then Section 8/8A high-resolution recovery — so `details_processed` marks the approved high-definition master; then generate the creative draft on that master (identity, structure and micro-detail reference come from the HD master, grammar from the recipe), record `creative_generated`, and require `--approve-creative-preview` before the style-faithful redraw pass into `completed`.
-5. Default to preview-first. Present the generated direct effect preview or assembled original preview and stop for approval when the confirmed delivery mode is `preview-first`; one-click may continue without that pause.
+5. Default to preview-first. Present the generated direct effect preview or assembled original preview and stop for approval when the confirmed delivery mode is `preview-first`; ordinary one-click may continue without that pause. **HD-master creative chains are always preview-first** because both the HD master and the creative draft are explicit approval checkpoints; Studio and the MCP validator reject one-click for this mode.
 6. Retry only failed generated regions. For direct-effect, retry the complete creative image; for original-assembly, retry only failed generated regions.
-7. When `creative_output.upscale.enabled` (the panel's 4X-UltraSharp toggle), first run `scripts/upscale_image.py --job <job.json> --input <approved preview> --output <upscaled working canvas> --scale 4` — the bundled 4X-UltraSharp engine sharpens the **non-patch** areas of the approved creative image, patch planning then runs on the upscaled canvas, and the delivery resize keeps that sharpness. Pass `--job`: the delivery gate counts only recorded passes, and it counts a pass as raising the canvas only when `adds_information` is true. 4X never improves a patch region's own budget — the detail ratio is patch pixels over that region's footprint in the delivered file, and enlarging the canvas enlarges that footprint by the same factor, so subject coverage comes from tiles, not from upscaling. Without an installed engine the script records an honest Lanczos fallback (`upscale_image.py --install-engine` installs the self-contained engine; no ComfyUI needed). Every patch must be generated at its target region aspect — `register_blend.py` rejects patches whose aspect deviates more than 5% from the target region instead of recropping the target to match the generator output. For a **single-source `direct-effect`** result, the approved creative image becomes **CREATIVE LOOK MASTER** and must continue through the creative-safe adaptive high-resolution recovery in Section 8/8A before final delivery. Do not run the ordinary recovery profile over it. For `original-assembly` or multi-source creative layouts, keep local recovery disabled because ordinary patches can cross evidence/generated/layout boundaries and overwrite the translated art. For `hd-master` chains the order inverts: `details_processed` marks the ordinary high-resolution recovery of the approved main image (a photograph, so the ordinary profile applies); after the creative draft is approved, finish with the style-faithful tiled redraw — tile the approved HD master (~2048² tiles, ≥15% overlap), re-render each tile under the recipe grammar with the HD-master crop as structure reference and the matching creative-draft region as style reference, gate each tile on composition registration (median error ≤3 px against the draft region, one retry), and blend overlaps with the multiband model. The creative artwork itself still never receives ordinary photographic patches.
+7. All single-canvas creative output uses the **same automatic HD working-canvas stage as ordinary refinement**. After the exact creative preview is approved (or, for one-click, after the exact generated creative bitmap is materialized inside the job), run `scripts/prepare_hd_working_canvas.py` from Section 8.0. The panel's `creative_output.upscale.enabled` toggle is a preference for using the installed 4X-UltraSharp engine inside this common router; it is **not** permission to call `upscale_image.py` separately and then plan again. The router records the original generated bitmap, caps 4X-UltraSharp information at its native 4× span, and automatically switches to full-canvas tile redraw when the requested delivery exceeds that honest span or no information-adding engine is installed. 4X never improves a patch region's own Pixel Budget by itself — subject coverage still comes from generated detail/tile patches. Every patch must be generated at its target region aspect; `register_blend.py` rejects patches whose aspect deviates more than 5% from the target region instead of recropping the target to match the generator output. For a **single-source `direct-effect`** result, the approved creative image becomes **CREATIVE LOOK MASTER** and continues through the creative-safe adaptive high-resolution recovery in Section 8/8A. For `original-assembly` or multi-source creative layouts, ordinary local recovery remains disabled because patches can cross evidence/generated/layout boundaries; their own recipe pipeline must preserve source-resolution evidence and generated-panel resolution. For `hd-master` chains the order inverts: `details_processed` marks the ordinary high-resolution recovery of the approved main image (using the same Section 8.0 router), then the creative draft is approved and the final creative artwork is rebuilt with the style-faithful tiled redraw. The creative artwork itself never receives ordinary photographic patches.
 
 Effect images are selection aids, not visual source material. Never copy their people, places, wording, palette, or exact composition. If a catalog entry says its preview is missing, show that state honestly instead of substituting an unrelated image.
 
@@ -83,7 +83,7 @@ Stop if Pillow + ImageCms/LittleCMS, NumPy, PyYAML, OpenCV, or SIFT support is m
 
 After a source photograph is known, look for `open_photo_refiner_settings` (including namespaced MCP variants). If available, opening the Photo Refiner Studio panel is mandatory. **Invoke the namespaced MCP tool as a native/top-level tool call, never through `functions.exec`, a shell wrapper, or another orchestration tool.** Pass a positive source count plus the subject-aware recommendation. **Make this panel call the final visible action of the turn: do not append a text acknowledgement, settings summary, or any other message after it.** The host needs the Widget metadata to mount the panel. Do not print a parallel text menu. Resume only after the user submits the panel and a `confirmationPath` is returned. Never call the submit tool on the user's behalf.
 
-The panel has two separate states: editing fields only changes the Widget locally; clicking its confirmation button is the actual submission. When the Widget sends a `PHOTO_REFINER_PANEL_SUBMITTED` handoff containing a valid `confirmationPath`, treat that as explicit user confirmation. Do not ask “是否确认”, reopen the panel, or request the same settings again. Use that exact file with `init_job.py --confirmation-file` and continue the selected workflow. If no `confirmationPath` exists, the settings are not confirmed yet.
+The panel has two separate states: editing fields only changes the Widget locally; clicking its confirmation button is the actual submission. When the Widget sends a `PHOTO_REFINER_PANEL_SUBMITTED` handoff containing a valid `confirmationPath`, treat that as explicit user confirmation. Do not ask “是否确认”, reopen the panel, or request the same settings again. Use that exact file with `init_job.py --confirmation-file` and continue the selected workflow. Current confirmations use schema 4 and bind `config + executionMode + resolvedCreativeRecipe + creativeOutput + resolvedPrompt` into `confirmationHash`; `init_job.py` rejects a modified confirmation before creating a job. If no `confirmationPath` exists, the settings are not confirmed yet.
 
 If the Studio tool is genuinely unavailable, use a compact text fallback and require explicit confirmation before calling `init_job.py --confirmed`. Never infer panel unavailability merely because it was not auto-suggested.
 
@@ -187,7 +187,48 @@ For batch jobs, the equivalent checkpoint is the approved master frame. Never pr
 
 ## 8. High-resolution recovery
 
-The generator's bitmap dimensions alone are not evidence of recovered detail. Before every local generation, quantify whether the subject can receive enough effective pixels.
+The generator's bitmap dimensions alone are not evidence of recovered detail. **Every ordinary refinement, eligible creative-safe result, and the photographic stage of an hd-master chain must enter this section through the automatic working-canvas router below.** Do not jump directly from an approved 1024–1536px master to local patches or final resize.
+
+### 8.0 Prepare the honest HD working canvas
+
+Materialize the exact generated/approved master inside the job directory, then run:
+
+```bash
+python3 "$SKILL_ROOT/scripts/prepare_hd_working_canvas.py" <job.json> \
+  --input <exact-look-master-or-creative-look-master> \
+  --output <job-dir>/intermediates/hd-working.png
+```
+
+The script resolves the real DELIVERY CANVAS from `job.resolution` (`source-width`, 4K, or custom WxH), binds the input and output paths/sizes/SHA256 into `job.hd_working_canvas`, and chooses exactly one route:
+
+- **`native-detail`** — the generated master already supports the delivery canvas within the honest interpolation tail. Use the prepared canvas directly for Section 8.1/8A.
+- **`ultrasharp-detail`** — an information-adding 4X-UltraSharp engine is installed and its native information span can honestly support the requested delivery. The router raises the working canvas first, records an `upscale_pass`, then Section 8.1/8A plans local recovery on the raised canvas.
+- **`full-canvas-tile-redraw`** — the delivery target exceeds the model's native 4× information span, or no information-adding upscaler is available. The router builds a delivery-size **scaffold only**; that scaffold is not treated as recovered detail. Plan the exact prepared canvas with:
+
+```bash
+# First create the normal subject-aware detail plan on the delivery-size scaffold.
+python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
+  --image <job-dir>/intermediates/hd-working.png \
+  --vision-analysis <vision-analysis.json> \
+  --delivery-canvas <delivery-WxH> \
+  --observed-patch-size <WxH> \
+  --detail-budget <fast|balanced|max> \
+  --output <job-dir>/detail-plan.json
+
+# Then combine strict subject regions with full-frame coverage.
+python3 "$SKILL_ROOT/scripts/plan_tile_redraw.py" \
+  --image <job-dir>/intermediates/hd-working.png \
+  --observed-patch-size <WxH> \
+  --detail-plan <job-dir>/detail-plan.json \
+  --full-canvas --sliver-margin 0 \
+  --output <job-dir>/full-canvas-tile-plan.json
+```
+
+Then execute **every** tile using the Section 8A.2 observation + audited blend chain and pass that tile plan to `delivery_gate.py --tile-plan`. For adaptive/face/explicit ordinary or creative-safe recovery, the full-canvas plan must carry `detail_plan` provenance; otherwise a generic full-frame grid could underfeed face/head/hand regions and the delivery gate will refuse to treat it as native HD. For this fallback, `sliver_margin=0` is mandatory: no part of the final canvas may be delegated back to an interpolated scaffold. A fully executed subject-aware full-canvas redraw is allowed to satisfy geometry because every final region is backed by generated tile evidence; a tile plan by itself is never enough.
+
+The 4X model may still be asked to write a 5–8× file for compatibility, but `upscale_image.py` records a separate `information_to` boundary. **Only up to the model-native 4× span counts as information.** Pixels beyond that boundary are recorded in `interpolated_tail`; delivery geometry uses `information_to`, not the larger file dimensions, and a second AI pass starting from an interpolated tail cannot launder that interpolation into new trusted scale.
+
+For one-click jobs there is no user-approved preview checkpoint. Therefore `prepare_hd_working_canvas.py` is also the evidence that binds the exact original generated bitmap. Current-version jobs without either an `approved_preview` or a valid `hd_working_canvas.input` path/size/hash fail delivery rather than treating an already enlarged master as the source.
 
 ### 8.1 Plan regions
 
@@ -302,9 +343,14 @@ The summary reports requested→actual mappings, actual sizes grouped by normal/
 ## 8A. Adaptive tile planning and generation budgets
 
 Before local generation, plan coarse detail regions with the planner. Always pass
-both canvases plus the patch size this runtime has actually been observed to return
-(from `summarize_patch_observations.py` once a few jobs exist; otherwise the
-generator's documented maximum):
+both canvases plus a patch size this **ChatGPT client runtime has actually returned**.
+Use `summarize_patch_observations.py` when prior jobs exist. On a fresh runtime with
+no observation, do one disposable calibration generation at the intended patch
+aspect/size request, materialize that returned bitmap inside the job, and record it
+with `record_patch_observation.py` **without** `--plan`; its measured
+`actual_size` becomes the bootstrap cap for planning. The calibration image is
+observation-only and must never be blended. Never substitute API documentation,
+planner `recommended_patch_size`, or a remembered platform limit for this value:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
@@ -341,8 +387,9 @@ before any generation and listed in `regions_dropped_for_budget`, while
 `max_native_delivery_scale` reports how large a delivery the kept patches could
 honestly serve. Planning an enlarged delivery without `--observed-patch-size` is
 refused: that omission is exactly how doomed patches get requested, generated,
-"accepted" and then stretched. An empty `regions` list is a valid plan — report the
-limit instead of burning generations.
+"accepted" and then stretched. If no empirical cap exists yet, perform the one-call
+calibration above rather than guessing. An empty `regions` list is a valid plan —
+report the limit instead of burning generations.
 
 Each kept region carries `patch_size_planned`, already fitted to the observed return
 cap at that region's own aspect. Request exactly that size from the generator.
@@ -396,8 +443,34 @@ canvas. `coverage.hole_area` must stay 0; a nonzero hole fails the plan.
 Read `tile_count` as the real cost. It is lower than `tiling_requirement.tile_count`,
 which naively adds overlapping per-region grids. Then for each tile in `tiles[]`: crop it
 from the reference canvas, generate at exactly `requested_size`, record the observed
-return with `record_patch_observation.py`, and blend in `blend_sequence` order so face
-tiles land last.
+return against the **exact tile plan**, and blend in `blend_sequence` order so face
+tiles land last:
+
+```bash
+python3 "$SKILL_ROOT/scripts/record_patch_observation.py" <job.json> \
+  --patch <returned-tile.png> \
+  --region-type <tile.region_type> \
+  --region-role <tile.region_role> \
+  --requested-size <tile.requested_size WxH> \
+  --tile-plan <tile-plan.json> \
+  --tile-index <tile.index>
+
+python3 "$SKILL_ROOT/scripts/register_blend.py" \
+  --base <current-composite.png> \
+  --target <exact-tile-crop.png> \
+  --patch <returned-tile.png> \
+  --output <next-composite.png> \
+  --x <tile.box.x> --y <tile.box.y> \
+  --region-type <tile.region_type> \
+  --job <job.json> --tile-plan <tile-plan.json> --tile-index <tile.index>
+```
+
+The observation binds the actual returned bitmap to the tile-plan SHA256 and rechecks
+its Pixel Budget. The audited blend then writes a receipt binding input-base hash,
+patch hash and output-composite hash. At delivery, every tile in `blend_sequence`
+must have a live accepted observation and the receipts must form an ordered hash chain
+whose final output is exactly the `--master` passed to `delivery_gate.py`. A feasible
+tile plan alone is never proof that redraw happened.
 
 The contract is documented in `references/vision-analysis-schema.md`. It accepts pixel or normalized boxes for the subject, face, hands, and props, plus optional `portrait_extent` and `detail_complexity` hints. The planner infers portrait extent from face-to-subject scale when the hint is omitted. The Vision pass remains responsible for detection; the planner remains responsible for value scoring, merging, and generation budgets. Manual box flags remain backward-compatible and override matching Vision fields.
 
@@ -435,12 +508,15 @@ Register with:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/register_blend.py" \
-  --base <look-master-canvas> \
-  --target <exact-look-master-crop> \
+  --base <look-master-or-current-composite> \
+  --target <exact-current-composite-crop> \
   --patch <generated-patch> \
   --output <new-composite> \
   --x <x> --y <y> \
-  --region-type <type>
+  --region-type <type> \
+  --job <job.json> \
+  --plan <detail-plan.json> \
+  --planner-region-index <index>
 ```
 
 `--model auto` uses:
@@ -484,7 +560,7 @@ Default patch mid-frequency contribution is region-aware and deliberately conser
 
 Do not paste a generated patch wholesale over the approved look. Reject visible white-balance changes, relighting, saturation jumps, seams, halos, double features, or local sharpness discontinuities.
 
-Always blend from the clean latest accepted state. Broad tiles first, specific tiles last; face is normally last.
+Always blend from the clean latest accepted state. Broad tiles first, specific tiles last; face is normally last. For every planned normal/creative-safe region, first record the returned image with `record_patch_observation.py --plan <detail-plan.json> --planner-region-index <index>`, then call the audited `register_blend.py` form above. The job records a detail-blend receipt linking input-base hash → patch hash → output-composite hash. Keep those intermediate composite files until `delivery_gate.py` passes: the gate requires an ordered hash chain for all selected regions and requires its last output hash to equal the exact `--master`. A feasible detail plan by itself is not execution evidence.
 
 Read `$SKILL_ROOT/references/quality-gates.md` for the full rejection/retry rules.
 
@@ -538,10 +614,17 @@ by more than 1.05x is interpolation, not recovered detail, and the job cannot re
 real files:
 
 ```bash
+# normal or creative-safe local recovery:
 python3 "$SKILL_ROOT/scripts/delivery_gate.py" <job.json> \
   --master <accepted-composite> \
   --final <delivered-file> \
   --plan <detail-plan.json>
+
+# hd-master creative final tiled redraw:
+python3 "$SKILL_ROOT/scripts/delivery_gate.py" <job.json> \
+  --master <accepted-creative-composite> \
+  --final <delivered-file> \
+  --tile-plan <tile-plan.json>
 ```
 
 Exit 3 means the delivery is rejected. The report has two independent verdicts,
@@ -551,10 +634,7 @@ because either one alone can be fooled:
   (`job.approved_preview`), raised only by recorded `adds_information: true` upscale
   passes. Inflating a preview with Lanczos and passing it as `--master` therefore does
   not help: an unrecorded or information-free pass raises nothing.
-- `budget` — fails when the plan dropped regions for the requested size, when
-  `delivery_feasibility.verdict` is `needs-tiling`, or when any blended patch has
-  `budget_recheck.accepted: false`. This is the check that catches a large subject at
-  a large delivery size even when the geometry looks reasonable.
+- `budget` — is **fail-closed**. Recovery-enabled ordinary / creative-safe jobs must provide `--plan`; hd-master final delivery must provide `--tile-plan`. It fails when required evidence is missing, when a detail plan dropped regions for the requested size, when `delivery_feasibility.verdict` is `needs-tiling`, when any blended patch has `budget_recheck.accepted: false`, when a tile plan has a hole / unreachable tile, when a planned tile lacks a live actual-return observation, or when the tile blend receipts do not form a hash chain ending at the delivery master. This catches a large subject at a large delivery size even when the geometry looks reasonable.
 
 `required_action` then says what to do instead: raise the canvas with a real engine,
 deliver at or below `max_honest_delivery_width`, or switch to the tile-redraw chain.
@@ -593,7 +673,7 @@ python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --approve-base-preview --
 python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --status details_processed \
   --artifact accepted_composite=<final-composite.png>
 python3 "$SKILL_ROOT/scripts/delivery_gate.py" <job.json> --master <accepted-composite> --final <delivered-file> \
-  --plan <detail-plan.json>
+  --plan <detail-plan.json>   # hd-master final redraw uses --tile-plan <tile-plan.json> instead
 python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> --status completed \
   --artifact final_jpg=<delivered-file>
 ```

@@ -41,9 +41,10 @@ MODEL_PATH = UPSCALER_DIR / f"{MODEL_NAME}.pth"
 MODEL_DIGEST_PATH = UPSCALER_DIR / f"{MODEL_NAME}.pth.sha256"
 NCNN_DIRS = [UPSCALER_DIR, UPSCALER_DIR / "models"]
 MODEL_MIN_BYTES = 50_000_000
+MODEL_EXPECTED_SHA256 = "a5812231fc936b42af08a5edba784195495d303d5b3248c24489ef0c4021fe01"
 MODEL_CANDIDATES = [
     "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x-UltraSharp.pth",
-    "https://huggingface.co/kolibril13/4x-UltraSharp/resolve/main/4x-UltraSharp.pth",
+    "https://huggingface.co/aiunivers/upscale-models/resolve/main/4x-UltraSharp.pth",
 ]
 UPSCAYL_BINARIES = [
     Path("/Applications/Upscayl.app/Contents/Resources/resources/binaries/upscayl-bin"),
@@ -92,23 +93,14 @@ def find_ncnn_binary() -> str | None:
 
 
 def cached_model_matches_digest() -> bool:
-    """False when the pinned sidecar exists and no longer matches the cached weights.
-
-    The mirrors are third party, so a cached model that changed underneath us must
-    not keep loading: the .pth is deserialized by torch, which makes it executable
-    input rather than plain data.
-    """
-    if not MODEL_DIGEST_PATH.is_file():
-        return True
-    try:
-        expected = MODEL_DIGEST_PATH.read_text(encoding="utf-8").split()[0].lower()
-    except (IndexError, OSError):
+    """Require the executable pickle to match the repository-pinned digest."""
+    if not MODEL_PATH.is_file():
         return False
     digest = hashlib.sha256()
     with MODEL_PATH.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             digest.update(chunk)
-    return digest.hexdigest().lower() == expected
+    return digest.hexdigest().lower() == MODEL_EXPECTED_SHA256
 
 
 def python_engine_ready() -> bool:
@@ -122,25 +114,52 @@ def python_engine_ready() -> bool:
 
 def engine_status() -> dict:
     model_dir = find_ncnn_pair()
+    ncnn_binary = find_ncnn_binary()
+    ncnn_ready = bool(model_dir and ncnn_binary)
+    python_ready = python_engine_ready()
     return {
-        "ultrashort_ready": bool(model_dir or python_engine_ready()),
+        "ultrasharp_ready": bool(ncnn_ready or python_ready),
+        "ultrashort_ready": bool(ncnn_ready or python_ready),
+        "ncnn_ready": ncnn_ready,
         "ncnn_dir": str(model_dir) if model_dir else None,
-        "ncnn_binary": find_ncnn_binary(),
-        "python_engine": python_engine_ready(),
+        "ncnn_binary": ncnn_binary,
+        "python_engine": python_ready,
         "model_path": str(MODEL_PATH) if MODEL_PATH.is_file() else None,
         "model_digest_matches": cached_model_matches_digest() if MODEL_PATH.is_file() else None,
+        "model_expected_sha256": MODEL_EXPECTED_SHA256,
         "model_candidates": MODEL_CANDIDATES,
         "upscaler_dir": str(UPSCALER_DIR),
     }
 
 
 def run_ncnn(inp: Path, out: Path, scale: int, model_dir: Path, binary: str) -> dict:
-    subprocess.run(
-        [binary, "-i", str(inp), "-o", str(out), "-s", str(scale),
-         "-n", str(model_dir / MODEL_NAME), "-f", "png"],
-        check=True, capture_output=True, timeout=1800,
-    )
-    return {"engine": "4x-ultrasharp-ncnn", "adds_information": True}
+    """Run the 4x model at native scale and transcode to the promised extension."""
+    native_scale = 4
+    descriptor, name = tempfile.mkstemp(prefix="ultrasharp-native-", suffix=".png", dir=out.parent)
+    os.close(descriptor)
+    native_path = Path(name)
+    try:
+        subprocess.run(
+            [binary, "-i", str(inp), "-o", str(native_path), "-s", str(native_scale),
+             "-n", str(model_dir / MODEL_NAME), "-f", "png"],
+            check=True, capture_output=True, timeout=1800,
+        )
+        with Image.open(native_path) as image, Image.open(inp) as source:
+            target_size = (source.width * scale, source.height * scale)
+            rendered = image.convert("RGB")
+            if rendered.size != target_size:
+                rendered = rendered.resize(
+                    target_size,
+                    Image.Resampling.LANCZOS if scale < native_scale else Image.Resampling.BICUBIC,
+                )
+            _save_like(rendered, out)
+    finally:
+        native_path.unlink(missing_ok=True)
+    return {
+        "engine": "4x-ultrasharp-ncnn",
+        "adds_information": True,
+        "native_information_scale": native_scale,
+    }
 
 
 def _run_model(model, device, rgb_hwc, net_scale: int):
@@ -209,6 +228,7 @@ def run_python_engine(inp: Path, out: Path, scale: int) -> dict:
     return {
         "engine": "4x-ultrasharp-spandrel",
         "adds_information": True,
+        "native_information_scale": net_scale,
         "device": str(descriptor.device),
         "architecture": type(descriptor.model).__name__,
     }
@@ -222,7 +242,12 @@ def run_fallback(inp: Path, out: Path, scale: int) -> dict:
         (image.width * scale, image.height * scale), Image.LANCZOS
     )
     _save_like(image, out)
-    return {"engine": "fallback-lanczos", "adds_information": False, "note": FALLBACK_NOTE}
+    return {
+        "engine": "fallback-lanczos",
+        "adds_information": False,
+        "native_information_scale": 1,
+        "note": FALLBACK_NOTE,
+    }
 
 
 def upscale(inp: Path, out: Path, scale: int, engine: str) -> dict:
@@ -254,7 +279,7 @@ def install_engine() -> dict:
         )
         installed.append("spandrel + torch (python engine)")
     except subprocess.CalledProcessError as exc:
-        failures.append(f"pip realesrgan failed: {exc.stderr[-400:] if exc.stderr else exc}")
+        failures.append(f"pip spandrel failed: {exc.stderr[-400:] if exc.stderr else exc}")
     model_done = False
     for url in MODEL_CANDIDATES:
         descriptor, temp_name = tempfile.mkstemp(prefix=f"{MODEL_NAME}.", suffix=".part", dir=UPSCALER_DIR)
@@ -271,9 +296,14 @@ def install_engine() -> dict:
                         raise ValueError("model download exceeds expected size")
             if target.stat().st_size < MODEL_MIN_BYTES:
                 raise ValueError(f"downloaded model too small ({target.stat().st_size} bytes)")
+            actual_digest = digest.hexdigest().lower()
+            if actual_digest != MODEL_EXPECTED_SHA256:
+                raise ValueError(
+                    f"model sha256 mismatch: expected {MODEL_EXPECTED_SHA256}, got {actual_digest}"
+                )
             target.replace(MODEL_PATH)
-            MODEL_DIGEST_PATH.write_text(f"{digest.hexdigest()}  {MODEL_NAME}.pth\n", encoding="utf-8")
-            installed.append(f"{MODEL_NAME}.pth ({url}, sha256 {digest.hexdigest()[:16]})")
+            MODEL_DIGEST_PATH.write_text(f"{MODEL_EXPECTED_SHA256}  {MODEL_NAME}.pth\n", encoding="utf-8")
+            installed.append(f"{MODEL_NAME}.pth ({url}, pinned sha256 {MODEL_EXPECTED_SHA256[:16]})")
             model_done = True
             break
         except Exception as exc:
@@ -319,24 +349,45 @@ def main() -> None:
         return
     if not args.input or not args.output:
         parser.error("--input and --output are required unless --status or --install-engine is used")
+    if not 1 <= args.scale <= 8:
+        parser.error("--scale must be between 1 and 8")
     source = args.input.expanduser().resolve()
     target = args.output.expanduser().resolve()
-    result = upscale(args.input, args.output, max(1, min(8, args.scale)), args.engine)
+    result = upscale(args.input, args.output, args.scale, args.engine)
     with Image.open(source) as raw:
         from_size = [raw.width, raw.height]
     with Image.open(target) as made:
         to_size = [made.width, made.height]
+    adds_information = bool(result.get("adds_information", True))
+    native_information_scale = int(result.get("native_information_scale") or (4 if adds_information else 1))
+    information_scale = min(max(1, args.scale), native_information_scale) if adds_information else 1
+    information_to = [
+        from_size[0] * information_scale,
+        from_size[1] * information_scale,
+    ]
     result.update({
         "ok": True,
         "output": str(target),
         "scale": args.scale,
         "from": from_size,
         "to": to_size,
-        "adds_information": bool(result.get("adds_information", True)),
+        "adds_information": adds_information,
+        "native_information_scale": native_information_scale,
+        "information_scale": information_scale,
+        "information_to": information_to,
+        "interpolated_tail": (
+            [max(0, to_size[0] - information_to[0]), max(0, to_size[1] - information_to[1])]
+            if adds_information else list(to_size)
+        ),
     })
     if args.job:
         record_upscale_pass(args.job, {
-            key: result[key] for key in ("engine", "adds_information", "from", "to")
+            key: result[key]
+            for key in (
+                "engine", "adds_information", "from", "to",
+                "native_information_scale", "information_scale",
+                "information_to", "interpolated_tail"
+            )
         })
     _print(result)
 

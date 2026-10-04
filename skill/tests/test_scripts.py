@@ -271,10 +271,22 @@ class ScriptTests(unittest.TestCase):
         final = job / "gate-final.png"
         Image.new("RGB", size, "white").save(master)
         Image.new("RGB", size, "white").save(final)
+        # Current jobs must bind the exact generated bitmap before delivery; this
+        # native-size preparation record is the one-click/batch evidence path.
+        self.run_script(
+            "prepare_hd_working_canvas.py",
+            job / "job.json",
+            "--input",
+            master,
+            "--output",
+            job / "intermediates" / "hd-working.png",
+            "--delivery-size",
+            f"{size[0]}x{size[1]}",
+        )
         self.run_script("delivery_gate.py", job / "job.json", "--master", master, "--final", final)
 
     def test_preview_first_requires_base_approval_but_one_click_does_not(self) -> None:
-        preview_job = self.init_job()
+        preview_job = self.init_job("--detail-mode", "base-only")
         self.run_script("update_job.py", preview_job / "job.json", "--status", "prepared")
         self.run_script("update_job.py", preview_job / "job.json", "--status", "base_generated")
         self.run_script("update_job.py", preview_job / "job.json", "--status", "completed", ok=False)
@@ -285,7 +297,7 @@ class ScriptTests(unittest.TestCase):
         self.pass_delivery_gate(preview_job)
         self.run_script("update_job.py", preview_job / "job.json", "--status", "completed")
 
-        one_click_job = self.init_job()
+        one_click_job = self.init_job("--detail-mode", "base-only")
         manifest_path = one_click_job / "job.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["delivery_mode"] = "one-click"
@@ -308,6 +320,8 @@ class ScriptTests(unittest.TestCase):
             "--preset",
             "natural-landscape",
             "--confirmed",
+            "--detail-mode",
+            "base-only",
         )
         job = Path(result.stdout.strip())
         self.run_script("update_job.py", job / "job.json", "--status", "prepared")

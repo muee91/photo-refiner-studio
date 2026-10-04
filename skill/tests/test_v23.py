@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import subprocess
@@ -21,16 +22,83 @@ def write_approved_preview(job_json: Path, name="approved-preview.png", size=(32
 
 
 def pass_delivery_gate(job_json: Path, size=(32, 48)):
-    """Satisfy the delivery gate at native scale so these lifecycle tests keep
-    asserting the state machine instead of re-testing the resolution contract."""
+    """Satisfy the current evidence contract at native scale.
+
+    Ordinary lifecycle cases need the automatic working-canvas input record.
+    HD creative cases additionally need one audited full-canvas redraw tile; the
+    dedicated v2.4 suite owns the deeper tile geometry assertions.
+    """
     job_dir = job_json.parent
+    data = json.loads(job_json.read_text(encoding="utf-8"))
+    hd_master = (data.get("creative_output") or {}).get("upstream_binding") == "hd-master"
     master = job_dir / "gate-master.png"
     final = job_dir / "gate-final.png"
-    Image.new("RGB", size, "white").save(master)
+    if hd_master:
+        Image.effect_noise(size, 100).convert("RGB").save(master)
+    else:
+        Image.new("RGB", size, "white").save(master)
     Image.new("RGB", size, "white").save(final)
     subprocess.run(
-        [sys.executable, str(SKILL_ROOT / "scripts" / "delivery_gate.py"), str(job_json),
-         "--master", str(master), "--final", str(final)],
+        [sys.executable, str(SKILL_ROOT / "scripts" / "prepare_hd_working_canvas.py"), str(job_json),
+         "--input", str(master), "--output", str(job_dir / "intermediates" / "hd-working.png"),
+         "--delivery-size", f"{size[0]}x{size[1]}"],
+        check=True, capture_output=True, text=True,
+    )
+    if not hd_master:
+        gate_args = ["--master", str(master), "--final", str(final)]
+    else:
+        prepared = json.loads(job_json.read_text(encoding="utf-8"))["hd_working_canvas"]
+        tile_plan = job_dir / "full-canvas-tile-plan.json"
+        canvas_hash = prepared["output_sha256"]
+        tile_plan.write_text(json.dumps({
+            "schema_version": 1,
+            "verdict": "pass",
+            "canvas": list(size),
+            "canvas_path": prepared["output"],
+            "canvas_sha256": canvas_hash,
+            "observed_patch_size": list(size),
+            "tile_count": 1,
+            "blend_sequence": [0],
+            "provenance": {"source": ["detail_plan", "full_canvas"]},
+            "coverage": {
+                "target_area": size[0] * size[1],
+                "covered_area": size[0] * size[1],
+                "uncovered_area": 0,
+                "hole_area": 0,
+                "sliver_area": 0,
+            },
+            "tiles": [{
+                "index": 0,
+                "region_type": "generic",
+                "region_role": "full-canvas",
+                "box": {"x": 0, "y": 0, "width": size[0], "height": size[1]},
+                "requested_size": list(size),
+                "budget_ratio": 1.0,
+                "threshold": 0.50,
+                "blend_order": 10,
+            }],
+        }, indent=2), encoding="utf-8")
+        patch = job_dir / "full-canvas-patch.png"
+        target = job_dir / "full-canvas-target.png"
+        Image.open(master).save(patch)
+        Image.open(master).save(target)
+        subprocess.run(
+            [sys.executable, str(SKILL_ROOT / "scripts" / "record_patch_observation.py"), str(job_json),
+             "--patch", str(patch), "--region-type", "generic", "--region-role", "full-canvas",
+             "--requested-size", f"{size[0]}x{size[1]}", "--tile-plan", str(tile_plan), "--tile-index", "0"],
+            check=True, capture_output=True, text=True,
+        )
+        subprocess.run(
+            [sys.executable, str(SKILL_ROOT / "scripts" / "register_blend.py"),
+             "--base", str(master), "--target", str(target), "--patch", str(patch),
+             "--output", str(final), "--x", "0", "--y", "0", "--region-type", "generic",
+             "--model", "homography", "--min-inliers", "3", "--job", str(job_json),
+             "--tile-plan", str(tile_plan), "--tile-index", "0"],
+            check=True, capture_output=True, text=True,
+        )
+        gate_args = ["--master", str(final), "--final", str(final), "--tile-plan", str(tile_plan)]
+    subprocess.run(
+        [sys.executable, str(SKILL_ROOT / "scripts" / "delivery_gate.py"), str(job_json), *gate_args],
         check=True, capture_output=True, text=True,
     )
 
@@ -259,7 +327,10 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             self.assertTrue(m["creative_preview"]["required"])
             self.assertFalse(m["creative_preview"]["approved"])
             self.assertEqual(m["detail"]["mode"], "adaptive")
-            self.assertTrue(m["creative_output"]["upscale"]["enabled"])
+            # The HD chain prepares the photographic master once; the final
+            # creative delivery is tiled redraw, so a separate creative upscale
+            # pass is intentionally disabled.
+            self.assertFalse(m["creative_output"]["upscale"]["enabled"])
 
             updater = [sys.executable, str(SKILL_ROOT / "scripts" / "update_job.py"), str(job)]
             subprocess.run(updater + ["--status", "prepared"], check=True, capture_output=True, text=True)
@@ -284,8 +355,10 @@ class StarryearCreativeTranslationTests(unittest.TestCase):
             self.assertEqual(m["status"], "completed")
             self.assertTrue(m["creative_preview"]["approved"])
 
+            # The current contract rejects HD chaining for the original multi-panel
+            # assembly; exercise that mode independently here.
             assembly = subprocess.run(
-                base + ["--creative-assembly-mode", "original-assembly", "--creative-hd-chain"],
+                base + ["--creative-assembly-mode", "original-assembly"],
                 check=True, capture_output=True, text=True)
             m = json.loads((Path(assembly.stdout.strip()) / "job.json").read_text(encoding="utf-8"))
             self.assertEqual(m["creative_output"]["upstream_binding"], "direction-only")

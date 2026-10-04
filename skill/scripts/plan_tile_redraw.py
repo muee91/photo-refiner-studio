@@ -16,6 +16,7 @@ Rules enforced here:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -33,6 +34,14 @@ from job_contract import (
 BLEND_ORDER = {"costume": 10, "architecture": 10, "generic": 10, "background": 10,
                "head": 20, "hand": 25, "prop": 25, "face": 30}
 CELL = 8  # coverage lattice step in canvas pixels
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def shrink_to_budget(box: dict, cap: tuple[int, int], threshold: float) -> dict:
@@ -245,6 +254,8 @@ def main() -> None:
     report = {
         "schema_version": 1,
         "canvas": [canvas_w, canvas_h],
+        "canvas_path": str(image),
+        "canvas_sha256": sha256_file(image),
         "observed_patch_size": list(args.observed_patch_size),
         "tile_overlap": args.overlap,
         "coverage_cell": CELL,

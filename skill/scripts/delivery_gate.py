@@ -56,23 +56,35 @@ def measure(path: Path) -> dict:
 def information_raise(data: dict, reference_size: list[int]) -> tuple[float, list[dict]]:
     """How much larger the canvas genuinely is, starting from the reference image.
 
-    Passes are chained from the reference size, so an already-upscaled composite
-    passed as `--master` is not multiplied a second time. Information-free passes
-    (Lanczos) are skipped entirely, and a pass that does not start at the current
-    size cannot be assumed to have happened on this chain.
+    `to` is only a file size. New entries carry `information_to`, which caps a
+    4X model at its native 4x information range even if the caller asked for 5–8x.
+    Old manifests without `information_to` remain readable and use `to`.
+
+    Chaining is deliberately strict: the next information-adding pass must start
+    from the previous *information* canvas, not from an interpolated larger file,
+    so interpolation cannot be laundered into a second "AI" pass.
     """
     width = reference_size[0]
     applied = []
     for entry in data.get("upscale_passes") or []:
         if not isinstance(entry, dict) or not entry.get("adds_information"):
             continue
-        span, from_span = entry.get("to") or [], entry.get("from") or []
-        if len(span) != 2 or len(from_span) != 2 or not from_span[0]:
+        from_span = entry.get("from") or []
+        file_span = entry.get("to") or []
+        info_span = entry.get("information_to") or file_span
+        if len(info_span) != 2 or len(from_span) != 2 or not from_span[0]:
             continue
         if round(from_span[0]) != width:
             continue
-        width = span[0]
-        applied.append({"engine": entry.get("engine"), "from": from_span, "to": span})
+        width = info_span[0]
+        applied.append({
+            "engine": entry.get("engine"),
+            "from": from_span,
+            "to": file_span,
+            "information_to": info_span,
+            "native_information_scale": entry.get("native_information_scale"),
+            "interpolated_tail": entry.get("interpolated_tail"),
+        })
     return (width / reference_size[0] if reference_size[0] else 1.0), applied
 
 
@@ -113,7 +125,8 @@ def main() -> None:
     parser.add_argument("job", type=Path, help="Path to job.json")
     parser.add_argument("--master", required=True, type=Path, help="The accepted composite that became the delivered file")
     parser.add_argument("--final", required=True, type=Path, help="The file about to be delivered")
-    parser.add_argument("--plan", type=Path, help="detail-plan.json from plan_detail_tiles.py; enables the per-region budget check")
+    parser.add_argument("--plan", type=Path, help="detail-plan.json from plan_detail_tiles.py; required for recovery-enabled non-HD-master jobs")
+    parser.add_argument("--tile-plan", type=Path, help="tile-plan.json from plan_tile_redraw.py; required for hd-master creative delivery or an ordinary full-canvas HD fallback")
     parser.add_argument("--max-upscale", type=float, help=f"Allowed delivery/canvas ratio (default {MAX_HONEST_UPSCALE})")
     parser.add_argument("--note", default="")
     args = parser.parse_args()
@@ -134,52 +147,296 @@ def main() -> None:
     if limit < 1:
         raise SystemExit("--max-upscale cannot be below 1")
 
-    # Geometry is judged from what the user approved, never from an intermediate the
-    # agent may have inflated by interpolation on the way.
+    # Geometry is judged from the actual generation result, never from an
+    # intermediate the agent may already have inflated. Preview-first binds that
+    # through approved_preview. One-click binds it through the automatic HD
+    # preparation record. New jobs are not allowed to skip both evidence paths.
     reference = None
+    reference_source = None
+    reference_evidence_ok = True
     if isinstance(data.get("approved_preview"), dict) and data["approved_preview"].get("size"):
         reference = list(data["approved_preview"]["size"])
+        reference_source = "approved_preview"
+    else:
+        hd_record = data.get("hd_working_canvas")
+        if isinstance(hd_record, dict) and hd_record.get("input_size") and hd_record.get("input"):
+            hd_input = Path(str(hd_record["input"])).expanduser().resolve()
+            if (
+                hd_input.is_file()
+                and hd_input.is_relative_to(job_dir)
+                and sha256_file(hd_input) == hd_record.get("input_sha256")
+            ):
+                measured_hd_input = measure(hd_input)
+                if measured_hd_input["size"] == hd_record.get("input_size"):
+                    reference = list(hd_record["input_size"])
+                    reference_source = "hd_working_canvas_input"
+        policy = data.get("hd_working_canvas_policy") or {}
+        if reference is None and policy.get("mode") == "automatic":
+            reference_evidence_ok = False
     reference = reference or master["size"]
+    reference_source = reference_source or "legacy_master"
     raise_factor, raise_passes = information_raise(data, reference)
     canvas = [round(reference[0] * raise_factor), round(reference[1] * raise_factor)]
     geometry_scale = max(final["size"][0] / canvas[0], final["size"][1] / canvas[1])
-    geometry_ok = geometry_scale <= limit
+    geometry_ok = geometry_scale <= limit and reference_evidence_ok
 
     reasons = []
-    if not geometry_ok:
-        reasons.append(
-            f"geometry: the delivered file is {geometry_scale:.2f}x larger than the canvas that "
-            f"really supports it ({canvas[0]}x{canvas[1]}), so most pixels are interpolated. "
-            "Raise the working canvas first with an information-adding upscaler "
-            "(scripts/upscale_image.py, installed via `upscale_image.py --install-engine`; a "
-            "Lanczos fallback is recorded as adds_information=false and does not count), or "
-            "deliver at the canvas' native dimensions."
+    information_canvas = list(canvas)
+    geometry_reason = (
+        (
+            "geometry: this current-version job has no approved preview and no valid "
+            "prepare_hd_working_canvas.py input record; the original generated bitmap is not bound, "
+            "so delivery geometry cannot be certified. "
         )
+        if not reference_evidence_ok else
+        f"geometry: the delivered file is {geometry_scale:.2f}x larger than the canvas that "
+        f"really supports it ({canvas[0]}x{canvas[1]}), so most pixels are interpolated. "
+        "Raise the working canvas with scripts/prepare_hd_working_canvas.py. When the target "
+        "exceeds the model-native information span, use its full-canvas tile-redraw route "
+        "instead of treating interpolation as recovered detail."
+    )
+    full_canvas_tile_redraw_accepted = False
+
+    detail_mode = str((data.get("detail") or {}).get("mode") or "")
+    creative_binding = str((data.get("creative_output") or {}).get("upstream_binding") or "")
+    detail_required = detail_mode not in {"", "base-only", "not-applicable"}
+    hd_master_delivery = creative_binding == "hd-master"
 
     budget = {"verdict": "not-applicable", "dropped_regions": [], "failed_observations": []}
-    if args.plan is not None:
+    if hd_master_delivery and args.tile_plan is None:
+        budget = {
+            "verdict": "fail",
+            "reason": "missing_tile_plan",
+            "dropped_regions": [],
+            "failed_observations": [],
+        }
+        reasons.append(
+            "budget: hd-master creative delivery requires --tile-plan from plan_tile_redraw.py; "
+            "the final tiled redraw cannot be certified from geometry alone."
+        )
+    elif detail_required and not hd_master_delivery and args.plan is None and args.tile_plan is None:
+        budget = {
+            "verdict": "fail",
+            "reason": "missing_detail_plan",
+            "dropped_regions": [],
+            "failed_observations": [],
+        }
+        reasons.append(
+            "budget: local detail recovery is enabled but neither --plan nor a full-canvas "
+            "--tile-plan was supplied. Run prepare_hd_working_canvas.py, then follow the route it records."
+        )
+
+    if args.plan is not None and not hd_master_delivery:
         plan_path = args.plan.expanduser().resolve()
         if not plan_path.is_file():
             raise SystemExit(f"Missing detail plan: {plan_path}")
+        if not plan_path.is_relative_to(job_dir):
+            raise SystemExit(f"Detail plan must live inside the job directory: {plan_path}")
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan_sha256 = sha256_file(plan_path)
+        regions = plan.get("regions") or []
         dropped = plan.get("regions_dropped_for_budget") or []
         feasibility = plan.get("delivery_feasibility") or {}
+        planned_delivery_canvas = plan.get("delivery_canvas")
+        plan_canvas_matches = planned_delivery_canvas == final["size"]
+        region_contract_ok = plan.get("region_count") == len(regions)
+
+        plan_observations = [
+            item for item in (data.get("patch_observations") or [])
+            if isinstance(item, dict)
+            and item.get("evidence_kind") == "detail-patch"
+            and item.get("evidence_plan_sha256") == plan_sha256
+        ]
         failed_observations = [
             {
+                "planner_region_index": item.get("planner_region_index"),
                 "region_type": item.get("region_type"),
-                "region_role": (item.get("region_role") or ""),
+                "region_role": item.get("region_role") or "",
                 "detail_ratio": (item.get("budget_recheck") or {}).get("detail_ratio"),
                 "threshold": (item.get("budget_recheck") or {}).get("threshold"),
             }
-            for item in data.get("patch_observations") or []
+            for item in plan_observations
             if (item.get("budget_recheck") or {}).get("accepted") is False
         ]
+
+        evidence_by_index: dict[int, list[dict]] = {}
+        for item in plan_observations:
+            index = item.get("planner_region_index")
+            if isinstance(index, int):
+                evidence_by_index.setdefault(index, []).append(item)
+
+        accepted_region_evidence = []
+        missing_region_evidence = []
+        failed_region_evidence = []
+        stale_region_evidence = []
+        for index, region in enumerate(regions):
+            candidates = evidence_by_index.get(index, [])
+            accepted_candidates = [
+                item for item in candidates
+                if (item.get("budget_recheck") or {}).get("accepted") is True
+            ]
+            valid = None
+            for item in sorted(accepted_candidates, key=lambda value: value.get("sequence") or 0, reverse=True):
+                patch_path = Path(str(item.get("patch_path") or "")).expanduser().resolve()
+                if not patch_path.is_file() or not patch_path.is_relative_to(job_dir):
+                    continue
+                measured = measure(patch_path)
+                if measured["sha256"] != item.get("patch_sha256") or measured["size"] != item.get("actual_size"):
+                    continue
+                if item.get("region_type") != region.get("region_type"):
+                    continue
+                valid = item
+                break
+            if valid is not None:
+                accepted_region_evidence.append({
+                    "planner_region_index": index,
+                    "region_type": region.get("region_type"),
+                    "patch_path": valid.get("patch_path"),
+                    "patch_sha256": valid.get("patch_sha256"),
+                    "actual_size": valid.get("actual_size"),
+                    "detail_ratio": (valid.get("budget_recheck") or {}).get("detail_ratio"),
+                })
+            elif not candidates:
+                missing_region_evidence.append(index)
+            elif not accepted_candidates:
+                failed_region_evidence.append(index)
+            else:
+                stale_region_evidence.append(index)
+
+        region_evidence_ok = (
+            len(accepted_region_evidence) == len(regions)
+            and not missing_region_evidence
+            and not failed_region_evidence
+            and not stale_region_evidence
+        )
+        accepted_patch_sha = {
+            item["planner_region_index"]: item.get("patch_sha256")
+            for item in accepted_region_evidence
+        }
+        plan_receipts = sorted(
+            [
+                item for item in (data.get("detail_blend_receipts") or [])
+                if isinstance(item, dict)
+                and item.get("kind") == "detail-patch"
+                and item.get("detail_plan_sha256") == plan_sha256
+            ],
+            key=lambda item: item.get("sequence") or 0,
+        )
+
+        def detail_receipt_is_live(receipt: dict) -> bool:
+            if (receipt.get("registration") or {}).get("accepted") is not True:
+                return False
+            index = receipt.get("planner_region_index")
+            if accepted_patch_sha.get(index) != receipt.get("patch_sha256"):
+                return False
+            output_path = Path(str(receipt.get("output_path") or "")).expanduser().resolve()
+            if not output_path.is_file() or not output_path.is_relative_to(job_dir):
+                return False
+            if sha256_file(output_path) != receipt.get("output_sha256"):
+                return False
+            return True
+
+        live_receipts = [item for item in plan_receipts if detail_receipt_is_live(item)]
+        expected_blend_order = list(range(len(regions)))
+
+        def find_detail_chain(position: int, after_sequence: int, previous_output_sha: str | None):
+            if position >= len(expected_blend_order):
+                return []
+            wanted = expected_blend_order[position]
+            for receipt in live_receipts:
+                sequence = receipt.get("sequence") or 0
+                if sequence <= after_sequence or receipt.get("planner_region_index") != wanted:
+                    continue
+                if previous_output_sha is not None and receipt.get("input_base_sha256") != previous_output_sha:
+                    continue
+                tail = find_detail_chain(position + 1, sequence, receipt.get("output_sha256"))
+                if tail is not None:
+                    return [receipt] + tail
+            return None
+
+        hd_output_sha256 = None
+        hd_output_integrity_ok = True
+        hd_record = data.get("hd_working_canvas")
+        if isinstance(hd_record, dict) and hd_record.get("output") and hd_record.get("output_sha256"):
+            hd_output_path = Path(str(hd_record["output"])).expanduser().resolve()
+            hd_output_integrity_ok = (
+                hd_output_path.is_file()
+                and hd_output_path.is_relative_to(job_dir)
+                and sha256_file(hd_output_path) == hd_record.get("output_sha256")
+                and measure(hd_output_path)["size"] == hd_record.get("output_size")
+            )
+            if hd_output_integrity_ok:
+                hd_output_sha256 = hd_record.get("output_sha256")
+        elif (data.get("hd_working_canvas_policy") or {}).get("mode") == "automatic":
+            hd_output_integrity_ok = False
+
+        if regions:
+            blend_chain = find_detail_chain(0, 0, None)
+            blend_chain_start_ok = (
+                True
+                if hd_output_sha256 is None
+                else bool(blend_chain) and blend_chain[0].get("input_base_sha256") == hd_output_sha256
+            )
+            blend_chain_ok = (
+                blend_chain is not None
+                and len(blend_chain) == len(regions)
+                and blend_chain_start_ok
+                and blend_chain[-1].get("output_sha256") == master["sha256"]
+            )
+        else:
+            blend_chain = []
+            blend_chain_start_ok = hd_output_integrity_ok
+            blend_chain_ok = hd_output_integrity_ok
+
+        execution_ok = region_evidence_ok and blend_chain_ok and hd_output_integrity_ok
+        execution_evidence = {
+            "accepted_region_evidence": accepted_region_evidence,
+            "missing_region_evidence": missing_region_evidence,
+            "failed_region_evidence": failed_region_evidence,
+            "stale_region_evidence": stale_region_evidence,
+            "blend_receipt_count": len(plan_receipts),
+            "live_blend_receipt_count": len(live_receipts),
+            "blend_chain_length": len(blend_chain or []),
+            "expected_blend_chain_length": len(regions),
+            "hd_working_canvas_output_integrity_ok": hd_output_integrity_ok,
+            "starts_from_hd_working_canvas": blend_chain_start_ok,
+            "final_output_matches_master": (
+                True if not regions
+                else bool(blend_chain) and blend_chain[-1].get("output_sha256") == master["sha256"]
+            ),
+            "accepted": execution_ok,
+        }
+
         budget = {
             "verdict": "pass",
+            "plan_sha256": plan_sha256,
             "planned_regions": plan.get("region_count"),
+            "planned_delivery_canvas": planned_delivery_canvas,
+            "final_canvas": final["size"],
+            "plan_canvas_matches": plan_canvas_matches,
+            "region_contract_ok": region_contract_ok,
             "dropped_regions": dropped,
             "failed_observations": failed_observations,
+            "execution_evidence": execution_evidence,
         }
+        if not plan_canvas_matches:
+            budget["verdict"] = "fail"
+            reasons.append(
+                f"budget: detail-plan delivery_canvas {planned_delivery_canvas} does not match "
+                f"the delivered file {final['size']}; re-plan against the exact final canvas."
+            )
+        if not region_contract_ok:
+            budget["verdict"] = "fail"
+            reasons.append(
+                "budget: detail-plan region_count does not match its regions array; regenerate the plan."
+            )
+        if regions and not execution_ok:
+            budget["verdict"] = "fail"
+            reasons.append(
+                "budget: detail-plan is feasible but its selected regions were not fully executed. "
+                "Every planned region needs a live accepted record_patch_observation.py entry and an "
+                "ordered register_blend.py hash-chain ending at the delivery master."
+            )
         if dropped or feasibility.get("verdict") == "needs-tiling" or failed_observations:
             budget["verdict"] = "fail"
             tiling = plan.get("tiling_requirement") or {}
@@ -199,6 +456,275 @@ def main() -> None:
                 )
             )
 
+    if args.tile_plan is not None:
+        tile_path = args.tile_plan.expanduser().resolve()
+        if not tile_path.is_file():
+            raise SystemExit(f"Missing tile redraw plan: {tile_path}")
+        if not tile_path.is_relative_to(job_dir):
+            raise SystemExit(f"Tile redraw plan must live inside the job directory: {tile_path}")
+        tile_plan = json.loads(tile_path.read_text(encoding="utf-8"))
+        tile_plan_sha256 = sha256_file(tile_path)
+        tiles = tile_plan.get("tiles") or []
+        coverage = tile_plan.get("coverage") or {}
+        tile_canvas = tile_plan.get("canvas")
+        tile_canvas_matches = tile_canvas == final["size"]
+        tile_canvas_path = tile_plan.get("canvas_path")
+        tile_canvas_sha256 = tile_plan.get("canvas_sha256")
+        tile_canvas_source_bound = bool(tile_canvas_path and tile_canvas_sha256)
+        tile_canvas_source_ok = True
+        if tile_canvas_source_bound:
+            resolved_canvas_path = Path(str(tile_canvas_path)).expanduser().resolve()
+            tile_canvas_source_ok = (
+                resolved_canvas_path.is_file()
+                and resolved_canvas_path.is_relative_to(job_dir)
+                and measure(resolved_canvas_path)["size"] == tile_canvas
+                and sha256_file(resolved_canvas_path) == tile_canvas_sha256
+            )
+        provenance_sources = ((tile_plan.get("provenance") or {}).get("source") or [])
+        full_canvas_plan = "full_canvas" in provenance_sources
+        expected_indices = [item.get("index") for item in tiles]
+        index_contract_ok = (
+            all(isinstance(index, int) and index >= 0 for index in expected_indices)
+            and len(set(expected_indices)) == len(expected_indices)
+            and tile_plan.get("tile_count") == len(tiles)
+            and set(tile_plan.get("blend_sequence") or []) == set(expected_indices)
+            and len(tile_plan.get("blend_sequence") or []) == len(expected_indices)
+        )
+        weak_tiles = [
+            {
+                "index": item.get("index"),
+                "region_type": item.get("region_type"),
+                "budget_ratio": item.get("budget_ratio"),
+                "threshold": item.get("threshold"),
+            }
+            for item in tiles
+            if not isinstance(item.get("budget_ratio"), (int, float))
+            or not isinstance(item.get("threshold"), (int, float))
+            or item["budget_ratio"] < item["threshold"]
+        ]
+        observations = [
+            item for item in (data.get("patch_observations") or [])
+            if isinstance(item, dict)
+            and item.get("evidence_kind") == "tile-redraw"
+            and item.get("evidence_plan_sha256") == tile_plan_sha256
+        ]
+        evidence_by_index: dict[int, list[dict]] = {}
+        for item in observations:
+            index = item.get("tile_index")
+            if isinstance(index, int):
+                evidence_by_index.setdefault(index, []).append(item)
+
+        missing_tile_evidence = []
+        failed_tile_evidence = []
+        stale_tile_evidence = []
+        accepted_tile_evidence = []
+        for tile in tiles:
+            index = tile.get("index")
+            candidates = evidence_by_index.get(index, [])
+            accepted_candidates = [
+                item for item in candidates
+                if (item.get("budget_recheck") or {}).get("accepted") is True
+            ]
+            valid = None
+            for item in sorted(accepted_candidates, key=lambda value: value.get("sequence") or 0, reverse=True):
+                patch_path = Path(str(item.get("patch_path") or "")).expanduser().resolve()
+                if not patch_path.is_file() or not patch_path.is_relative_to(job_dir):
+                    continue
+                measured = measure(patch_path)
+                if measured["sha256"] != item.get("patch_sha256") or measured["size"] != item.get("actual_size"):
+                    continue
+                valid = item
+                break
+            if valid is not None:
+                accepted_tile_evidence.append({
+                    "tile_index": index,
+                    "patch_path": valid.get("patch_path"),
+                    "patch_sha256": valid.get("patch_sha256"),
+                    "actual_size": valid.get("actual_size"),
+                    "detail_ratio": (valid.get("budget_recheck") or {}).get("detail_ratio"),
+                })
+            elif not candidates:
+                missing_tile_evidence.append(index)
+            elif not accepted_candidates:
+                failed_tile_evidence.append(index)
+            else:
+                stale_tile_evidence.append(index)
+
+        tile_evidence_ok = (
+            len(accepted_tile_evidence) == len(tiles)
+            and not missing_tile_evidence
+            and not failed_tile_evidence
+            and not stale_tile_evidence
+        )
+
+        accepted_patch_sha = {
+            item["tile_index"]: item.get("patch_sha256")
+            for item in accepted_tile_evidence
+        }
+        plan_receipts = sorted(
+            [
+                item for item in (data.get("tile_blend_receipts") or [])
+                if isinstance(item, dict)
+                and item.get("kind") == "tile-redraw"
+                and item.get("tile_plan_sha256") == tile_plan_sha256
+            ],
+            key=lambda item: item.get("sequence") or 0,
+        )
+
+        def receipt_is_live(receipt: dict) -> bool:
+            if (receipt.get("registration") or {}).get("accepted") is not True:
+                return False
+            index = receipt.get("tile_index")
+            if accepted_patch_sha.get(index) != receipt.get("patch_sha256"):
+                return False
+            output_path = Path(str(receipt.get("output_path") or "")).expanduser().resolve()
+            if not output_path.is_file() or not output_path.is_relative_to(job_dir):
+                return False
+            if sha256_file(output_path) != receipt.get("output_sha256"):
+                return False
+            return True
+
+        live_receipts = [item for item in plan_receipts if receipt_is_live(item)]
+        blend_sequence = tile_plan.get("blend_sequence") or []
+
+        def find_receipt_chain(position: int, after_sequence: int, previous_output_sha: str | None):
+            if position >= len(blend_sequence):
+                return []
+            wanted = blend_sequence[position]
+            for receipt in live_receipts:
+                sequence = receipt.get("sequence") or 0
+                if sequence <= after_sequence or receipt.get("tile_index") != wanted:
+                    continue
+                if previous_output_sha is not None and receipt.get("input_base_sha256") != previous_output_sha:
+                    continue
+                tail = find_receipt_chain(position + 1, sequence, receipt.get("output_sha256"))
+                if tail is not None:
+                    return [receipt] + tail
+            return None
+
+        blend_chain = find_receipt_chain(0, 0, None) if blend_sequence else None
+        blend_chain_start_ok = (
+            True
+            if not tile_canvas_source_bound
+            else bool(blend_chain) and blend_chain[0].get("input_base_sha256") == tile_canvas_sha256
+        )
+        blend_chain_ok = (
+            blend_chain is not None
+            and len(blend_chain) == len(blend_sequence)
+            and bool(blend_chain)
+            and blend_chain_start_ok
+            and blend_chain[-1].get("output_sha256") == master["sha256"]
+        )
+        blend_evidence = {
+            "receipt_count": len(plan_receipts),
+            "live_receipt_count": len(live_receipts),
+            "chain_length": len(blend_chain or []),
+            "expected_chain_length": len(blend_sequence),
+            "chain_tile_indices": [item.get("tile_index") for item in (blend_chain or [])],
+            "starts_from_planned_canvas": blend_chain_start_ok,
+            "final_output_matches_master": bool(blend_chain) and blend_chain[-1].get("output_sha256") == master["sha256"],
+            "accepted": blend_chain_ok,
+        }
+
+        tile_ok = (
+            tile_plan.get("verdict") == "pass"
+            and tile_canvas_matches
+            and tile_canvas_source_ok
+            and index_contract_ok
+            and bool(tiles)
+            and int(coverage.get("hole_area") or 0) == 0
+            and not weak_tiles
+            and tile_evidence_ok
+            and blend_chain_ok
+        )
+        full_canvas_detail_context_ok = (
+            not detail_required
+            or hd_master_delivery
+            or "detail_plan" in provenance_sources
+        )
+        prepared_canvas_matches = True
+        hd_record_for_tiles = data.get("hd_working_canvas")
+        if (
+            full_canvas_plan
+            and not hd_master_delivery
+            and (data.get("hd_working_canvas_policy") or {}).get("mode") == "automatic"
+        ):
+            prepared_canvas_matches = (
+                isinstance(hd_record_for_tiles, dict)
+                and bool(hd_record_for_tiles.get("output_sha256"))
+                and tile_canvas_sha256 == hd_record_for_tiles.get("output_sha256")
+                and tile_canvas == hd_record_for_tiles.get("output_size")
+            )
+        full_canvas_native_ok = (
+            tile_ok
+            and full_canvas_plan
+            and full_canvas_detail_context_ok
+            and prepared_canvas_matches
+            and int(coverage.get("sliver_area") or 0) == 0
+            and int(coverage.get("hole_area") or 0) == 0
+            and tile_canvas_matches
+        )
+        if full_canvas_native_ok:
+            full_canvas_tile_redraw_accepted = True
+
+        tile_budget = {
+            "verdict": "pass" if tile_ok else "fail",
+            "plan_sha256": tile_plan_sha256,
+            "canvas": tile_canvas,
+            "final_canvas": final["size"],
+            "canvas_matches": tile_canvas_matches,
+            "canvas_source_bound": tile_canvas_source_bound,
+            "canvas_source_ok": tile_canvas_source_ok,
+            "full_canvas_plan": full_canvas_plan,
+            "full_canvas_detail_context_ok": full_canvas_detail_context_ok,
+            "prepared_hd_canvas_matches": prepared_canvas_matches,
+            "full_canvas_native_ok": full_canvas_native_ok,
+            "index_contract_ok": index_contract_ok,
+            "tile_count": len(tiles),
+            "hole_area": int(coverage.get("hole_area") or 0),
+            "sliver_area": int(coverage.get("sliver_area") or 0),
+            "weak_tiles": weak_tiles,
+            "observed_patch_size": tile_plan.get("observed_patch_size"),
+            "accepted_tile_evidence": accepted_tile_evidence,
+            "missing_tile_evidence": missing_tile_evidence,
+            "failed_tile_evidence": failed_tile_evidence,
+            "stale_tile_evidence": stale_tile_evidence,
+            "blend_evidence": blend_evidence,
+        }
+        if budget.get("verdict") == "not-applicable":
+            budget = {"verdict": tile_budget["verdict"], "dropped_regions": [], "failed_observations": []}
+        budget["tile_redraw"] = tile_budget
+        if not tile_ok:
+            budget["verdict"] = "fail"
+            reasons.append(
+                "budget: tile redraw evidence failed; require tile-plan verdict=pass, tile-plan canvas "
+                "equal to the delivered file, the planned redraw canvas hash still valid, a consistent "
+                "tile index/blend sequence, hole_area=0, every planned tile budget_ratio >= its threshold, one still-present accepted "
+                "record_patch_observation.py result per tile, and an ordered register_blend.py hash-chain "
+                "whose final output hash equals the delivery master."
+            )
+
+    # A genuine full-canvas redraw replaces the interpolated scaffold pixel-for-pixel,
+    # so it is native delivery evidence and may satisfy geometry even when the global
+    # 4X information canvas was smaller. Thin delegated slivers are forbidden here.
+    if full_canvas_tile_redraw_accepted:
+        geometry_ok = True
+        geometry_scale = 1.0
+        canvas = list(final["size"])
+
+    # Mandatory evidence remains mandatory even when another optional plan was
+    # supplied. Ordinary local recovery may use a detail plan, or the automatic
+    # full-canvas fallback when global information cannot honestly reach delivery.
+    if hd_master_delivery and args.tile_plan is None:
+        budget["verdict"] = "fail"
+        budget["reason"] = "missing_tile_plan"
+    elif detail_required and not hd_master_delivery and args.plan is None and not full_canvas_tile_redraw_accepted:
+        budget["verdict"] = "fail"
+        budget["reason"] = "missing_detail_plan_or_full_canvas_tile_plan"
+
+    if not geometry_ok:
+        reasons.insert(0, geometry_reason)
+
     diff = None
     approved = data.get("approved_preview")
     if isinstance(approved, dict) and approved.get("path"):
@@ -215,11 +741,14 @@ def main() -> None:
         "geometry": {
             "verdict": "pass" if geometry_ok else "fail",
             "reference_size": reference,
-            "reference_source": "approved_preview" if reference != master["size"] else "master",
+            "reference_source": reference_source,
+            "reference_evidence_ok": reference_evidence_ok,
             "master_size": master["size"],
             "upscale_raise_factor": round(raise_factor, 6),
             "information_passes": raise_passes,
+            "information_canvas": information_canvas,
             "effective_canvas": canvas,
+            "geometry_override": "full-canvas-tile-redraw" if full_canvas_tile_redraw_accepted else None,
             "final_size": final["size"],
             "effective_scale": round(geometry_scale, 6),
             "max_honest_upscale": limit,
