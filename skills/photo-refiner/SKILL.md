@@ -1,39 +1,90 @@
 ---
 name: photo-refiner
-description: Refine source photographs in ChatGPT with review-first look generation, source-backed original-resolution delivery, optional depth guards, and auditable local recovery. Use the companion photo-refiner-creative skill only after a creative recipe is explicitly selected.
+description: Refine source photographs in ChatGPT with a deterministic review workflow, source-backed original-resolution delivery, optional depth guards, and auditable local recovery. Use the companion photo-refiner-creative skill only after a creative recipe is explicitly selected.
 ---
 
 # Photo Refiner v2.4
 
-Photo Refiner is the orchestration skill for one installed **Photo Refiner Studio** plugin. ChatGPT Images owns image generation/editing. This skill owns photographic authority, review checkpoints, high-resolution delivery, patch economics, deterministic registration/blending, and delivery evidence.
+Photo Refiner is the photographic orchestration skill inside **Photo Refiner Studio**. ChatGPT Images owns image generation/editing. Photo Refiner owns authority, review checkpoints, high-resolution delivery, patch economics, deterministic registration/blending, and delivery evidence.
 
-Do not call an image-generation API merely to duplicate ChatGPT's built-in image generator.
+Do not call an image-generation API merely to duplicate ChatGPT's built-in image path.
 
-## 1. Intent gate
+## 1. Product rule: hide engineering complexity
+
+The user chooses photographic intent:
+
+- look / preset / strength;
+- creative recipe when wanted;
+- review mode;
+- delivery target;
+- professional controls only when requested.
+
+Keep automatic unless the user explicitly asks for technical detail:
+
+- client patch cap;
+- Pixel Budget math;
+- patch/tile count;
+- HD route;
+- source-backing internals;
+- depth prior;
+- registration model;
+- blend receipts;
+- retry bookkeeping.
+
+For ordinary original-framing `source-width` photography, original resolution is the normal delivery target. Never ask the user to choose between dozens of redraw tiles and a smaller file merely because the returned LOOK MASTER is smaller than SOURCE MASTER.
+
+## 2. Intent and Studio gate
 
 A question about Photo Refiner, its architecture, settings, limits, or source code is not an edit request. Inspect or explain only.
 
-Start a job only when the user explicitly asks to edit/refine one or more specific source photographs.
+Start a job only when the user explicitly asks to edit/refine one or more specific photographs.
 
-## 2. Studio gate
+When a usable source photograph is present, open `open_photo_refiner_settings` with the real source count plus subject-aware recommendations from `references/subject-routing.md` / `references/presets.yaml`.
 
-When a usable source photograph is present, prefer the plugin tool `open_photo_refiner_settings` and pass the real source count plus subject-aware recommendations from `references/subject-routing.md` and `references/presets.yaml`.
+Opening Studio is the final visible action of that turn. Do not print a parallel settings menu and do not auto-submit.
 
-Opening Studio is the final visible action of that turn. Do not print a parallel settings menu or auto-submit.
-
-After Studio submits, initialize with the exact confirmation:
+After Studio submits:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/init_job.py" <source...> --confirmation-file <confirmationPath>
 ```
 
-Current confirmations are schema 4 and bind settings, execution mode, recipe/output routing, and resolved prompt with `confirmationHash`.
+Then immediately hand execution order to the controller:
 
-## 3. Creative handoff
+```bash
+python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json>
+```
 
-Normal photographic refinement is owned by this skill. Creative translation is owned by **`photo-refiner-creative`**.
+## 3. Workflow Controller is authoritative
 
-When Studio confirms `creativeRecipe != none`, initialize the job, then explicitly load the creative companion. Return to this skill's HD/evidence pipeline only where that skill says the creative output is eligible.
+Do **not** reconstruct the pipeline from prose after each turn. After every state-changing action, approval, regeneration, plan creation, patch/tile completion, or delivery gate, call `workflow_controller.py` again and execute its `next_action`.
+
+The controller returns exactly one semantic action, for example:
+
+```json
+{
+  "phase": "hd_preparation",
+  "next_action": "prepare_hd_working_canvas",
+  "user_input_required": false,
+  "visible_status": "正在完成原图尺寸智能恢复"
+}
+```
+
+Semantic user events:
+
+```bash
+python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json> --event approve
+python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json> --event continue
+python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json> --event redo
+python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json> --event adjust
+```
+
+Rules:
+
+- `approve` / `continue` at a review checkpoint means bind the exact displayed bitmap through `update_job.py`; the controller never fabricates approval.
+- `redo` regenerates from the last clean authority, never from the rejected output.
+- `adjust` returns to Studio instead of stacking another edit on a rejected brief.
+- Do not expose internal route names or generation counts in normal conversation; use the controller's `visible_status`.
 
 ## 4. Image authorities
 
@@ -43,21 +94,17 @@ Ordinary refinement has three authorities:
 - **LOOK MASTER** — approved ChatGPT Images result. Owns color, lighting, tone, atmosphere, retouch character, and approved visual style.
 - **DETAIL PATCH** — localized generated detail. May add registered mid/high-frequency information where useful but may not redefine SOURCE MASTER structure or LOOK MASTER low-frequency appearance.
 
-This distinction is critical: a smaller LOOK MASTER does **not** erase the high-resolution information already present in SOURCE MASTER.
+A smaller LOOK MASTER does **not** erase the real high-resolution information already present in SOURCE MASTER.
 
 Never continue from a rejected generated image.
 
-## 5. Color contract
+## 5. Preparation and base generation
 
-Use sRGB internally unless the active ChatGPT image pipeline exposes a reliable profile contract.
+Normalize source color when needed:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/prepare_source.py" <source> <normalized.png>
 ```
-
-Convert embedded profiles through ImageCms/LittleCMS when possible; never merely relabel pixels.
-
-## 6. Base / LOOK MASTER checkpoint
 
 Build the frozen edit brief:
 
@@ -65,18 +112,21 @@ Build the frozen edit brief:
 python3 "$SKILL_ROOT/scripts/build_edit_prompt.py" <job.json>
 ```
 
-Generate the complete base edit with ChatGPT Images. SOURCE MASTER remains authoritative for identity/geometry; the confirmed settings control appearance.
+Advance preparation state using `update_job.py`, then ask the controller for the next action. When it returns `generate_base`, generate the complete base edit with ChatGPT Images.
 
-For `preview-first`, review before approval:
+SOURCE MASTER remains authoritative for identity/geometry. The confirmed settings own appearance.
 
-- identity and expression;
-- anatomy, garment joins, props, architecture;
-- duplicated/drifted features, seams, halos, abrupt sharpness changes;
-- overall lighting, palette, framing and atmosphere.
+## 6. Review checkpoint
 
-If the global result fails, regenerate globally. Do not patch a globally failed LOOK MASTER.
+When the controller returns `await_base_review`, show the generated image and keep the decision simple:
 
-Record the exact approved bitmap:
+- approve / continue;
+- redo;
+- adjust settings.
+
+Do not ask the user to reason about HD strategy, patch count, tile count, or Pixel Budget.
+
+For an approved base image, bind the exact file:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> \
@@ -84,9 +134,11 @@ python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> \
   --artifact base_preview=<approved-image>
 ```
 
-## 7. HD working canvas: photographic delivery is source-backed
+Then call the controller again.
 
-Every eligible job enters HD preparation through:
+## 7. HD delivery: source-backed photography first
+
+When the controller returns `prepare_hd_working_canvas`:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/prepare_hd_working_canvas.py" <job.json> \
@@ -94,33 +146,26 @@ python3 "$SKILL_ROOT/scripts/prepare_hd_working_canvas.py" <job.json> \
   --output <job-dir>/intermediates/hd-working.png
 ```
 
-The router has four routes:
+Current internal routes:
 
-- **`native-detail`** — LOOK MASTER already supports the delivery canvas.
-- **`source-backed-detail`** — default for **ordinary, single-source, original-framing, `source-width` photography**. SOURCE MASTER supplies real source-resolution fine luminance detail while LOOK MASTER supplies approved low/mid-frequency appearance. Only valuable local regions are regenerated afterwards.
-- **`ultrasharp-detail`** — for canvases that cannot use SOURCE MASTER detail but fit the pinned 4X-UltraSharp information span.
-- **`full-canvas-tile-redraw`** — for genuinely synthetic/transformed canvases that cannot be backed by SOURCE MASTER and exceed the honest information span.
+- `native-detail` — LOOK MASTER already supports delivery.
+- `source-backed-detail` — normal path for ordinary single-source + original framing + `source-width`; SOURCE MASTER supplies real fine detail and LOOK MASTER supplies approved appearance.
+- `ultrasharp-detail` — non-source-backed canvas fits the pinned information-adding upscaler span.
+- `full-canvas-tile-redraw` — genuine synthetic/transformed canvas whose final pixels cannot be backed by SOURCE MASTER.
 
-### Product rule: original resolution is not an optional expensive mode
+These route names are implementation details. User-facing wording should be **原图尺寸智能恢复 / 正在恢复关键细节 / 正在完成成片**.
 
-If Studio already confirmed `resolution = source-width` for an ordinary original-framing photograph, **deliver at source width by default**. Do not ask the user to choose between dozens of full-canvas redraws and a smaller file merely because ChatGPT returned a smaller LOOK MASTER.
+### Source-backed invariant
 
-For a 4672×7008 source, the normal target remains 4672×7008. The full source photograph does not need to be regenerated tile-by-tile to prove that dimension; SOURCE MASTER already contains those pixels.
+For an ordinary 4672×7008 source whose LOOK MASTER returned around 1024×1536, the normal target remains 4672×7008. Do not regenerate the entire photograph just to prove the dimensions. SOURCE MASTER already owns those source pixels.
 
-Full-canvas tile redraw is reserved for cases where SOURCE MASTER cannot honestly back the canvas, such as:
-
-- creative full-frame reconstruction;
-- generated/synthetic panels;
-- outpaint or changed framing with newly invented areas;
-- a user explicitly requesting a fully regenerated native-resolution creative canvas.
-
-Do not expose planner tile counts to the user for ordinary source-backed photography.
+Full-canvas redraw is reserved for creative reconstruction, synthetic panels, newly invented outpaint areas, changed framing that creates new pixels, or an explicit user request for a fully regenerated native-resolution creative canvas.
 
 ## 8. Detail planning
 
-Never infer the client's actual patch size from API documentation or planner defaults. Use a previously observed returned bitmap size; on a fresh runtime do one disposable calibration generation, record its real `actual_size`, and never blend that calibration image.
+Never infer the ChatGPT client's actual patch return size from API documentation or planner defaults. Use an empirically observed returned bitmap size. On a fresh runtime, do one disposable calibration generation, materialize it, record `actual_size`, and never blend the calibration image.
 
-Create the ordinary raw detail plan:
+Create the raw subject-aware plan:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
@@ -129,46 +174,37 @@ python3 "$SKILL_ROOT/scripts/plan_detail_tiles.py" \
   --delivery-canvas <WxH> \
   --observed-patch-size <actual-WxH> \
   --detail-budget <fast|balanced|max> \
-  --output <detail-plan.raw.json>
+  --output <job-dir>/detail-plan.raw.json
 ```
 
-Budgets are ceilings, not quotas. Prefer zero/few broad valuable regions to micro-patches. Balanced ordinary work should usually remain around 0–3 generated regions.
+Budgets are ceilings, not quotas. Prefer zero/few broad high-value regions.
 
-### 8.1 Normalize source-backed plans
+### Source-backed normalization
 
-When `job.hd_working_canvas.route == source-backed-detail`, immediately normalize the raw plan:
+If `job.hd_working_canvas.route == source-backed-detail`:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/apply_source_backing.py" \
-  <job.json> <detail-plan.raw.json> \
-  --output <detail-plan.source-backed.json>
+  <job.json> <job-dir>/detail-plan.raw.json \
+  --output <job-dir>/detail-plan.source-backed.json
 ```
 
-This step is mandatory for the source-backed route. It:
+This converts raw `needs-tiling` pressure into audited SOURCE MASTER backing. It sets `user_confirmation_required = false`; any raw `consent_prompt` is diagnostic only and must not be quoted to the user.
 
-- converts raw `needs-tiling` pressure into audited SOURCE MASTER backing;
-- preserves only the valuable local regions that are actually worth generating;
-- records SOURCE MASTER-backed geometry in `job.upscale_passes` so delivery can verify where the source-resolution information came from;
-- sets `user_confirmation_required = false` for the discarded full-canvas tiling option.
-
-**Never** call `plan_tile_redraw.py` merely because the pre-normalized ordinary plan estimated many tiles. The raw tiling estimate is diagnostic only for source-backed photography.
-
-### 8.2 Optional relative depth prior
+### Optional relative depth prior
 
 Depth is a hidden spatial guard, not scene truth and not a patch multiplier. Use it only for occlusion, hand/prop front-back ordering, depth-of-field, haze, overlapping subjects, or creative spatial reconstruction.
 
-Apply it **after** source-backed normalization so the final plan SHA is stable:
+When needed:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/apply_depth_prior.py" \
-  --plan <detail-plan.source-backed-or-raw.json> \
+  --plan <normalized-or-raw-plan.json> \
   --vision-analysis <vision-analysis.json> \
-  --output <detail-plan.final.json>
+  --output <job-dir>/detail-plan.final.json
 ```
 
-If depth is unnecessary, the normalized/raw plan itself is the final plan.
-
-### 8.3 Full-canvas redraw only for non-source-backed canvases
+### Full-canvas redraw
 
 Only when HD preparation actually returns `full-canvas-tile-redraw`:
 
@@ -176,21 +212,23 @@ Only when HD preparation actually returns `full-canvas-tile-redraw`:
 python3 "$SKILL_ROOT/scripts/plan_tile_redraw.py" \
   --image <hd-working.png> \
   --observed-patch-size <actual-WxH> \
-  --detail-plan <detail-plan.final.json> \
+  --detail-plan <detail-plan.final-or-raw.json> \
   --full-canvas --sliver-margin 0 \
-  --output <tile-plan.json>
+  --output <job-dir>/tile-plan.json
 ```
 
-For this route, every final area must be backed by executed tile evidence.
+After creating any plan, call the controller again.
 
 ## 9. Generate, observe, register, blend
 
-For every **selected** patch/tile:
+Only generate regions selected by the final plan.
+
+For each selected patch/tile:
 
 1. crop the exact planned target;
 2. generate with ChatGPT Images using SOURCE MASTER for identity/structure and LOOK MASTER for appearance;
 3. materialize the returned bitmap inside the job;
-4. record actual dimensions/hash/plan SHA/region index and Pixel Budget;
+4. record actual dimensions/hash/plan SHA/index and Pixel Budget;
 5. register and blend from the latest clean accepted composite.
 
 Observation:
@@ -200,7 +238,7 @@ python3 "$SKILL_ROOT/scripts/record_patch_observation.py" <job.json> \
   --patch <returned.png> \
   --region-type <type> \
   --requested-size <WxH> \
-  --plan <detail-plan.final.json> \
+  --plan <detail-plan.json> \
   --planner-region-index <index>
 ```
 
@@ -215,73 +253,69 @@ python3 "$SKILL_ROOT/scripts/register_blend.py" \
   --x <x> --y <y> \
   --region-type <type> \
   --job <job.json> \
-  --plan <detail-plan.final.json> \
+  --plan <detail-plan.json> \
   --planner-region-index <index>
 ```
 
-For a genuine tile-redraw route, use `--tile-plan/--tile-index` instead.
+Use `--tile-plan/--tile-index` only for genuine tile-redraw jobs.
 
-`register_blend.py` writes input-base → patch → output-composite hash-chain receipts. Broad structure first; face normally last.
+After the selected regions are complete, call the controller; it will return `mark_details_processed` only when evidence is complete.
 
-## 10. Quality gates
+## 10. Delivery
 
-Read `references/quality-gates.md` for identity, anatomy, registration, seam, landmark, depth-order and retry rules.
-
-Passing geometric registration alone never proves a patch is visually valid. Failed local generations retry from the last clean accepted composite, not from the failed patch.
-
-## 11. Delivery
-
-Run against the exact master and delivered file:
+When the controller returns `run_delivery_gate`:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/delivery_gate.py" <job.json> \
   --master <accepted-composite> \
   --final <delivered-file> \
-  --plan <detail-plan.final.json>
+  --plan <detail-plan.json>
 ```
 
-A source-backed plan is a normal detail plan for gate purposes. It carries explicit SOURCE MASTER provenance and a geometry pass written by `apply_source_backing.py`.
+Use `--tile-plan` for genuine full-canvas creative/synthetic redraws.
 
-For a genuine full-canvas creative/synthetic route use `--tile-plan` instead.
+Delivery remains fail-closed for:
 
-Delivery remains fail-closed for things that matter:
+- bound authority path/size/hash;
+- explicit SOURCE MASTER backing or other information-adding route;
+- selected generated patch/tile evidence;
+- accepted registration/blend receipts;
+- final composite hash;
+- required review checkpoints.
 
-- approved/generated input identity is bound by path/size/hash;
-- SOURCE MASTER backing or an information-adding route is explicit;
-- every selected generated patch has live returned-image evidence;
-- every selected patch still has the same hash/size;
-- blend receipts form the expected chain;
-- the final receipt equals the delivery master;
-- required review/quality checkpoints are complete.
+It must **not** fail ordinary source-width delivery merely because unselected regions would need many generated tiles. Those regions remain explicitly SOURCE MASTER-backed.
 
-**Do not fail ordinary source-width delivery merely because unselected regions would need many generated tiles.** Those regions are explicitly retained from SOURCE MASTER by the source-backed plan.
+After the gate passes, call the controller; it will return `complete_job`.
 
-## 12. State and retry discipline
+## 11. Creative handoff
 
-`job.json` is the execution ledger. Preserve immutable source hashes and review checkpoints.
+Normal photographic refinement is owned by this skill. Creative translation is owned by **`photo-refiner-creative`**.
 
-Typical ordinary flow:
+When Studio confirms `creativeRecipe != none`, initialize the job and explicitly load the companion skill. For `hd-master` creative chains, the controller separates:
 
-```text
-initialized
-→ prepared
-→ base_generated
-→ details_processed
-→ completed
-```
+1. photographic HD master;
+2. creative draft;
+3. creative review;
+4. final creative delivery redraw.
 
-Preview-first requires approval of the exact base bitmap. Batch jobs establish one approved master look before consistency work.
+Do not collapse these checkpoints or run ordinary photographic patches over original-assembly artwork.
+
+## 12. Batch
+
+Batch jobs use one approved master look for consistency, but each frame keeps its own SOURCE MASTER authority. Do not treat a batch as one synthetic multi-source canvas.
+
+The current single-image source-backed implementation must not be generalized by simply checking `len(sources) > 1`; per-frame source backing is the intended batch model.
 
 ## 13. Platform rules
 
 - Chat, Work, Voice and Codex are surfaces, not separate image pipelines.
-- Use Work for long multi-file/batch jobs and reference gathering; do not replace deterministic local evidence with browser automation.
-- Voice controls the same semantic actions; do not build a separate voice stack.
-- MCP/Studio owns structured settings, confirmation and catalogs. Local scripts own deterministic file processing and evidence.
-- As ChatGPT Images improves, prefer fewer broader generated edits and stronger review gates rather than more patches.
+- Use Work for long multi-file/batch execution and reference gathering; do not build another background-task system.
+- Voice maps natural language to the same semantic controller events (`continue`, `redo`, `adjust`).
+- MCP/Studio owns structured settings and confirmation. Local scripts own deterministic file processing/evidence.
+- As ChatGPT Images improves, generate fewer patches and rely more on full-image quality gates.
 
-## 14. Anti-duplication rules
+## 14. Anti-duplication
 
-Do not build a second image-generation service, browser, voice system, scheduler, or selection editor where ChatGPT already supplies the capability.
+Do not build a second image-generation backend, browser, voice system, task scheduler, or selection editor where ChatGPT already supplies the capability.
 
-Photo Refiner specializes in photographic authority, source-backed high-resolution delivery, spatial safety, patch economics, reproducible evidence, and review/retry discipline.
+Photo Refiner differentiates on photographic authority, source-backed original-resolution delivery, spatial safety, patch economics, deterministic workflow control, reproducible evidence, and review/retry discipline.
