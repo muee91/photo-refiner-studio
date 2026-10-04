@@ -12,6 +12,18 @@
       "env": {
         "HOME": "${PLUGIN_DATA}"
       }
+    },
+    "photoRefinerWorkflow": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/mcp/workflow.cjs",
+        "--stdio"
+      ],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "HOME": "${PLUGIN_DATA}"
+      }
     }
   }
 }
