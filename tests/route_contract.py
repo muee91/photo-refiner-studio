@@ -25,7 +25,7 @@ for route in ROUTES:
 # contract, not merely contain a particular English/Chinese sentence shape.
 if "source-backed" not in SKILL.lower() or "source-backed" not in SCHEMA.lower():
     raise SystemExit("source-backed original-resolution delivery is missing from the documented contract")
-if "consent_prompt" not in SKILL or "must never be quoted to the user" not in SKILL:
+if "consent_prompt" not in SKILL or "user_confirmation_required = false" not in SKILL or "quoted to the user" not in SKILL:
     raise SystemExit("SKILL no longer suppresses raw source-backed consent prompts")
 if "user_confirmation_required: false" not in SCHEMA:
     raise SystemExit("schema no longer records source-backed tiling as non-interactive")
