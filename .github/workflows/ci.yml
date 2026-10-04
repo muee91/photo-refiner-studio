@@ -38,8 +38,11 @@ jobs:
       - name: HD route contract
         run: python tests/route_contract.py
 
-      - name: MCP plugin contract
+      - name: Settings MCP contract
         run: node tests/plugin_contract.cjs
+
+      - name: Workflow MCP contract
+        run: node tests/workflow_plugin_contract.cjs
 
       - name: Widget contract
         run: node tests/widget_contract.cjs
