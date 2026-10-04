@@ -65,6 +65,17 @@ def check_skill_import_limits(skill_root: Path) -> None:
         fail(f"{skill_root.name} runtime resources exceed 5 MiB")
 
 
+def validate_stdio_server(server: dict, script: str, label: str) -> None:
+    if server.get("type") != "stdio" or server.get("command") != "node":
+        fail(f"{label} must be a portable stdio Node server")
+    if server.get("args") != [f"${{PLUGIN_ROOT}}/mcp/{script}", "--stdio"]:
+        fail(f"{label} args must resolve mcp/{script} from PLUGIN_ROOT")
+    if server.get("cwd") != "${PLUGIN_ROOT}":
+        fail(f"{label} cwd must be PLUGIN_ROOT")
+    if (server.get("env") or {}).get("HOME") != "${PLUGIN_DATA}":
+        fail(f"{label} persistent state must be scoped to PLUGIN_DATA")
+
+
 def check_portable_layout() -> tuple[str, str]:
     manifest = load_json(REPO / "plugin.json")
     if manifest.get("$schema") != PLUGIN_SCHEMA:
@@ -86,17 +97,10 @@ def check_portable_layout() -> tuple[str, str]:
     if mcp.get("$schema") != MCP_SCHEMA:
         fail("mcp.json must target Agent Plugins 1.0.0")
     servers = mcp.get("mcpServers")
-    if not isinstance(servers, dict) or set(servers) != {"photoRefinerStudio"}:
-        fail("mcp.json must contain exactly the photoRefinerStudio server")
-    server = servers["photoRefinerStudio"]
-    if server.get("type") != "stdio" or server.get("command") != "node":
-        fail("photoRefinerStudio must be a portable stdio Node server")
-    if server.get("args") != ["${PLUGIN_ROOT}/mcp/server.cjs", "--stdio"]:
-        fail("stdio args must resolve mcp/server.cjs from PLUGIN_ROOT")
-    if server.get("cwd") != "${PLUGIN_ROOT}":
-        fail("stdio cwd must be PLUGIN_ROOT")
-    if (server.get("env") or {}).get("HOME") != "${PLUGIN_DATA}":
-        fail("Studio persistent state must be scoped to PLUGIN_DATA")
+    if not isinstance(servers, dict) or set(servers) != {"photoRefinerStudio", "photoRefinerWorkflow"}:
+        fail("mcp.json must contain settings + workflow MCP servers")
+    validate_stdio_server(servers["photoRefinerStudio"], "server.cjs", "photoRefinerStudio")
+    validate_stdio_server(servers["photoRefinerWorkflow"], "workflow.cjs", "photoRefinerWorkflow")
 
     for legacy in (REPO / "plugin", REPO / "skill", REPO / ".mcp.json", REPO / "check_dependencies.py"):
         if legacy.exists():
@@ -116,6 +120,17 @@ def check_portable_layout() -> tuple[str, str]:
         fail("creative recipe payload is missing")
     if (creative / "references" / "starryear" / "previews").exists():
         fail("Studio preview images must not be duplicated inside the creative skill")
+
+    for required in (
+        REPO / "mcp" / "workflow.cjs",
+        REPO / "assets" / "review.html",
+        REPO / "assets" / "recent-jobs.html",
+        core / "scripts" / "workflow_controller.py",
+        core / "scripts" / "batch_frames.py",
+        core / "scripts" / "bind_batch_master.py",
+    ):
+        if not required.is_file():
+            fail(f"missing workflow runtime file: {required.relative_to(REPO)}")
 
     contract = (core / "scripts" / "job_contract.py").read_text(encoding="utf-8")
     match = re.search(r'^SKILL_VERSION = "([^"]+)"', contract, re.M)
