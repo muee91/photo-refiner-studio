@@ -1,7 +1,7 @@
 interface:
   display_name: "Photo Refiner"
   short_description: "Review-first photo refinement"
-  default_prompt: "Use $photo-refiner for this photograph and open Photo Refiner Studio before generation when settings are not already confirmed."
+  default_prompt: "Use $photo-refiner for this photograph. Open Photo Refiner Studio before generation when settings are not already confirmed, then use the Workflow Controller and review/resume tools instead of reconstructing state from chat history."
 policy:
   products:
     - CHAT
@@ -12,3 +12,6 @@ dependencies:
     - type: "mcp"
       value: "photoRefinerStudio"
       description: "Open Photo Refiner Studio and freeze explicit user settings before generation"
+    - type: "mcp"
+      value: "photoRefinerWorkflow"
+      description: "Register jobs, show review buttons, resume recent jobs, and expose deterministic workflow state"
