@@ -1,7 +1,7 @@
 {
   "name": "photo-refiner-studio",
-  "version": "1.0.0",
-  "description": "Interactive Photo Refiner settings, review checkpoints, and creative translation for ChatGPT and Codex.",
+  "version": "1.2.0",
+  "description": "Interactive Photo Refiner settings, deterministic review workflow, and creative translation for ChatGPT and Codex.",
   "author": {
     "name": "muee"
   },
@@ -17,7 +17,7 @@
   "interface": {
     "displayName": "Photo Refiner Studio",
     "shortDescription": "Review-first photo refinement",
-    "longDescription": "Refine photographs with a focused Studio for look, delivery, and creative choices while Photo Refiner automatically handles high-resolution recovery, optional spatial depth guards, actual patch-size observation, registration, blend evidence, and delivery checks.",
+    "longDescription": "Refine photographs with a focused Studio while Photo Refiner automatically handles original-resolution source backing, review checkpoints, high-resolution recovery, optional spatial guards, patch evidence, registration, blending, and delivery checks.",
     "developerName": "muee",
     "category": "Creative",
     "capabilities": [
@@ -26,7 +26,7 @@
     ],
     "defaultPrompt": [
       "Open Photo Refiner Studio for these photos",
-      "Retouch this portrait and let me approve the look before HD recovery",
+      "Retouch this portrait and let me approve the look before final delivery",
       "Use Photo Refiner to create a recipe-faithful creative version of this photo"
     ],
     "brandColor": "#1C8878",
