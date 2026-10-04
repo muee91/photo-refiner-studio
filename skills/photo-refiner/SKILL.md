@@ -1,11 +1,11 @@
 ---
 name: photo-refiner
-description: Refine source photographs in ChatGPT with a deterministic review workflow, source-backed original-resolution delivery, optional depth guards, and auditable local recovery. Use the companion photo-refiner-creative skill only after a creative recipe is explicitly selected.
+description: Refine source photographs in ChatGPT with a deterministic review workflow, resumable job state, per-frame batch authority, source-backed original-resolution delivery, optional depth guards, and auditable local recovery. Use the companion photo-refiner-creative skill only after a creative recipe is explicitly selected.
 ---
 
 # Photo Refiner v2.4
 
-Photo Refiner is the photographic orchestration skill inside **Photo Refiner Studio**. ChatGPT Images owns image generation/editing. Photo Refiner owns authority, review checkpoints, high-resolution delivery, patch economics, deterministic registration/blending, and delivery evidence.
+Photo Refiner is the photographic orchestration skill inside **Photo Refiner Studio**. ChatGPT Images owns image generation/editing. Photo Refiner owns authority, review checkpoints, high-resolution delivery, patch economics, deterministic registration/blending, durable job state, and delivery evidence.
 
 Do not call an image-generation API merely to duplicate ChatGPT's built-in image path.
 
@@ -33,11 +33,13 @@ Keep automatic unless the user explicitly asks for technical detail:
 
 For ordinary original-framing `source-width` photography, original resolution is the normal delivery target. Never ask the user to choose between dozens of redraw tiles and a smaller file merely because the returned LOOK MASTER is smaller than SOURCE MASTER.
 
-## 2. Intent and Studio gate
+## 2. Intent, Resume, and Studio gate
 
 A question about Photo Refiner, its architecture, settings, limits, or source code is not an edit request. Inspect or explain only.
 
-Start a job only when the user explicitly asks to edit/refine one or more specific photographs.
+When the user asks to **continue / resume / reopen / see recent Photo Refiner work** and does not explicitly start a new photo job, call `open_photo_refiner_recent_jobs`. Do not ask them to re-upload or restate settings before checking durable job state.
+
+Start a new job only when the user explicitly asks to edit/refine one or more specific photographs.
 
 When a usable source photograph is present, open `open_photo_refiner_settings` with the real source count plus subject-aware recommendations from `references/subject-routing.md` / `references/presets.yaml`.
 
@@ -49,7 +51,9 @@ After Studio submits:
 python3 "$SKILL_ROOT/scripts/init_job.py" <source...> --confirmation-file <confirmationPath>
 ```
 
-Then immediately hand execution order to the controller:
+Immediately register the **parent** job through `register_photo_refiner_job(jobPath=<job.json>)`. The workflow MCP automatically collapses child batch-frame jobs to their parent, so recent jobs stay clean.
+
+Then hand execution order to the controller:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json>
@@ -57,7 +61,7 @@ python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json>
 
 ## 3. Workflow Controller is authoritative
 
-Do **not** reconstruct the pipeline from prose after each turn. After every state-changing action, approval, regeneration, plan creation, patch/tile completion, or delivery gate, call `workflow_controller.py` again and execute its `next_action`.
+Do **not** reconstruct the pipeline from prose after each turn. After every state-changing action, approval, regeneration, plan creation, patch/tile completion, delivery gate, child-frame completion, or batch synchronization, call `workflow_controller.py` again and execute its `next_action`.
 
 The controller returns exactly one semantic action, for example:
 
@@ -70,21 +74,14 @@ The controller returns exactly one semantic action, for example:
 }
 ```
 
-Semantic user events:
-
-```bash
-python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json> --event approve
-python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json> --event continue
-python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json> --event redo
-python3 "$SKILL_ROOT/scripts/workflow_controller.py" <job.json> --event adjust
-```
+Semantic user events remain `approve / continue / redo / adjust`, but normal users should trigger review events through the Review Widget rather than typing workflow commands.
 
 Rules:
 
-- `approve` / `continue` at a review checkpoint means bind the exact displayed bitmap through `update_job.py`; the controller never fabricates approval.
-- `redo` regenerates from the last clean authority, never from the rejected output.
-- `adjust` returns to Studio instead of stacking another edit on a rejected brief.
-- Do not expose internal route names or generation counts in normal conversation; use the controller's `visible_status`.
+- approval binds the exact displayed bitmap through `update_job.py`; the controller never fabricates approval;
+- `redo` regenerates from the last clean authority, never from the rejected output;
+- `adjust` returns to Studio instead of stacking another edit on a rejected brief;
+- do not expose internal route names or generation counts in normal conversation; use the controller's `visible_status`.
 
 ## 4. Image authorities
 
@@ -116,25 +113,27 @@ Advance preparation state using `update_job.py`, then ask the controller for the
 
 SOURCE MASTER remains authoritative for identity/geometry. The confirmed settings own appearance.
 
-## 6. Review checkpoint
+For a materialized batch-frame child job, `batch_frame.shared_style_authority` owns **appearance only**. The child frame's own SOURCE MASTER still owns identity, pose, anatomy, factual geometry, garment construction and frame-specific texture.
 
-When the controller returns `await_base_review`, show the generated image and keep the decision simple:
+## 6. Review checkpoints are button-based
 
-- approve / continue;
-- redo;
-- adjust settings.
+When the controller returns:
 
-Do not ask the user to reason about HD strategy, patch count, tile count, or Pixel Budget.
+- `await_base_review`;
+- `await_creative_review`;
+- `await_batch_master_review`;
 
-For an approved base image, bind the exact file:
+show the exact generated image first, then call `open_photo_refiner_review` with:
 
-```bash
-python3 "$SKILL_ROOT/scripts/update_job.py" <job.json> \
-  --approve-base-preview \
-  --artifact base_preview=<approved-image>
-```
+- the current `jobPath`;
+- checkpoint `base`, `creative`, or `batch-master`;
+- `artifactPath` equal to the **exact image just shown**.
 
-Then call the controller again.
+Opening the Review Widget is the final visible action of that turn. Do not also ask the user to type “继续 / 重做 / 调整”. The buttons submit those semantic events directly.
+
+`submit_photo_refiner_review` binds approval itself through `update_job.py` and returns the controller's next decision. When the Widget posts `PHOTO_REFINER_REVIEW_SUBMITTED`, continue directly from that decision and do not ask the same review question again.
+
+Do not ask the user to reason about HD strategy, patch count, tile count, or Pixel Budget during review.
 
 ## 7. HD delivery: source-backed photography first
 
@@ -300,22 +299,83 @@ When Studio confirms `creativeRecipe != none`, initialize the job and explicitly
 
 Do not collapse these checkpoints or run ordinary photographic patches over original-assembly artwork.
 
-## 12. Batch
+## 12. Batch: shared style, per-frame facts
 
-Batch jobs use one approved master look for consistency, but each frame keeps its own SOURCE MASTER authority. Do not treat a batch as one synthetic multi-source canvas.
+Ordinary multi-photo batch jobs use a **parent + child-frame** model. Never treat the whole batch as one synthetic multi-source canvas.
 
-The current single-image source-backed implementation must not be generalized by simply checking `len(sources) > 1`; per-frame source backing is the intended batch model.
+The parent job owns only:
 
-## 13. Platform rules
+- frozen settings / resolved prompt;
+- batch consistency policy;
+- one approved **style master**;
+- child-frame registry and overall progress.
+
+Every frame owns its own:
+
+- SOURCE MASTER;
+- generated LOOK MASTER;
+- HD working canvas;
+- patch/tile observations;
+- registration/blend receipts;
+- delivery gate and final output.
+
+Workflow:
+
+1. Generate one batch master frame and show it through the `batch-master` Review Widget.
+2. After approval, when the controller returns `bind_batch_style_authority`:
+
+```bash
+python3 "$SKILL_ROOT/scripts/bind_batch_master.py" <parent-job.json>
+```
+
+3. When it returns `materialize_batch_frames`:
+
+```bash
+python3 "$SKILL_ROOT/scripts/batch_frames.py" <parent-job.json> --materialize
+```
+
+4. The controller then returns `process_batch_frame` with `child_job` and a nested `child_decision`. Execute that child exactly like a normal single-image job. Do **not** register child jobs as separate recent jobs; the workflow MCP collapses them to the parent automatically.
+5. After a child completes, run:
+
+```bash
+python3 "$SKILL_ROOT/scripts/batch_frames.py" <parent-job.json> --sync
+```
+
+then inspect the parent controller again.
+6. A failed child is isolated. `redo` maps to:
+
+```bash
+python3 "$SKILL_ROOT/scripts/batch_frames.py" <parent-job.json> --retry-index <index>
+```
+
+7. When every child is delivery-gated and completed, the controller returns `finalize_batch`:
+
+```bash
+python3 "$SKILL_ROOT/scripts/batch_frames.py" <parent-job.json> --finalize
+```
+
+**Authority invariant:** the batch style master may transfer color, lighting, tone, atmosphere, retouch character and grain. It may never transfer identity, pose, anatomy, factual geometry, garment construction or frame-specific texture.
+
+## 13. Durable Resume
+
+`job.json` is the source of truth; conversation memory is not.
+
+- Register each new parent job immediately after initialization.
+- When the user asks to continue/reopen, call `open_photo_refiner_recent_jobs`.
+- The Resume Widget calls `resume_photo_refiner_job`, which re-runs the Workflow Controller against the live job file.
+- Continue from the returned `decision`; do not regenerate completed stages or ask the user to repeat frozen settings.
+- Completed jobs may be reopened for inspection, but never silently re-enter generation.
+
+## 14. Platform rules
 
 - Chat, Work, Voice and Codex are surfaces, not separate image pipelines.
 - Use Work for long multi-file/batch execution and reference gathering; do not build another background-task system.
-- Voice maps natural language to the same semantic controller events (`continue`, `redo`, `adjust`).
-- MCP/Studio owns structured settings and confirmation. Local scripts own deterministic file processing/evidence.
+- Voice maps natural language to the same semantic controller events, while visual clients should prefer the Review Widget buttons.
+- MCP/Studio owns structured settings and confirmation. Workflow MCP owns durable review/resume UX. Local scripts own deterministic file processing/evidence.
 - As ChatGPT Images improves, generate fewer patches and rely more on full-image quality gates.
 
-## 14. Anti-duplication
+## 15. Anti-duplication
 
 Do not build a second image-generation backend, browser, voice system, task scheduler, or selection editor where ChatGPT already supplies the capability.
 
-Photo Refiner differentiates on photographic authority, source-backed original-resolution delivery, spatial safety, patch economics, deterministic workflow control, reproducible evidence, and review/retry discipline.
+Photo Refiner differentiates on photographic authority, source-backed original-resolution delivery, spatial safety, patch economics, deterministic workflow control, resumable state, per-frame batch isolation, reproducible evidence, and review/retry discipline.
