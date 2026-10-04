@@ -10,6 +10,7 @@ const readline = require("node:readline");
 const ROOT = path.resolve(__dirname, "..");
 const pluginData = fs.mkdtempSync(path.join(os.tmpdir(), "photo-refiner-plugin-data-"));
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "plugin.json"), "utf8"));
+const overlay = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
 
 const server = childProcess.spawn(process.execPath, [path.join(ROOT, "mcp", "server.cjs"), "--stdio"], {
   stdio: ["pipe", "pipe", "inherit"],
@@ -51,7 +52,8 @@ function rpc(method, params = {}, timeoutMs = 15000) {
 
 (async () => {
   assert.equal(manifest.name, "photo-refiner-studio");
-  assert.equal(manifest.version, "1.0.0");
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(overlay.version, manifest.version, "portable and OpenAI plugin versions must stay aligned");
 
   const initialized = await rpc("initialize", {protocolVersion: "2024-11-05"});
   assert.equal(initialized.serverInfo.name, "photo-refiner-studio");
@@ -81,6 +83,7 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.ok(opened.structuredContent.creativeRecipes.recipes.length >= 15);
   assert.equal(opened.structuredContent.promptModifiers.groups.length, 3);
   assert.ok(opened._meta?.ui?.resourceUri);
+  assert.match(opened._meta.ui.resourceUri, new RegExp(`${manifest.version.replaceAll(".", "\\.")}\\.html$`));
 
   const submitted = await rpc("tools/call", {
     name: "submit_photo_refiner_settings",
