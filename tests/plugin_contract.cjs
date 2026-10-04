@@ -79,11 +79,12 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.equal(opened.structuredContent.defaults.workflow, "single");
   assert.equal(opened.structuredContent.defaults.creativeRecipe, "none");
   assert.ok(opened.structuredContent.creativeRecipes.recipes.length >= 15);
+  assert.equal(opened.structuredContent.promptModifiers.groups.length, 3);
   assert.ok(opened._meta?.ui?.resourceUri);
 
   const submitted = await rpc("tools/call", {
     name: "submit_photo_refiner_settings",
-    arguments: {userConfirmed: true, config: opened.structuredContent.defaults},
+    arguments: {userConfirmed: true, config: {...opened.structuredContent.defaults, promptModifiers: ["rim-light", "film-warmth"]}},
   });
   assert.equal(submitted.isError, false);
   assert.equal(submitted.structuredContent.kind, "photo-refiner-confirmation");
@@ -94,6 +95,9 @@ function rpc(method, params = {}, timeoutMs = 15000) {
   assert.equal(confirmation.schemaVersion, 4);
   assert.equal(confirmation.config.sourceCount, 1);
   assert.equal(confirmation.config.uiMode, opened.structuredContent.defaults.uiMode);
+  assert.deepEqual(confirmation.config.promptModifiers, ["rim-light", "film-warmth"]);
+  assert.deepEqual(confirmation.resolvedPrompt.promptModifierIds, ["rim-light", "film-warmth"]);
+  assert.match(confirmation.resolvedPrompt.prompt, /rim backlight contouring the subject/);
   assert.equal(confirmation.confirmationHash, submitted.structuredContent.confirmationHash);
 
   const resources = await rpc("resources/list");

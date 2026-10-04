@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "light",
+      "label": "光线",
+      "items": [
+        {"id": "rim-light", "label": "侧逆光轮廓", "prompt": "rim backlight contouring the subject"},
+        {"id": "soft-haze", "label": "柔雾漫射", "prompt": "soft diffused haze"},
+        {"id": "golden-dusk", "label": "黄昏金调", "prompt": "golden dusk light"},
+        {"id": "moonlit", "label": "冷月清辉", "prompt": "cool moonlit ambience"}
+      ]
+    },
+    {
+      "id": "color",
+      "label": "色彩",
+      "items": [
+        {"id": "teal-amber", "label": "青橙对比", "prompt": "teal and orange cinematic contrast"},
+        {"id": "morandi", "label": "莫兰迪灰调", "prompt": "muted Morandi palette"},
+        {"id": "film-warmth", "label": "胶片暖褪", "prompt": "faded analog film warmth"},
+        {"id": "silver-gelatin", "label": "黑白银盐", "prompt": "black-and-white silver gelatin rendering"}
+      ]
+    },
+    {
+      "id": "mood",
+      "label": "质感与氛围",
+      "items": [
+        {"id": "fine-grain", "label": "细腻颗粒", "prompt": "fine film grain texture"},
+        {"id": "matte-painterly", "label": "哑光绘画感", "prompt": "matte painterly finish"},
+        {"id": "quiet-negative-space", "label": "静谧留白叙事", "prompt": "quiet narrative mood, generous negative space"},
+        {"id": "epic-atmosphere", "label": "史诗辽阔", "prompt": "epic vast atmosphere"}
+      ]
+    }
+  ]
+}

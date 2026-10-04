@@ -32,6 +32,7 @@ source_records:                  # immutable source binding
     size: 123456
     sha256: "sha256..."
 preset: natural-cinematic        # subject-recommended named preset | custom
+prompt_modifiers: []             # optional catalog ids layered on the named preset; resolved at confirmation
 retouch:
   style_strength: 45             # UI/audit value; mapped to semantic execution level before generation
 resolved_prompt:
@@ -41,6 +42,7 @@ resolved_prompt:
   prompt: "..."
   avoid: "..."
   default_strength: 45
+  prompt_modifier_ids: []
   preset_version: 2
   prompt_hash: "sha256..."
 confirmed_at: "ISO-8601 timestamp"

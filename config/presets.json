@@ -18,8 +18,8 @@
       "defaultStrength": 68,
       "prompt": "Muted amber sunset and lantern light, soft brown-green shadows, restrained saturation, delicate halation, lifted blacks, natural skin, shallow depth of field, fine 35mm grain, photorealistic classical Chinese cinematic atmosphere.",
       "avoid": "orange skin, harsh HDR, clipped lamps, excessive glow, CGI, text, logo, watermark",
-      "promptZh": "",
-      "avoidZh": ""
+      "promptZh": "以克制的琥珀夕阳和灯笼暖光建立古风电影感：柔和棕绿色暗部、低饱和、细腻晕光、轻抬黑位、自然肤色、柔和浅景深和细腻 35mm 胶片颗粒；保留真实皮肤、服装结构和建筑材质。",
+      "avoidZh": "避免橙色肤色、刺眼 HDR、灯光溢出、过度发光、CGI、文字、Logo 和水印。"
     },
     "moonlit-cyan": {
       "label": "Moonlit Cyan",
@@ -28,8 +28,8 @@
       "defaultStrength": 65,
       "prompt": "Soft moonlit cyan ambience, cool mist, restrained warm practical lights, low contrast, subtle bloom, lifted shadows, soft environmental edges, fine film grain, photorealistic quiet nocturnal atmosphere.",
       "avoid": "neon blue skin, crushed blacks, excessive fog, hard sharpening, CGI, text, watermark",
-      "promptZh": "",
-      "avoidZh": ""
+      "promptZh": "以柔和月夜青色环境光、冷雾和克制的暖色实景光塑造安静夜景：低反差、轻微高光扩散、抬起暗部、柔和环境边缘和细腻胶片颗粒；保持照片级写实与主体可辨识度。",
+      "avoidZh": "避免霓虹蓝肤色、死黑、浓雾遮挡、锐化过硬、CGI、文字和水印。"
     },
     "surreal-eastern": {
       "label": "Surreal Eastern",
@@ -108,8 +108,8 @@
       "defaultStrength": 45,
       "prompt": "Natural motivated light, balanced skin tones, gently softened contrast, controlled highlights, subtle depth separation, realistic texture and fine 35mm grain, premium photorealistic editorial color grade.",
       "avoid": "beauty-filter skin, HDR halos, oversaturation, excessive blur, CGI, text, watermark",
-      "promptZh": "",
-      "avoidZh": ""
+      "promptZh": "使用有动机的自然光、平衡肤色、轻柔对比、受控高光、细微空间分离、真实材质和细腻 35mm 胶片颗粒，呈现高级的照片级杂志调色；保留原片身份、结构与构图。",
+      "avoidZh": "避免美颜滤镜皮肤、HDR 光环、过饱和、过度模糊、CGI、文字和水印。"
     },
     "natural-landscape": {
       "label": "Natural Landscape",
@@ -118,8 +118,8 @@
       "defaultStrength": 35,
       "prompt": "Photorealistic natural landscape refinement, faithful daylight and atmospheric perspective, balanced greens and sky tones, controlled highlights, open shadow detail, realistic foliage, rock, soil, water, and cloud textures, restrained local contrast, natural depth, clean fine detail without an artificial HDR appearance.",
       "avoid": "oversaturated foliage, neon sky, HDR halos, crunchy sharpening, repeated leaves, invented buildings, changed terrain, fake reflections, CGI, painterly rendering, text, logo, border, watermark",
-      "promptZh": "",
-      "avoidZh": ""
+      "promptZh": "以照片级自然风光精修为主：忠实日光和大气透视，平衡绿色与天空色彩，控制高光并打开暗部，保留植被、岩石、土壤、水面和云层的真实纹理，使用克制的局部对比和干净细节，不做假 HDR。",
+      "avoidZh": "避免过饱和植被、霓虹天空、HDR 光环、过硬锐化、重复叶片、凭空增加建筑、改变地形、虚假倒影、CGI、绘画感、文字、Logo、边框和水印。"
     },
     "golden-hour-landscape": {
       "label": "Golden Hour Landscape",
@@ -128,8 +128,8 @@
       "defaultStrength": 50,
       "prompt": "Photorealistic golden-hour landscape, muted warm side light, softly extended shadows, restrained amber highlights, believable atmospheric perspective, preserved terrain and vegetation structure, controlled sky gradients, subtle highlight bloom, natural fine detail and gentle filmic contrast.",
       "avoid": "orange color cast, clipped sun, fake god rays, HDR halos, oversaturation, invented terrain, repeated vegetation, CGI, text, logo, border, watermark",
-      "promptZh": "",
-      "avoidZh": ""
+      "promptZh": "以照片级黄金时刻风光呈现低饱和暖色侧光、柔和拉长的阴影、克制琥珀高光、可信的大气透视；保留地形和植被结构，控制天空渐变，加入轻微高光扩散与自然细节。",
+      "avoidZh": "避免橙色偏色、太阳溢出、虚假丁达尔光、HDR 光环、过饱和、凭空增加地形、重复植被、CGI、文字、Logo、边框和水印。"
     },
     "misty-mountains": {
       "label": "Misty Mountains",
@@ -138,8 +138,8 @@
       "defaultStrength": 48,
       "prompt": "Photorealistic mountain landscape with layered natural mist, preserved ridge and terrain geometry, soft cool atmospheric perspective, restrained warm light where present, delicate cloud separation, lifted distant values, realistic vegetation and rock textures, quiet Eastern landscape atmosphere without painterly conversion.",
       "avoid": "fog hiding all terrain, invented peaks, warped ridgelines, fantasy buildings, oversaturated cyan, hard clarity, HDR halos, CGI, ink painting, text, watermark",
-      "promptZh": "",
-      "avoidZh": ""
+      "promptZh": "以照片级山景保留山脊和地形几何，在前后景加入分层自然云雾、柔和冷色空气透视、克制暖光、细腻云层分离、抬起远景亮度和真实植被岩石纹理，保持东方山景氛围但不转成水墨画。",
+      "avoidZh": "避免浓雾遮住全部地形、凭空增加山峰、山脊变形、幻想建筑、青色过饱和、过硬清晰度、HDR 光环、CGI、水墨画、文字和水印。"
     },
     "clean-architecture": {
       "label": "Clean Architecture",
@@ -148,8 +148,8 @@
       "defaultStrength": 30,
       "prompt": "Photorealistic architectural refinement, preserved geometry and structural lines, neutral-to-natural color balance, controlled window and sky highlights, readable shadow detail, realistic stone, wood, glass, and metal textures, clean depth and restrained micro-contrast.",
       "avoid": "bent walls, shifted windows, invented structures, extreme wide-angle distortion, HDR halos, oversharpening, plastic materials, CGI, text, logo, watermark",
-      "promptZh": "",
-      "avoidZh": ""
+      "promptZh": "进行照片级建筑精修：保留建筑几何和结构线条，平衡自然色彩，控制窗户与天空高光，打开阴影细节，保留石材、木材、玻璃和金属的真实纹理，用干净空间层次与克制微对比提升可读性。",
+      "avoidZh": "避免墙体弯曲、窗户位移、凭空增加结构、极端广角变形、HDR 光环、过度锐化、塑料材质、CGI、文字、Logo 和水印。"
     }
   }
 }

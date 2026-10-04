@@ -14,6 +14,10 @@ assert.ok(style.length > 1000, "Studio must ship its design system inline");
 assert.ok(script.length > 1000, "Studio controller script is missing");
 assert.doesNotMatch(html, /V0\.\d/, "Studio must not hard-code an obsolete panel version");
 assert.match(script, /payload\.widgetVersion/, "Studio version must come from the MCP payload");
+assert.match(html, /id="modifierGroups"/, "prompt modifiers need a dedicated stateful layer");
+assert.doesNotMatch(html, /data-frag=/, "raw English prompt fragments must not be exposed as UI state");
+assert.match(script, /promptModifiers/, "submitted config must preserve prompt modifier ids");
+assert.match(html, /这里只保存你提交过的自定义提示词/, "prompt library must explain that it only contains saved custom prompts");
 
 assert.match(html, /id="lightbox"[^>]*role="dialog"/, "recipe preview needs dialog semantics");
 assert.match(html, /id="lightbox"[^>]*aria-modal="true"/, "recipe preview must be modal");

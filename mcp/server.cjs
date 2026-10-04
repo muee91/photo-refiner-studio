@@ -9,6 +9,8 @@ const readline = require("node:readline");
 const ROOT = path.resolve(__dirname, "..");
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, ".codex-plugin", "plugin.json"), "utf8"));
 const PRESETS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "presets.json"), "utf8"));
+const PROMPT_MODIFIERS = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "prompt-modifiers.json"), "utf8"));
+const PROMPT_MODIFIER_BY_ID = Object.fromEntries(PROMPT_MODIFIERS.groups.flatMap((group) => group.items.map((item) => [item.id, item])));
 const CREATIVE_RECIPES = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "creative-recipes.json"), "utf8"));
 const CREATIVE_RECIPE_BY_ID = Object.fromEntries(CREATIVE_RECIPES.recipes.map((recipe) => [recipe.id, recipe]));
 const CREATIVE_PREVIEWS_LARGE_PATH = path.join(ROOT, "config", "creative-previews-large.json");
@@ -81,6 +83,7 @@ const DEFAULTS = {
   preset: "natural-cinematic",
   customPrompt: "",
   customAvoid: "",
+  promptModifiers: [],
   promptFavorite: false,
   aspectRatio: "original",
   framing: "preserve",
@@ -166,6 +169,7 @@ const FALLBACK_WIDGET_PAYLOAD = {
   widgetVersion: MANIFEST.version.split("+")[0],
   _photoRefinerFallback: true,
   presets: PRESETS,
+  promptModifiers: PROMPT_MODIFIERS,
   creativeRecipes: creativeRecipesForClient(),
   defaults: clone(DEFAULTS),
   promptLibrary: {custom: []},
@@ -276,6 +280,13 @@ function validateConfig(raw) {
   }
   config.customPrompt = cleanText(config.customPrompt, 8000, "customPrompt");
   config.customAvoid = cleanText(config.customAvoid, 4000, "customAvoid");
+  if (!Array.isArray(config.promptModifiers) || config.promptModifiers.length > 12) {
+    throw new Error("promptModifiers must be an array with at most 12 items");
+  }
+  config.promptModifiers = [...new Set(config.promptModifiers.map((id) => cleanText(id, 80, "promptModifiers")))];
+  for (const id of config.promptModifiers) {
+    if (!PROMPT_MODIFIER_BY_ID[id]) throw new Error(`Unknown prompt modifier: ${id}`);
+  }
   config.promptFavorite = booleanValue(config.promptFavorite, "promptFavorite");
   if (config.preset === "custom" && !config.customPrompt) throw new Error("Custom prompt is required");
   config.aspectRatio = enumValue(config.aspectRatio, ["original", "16:9", "3:2", "4:5", "1:1", "9:16"], "aspectRatio");
@@ -350,10 +361,17 @@ function validateConfig(raw) {
 }
 
 function resolvedPrompt(config) {
-  if (config.preset === "custom") {
-    return {label: "自定义", summary: "用户自定义提示词", prompt: config.customPrompt, avoid: config.customAvoid};
-  }
-  return PRESETS.presets[config.preset];
+  const base = config.preset === "custom"
+    ? {label: "自定义", summary: "用户自定义提示词", prompt: config.customPrompt, avoid: config.customAvoid}
+    : PRESETS.presets[config.preset];
+  const modifiers = config.promptModifiers.map((id) => PROMPT_MODIFIER_BY_ID[id]).filter(Boolean);
+  if (!modifiers.length) return base;
+  return {
+    ...base,
+    prompt: `${String(base.prompt).replace(/[。.!?]+$/u, "")}, ${modifiers.map((item) => item.prompt).join(", ")}`,
+    modifierIds: modifiers.map((item) => item.id),
+    modifierLabels: modifiers.map((item) => item.label),
+  };
 }
 
 function resolvedCreativeRecipe(config) {
@@ -467,6 +485,7 @@ function toolDefinitions() {
           schemaVersion: {type: "integer"},
           presets: {type: "object"},
           creativeRecipes: {type: "object"},
+          promptModifiers: {type: "object"},
           defaults: {type: "object"},
           promptLibrary: {type: "object"},
           recommendation: {type: "string"},
@@ -637,7 +656,7 @@ function callTool(name, args) {
       ...(typeof item?.preset === "string" && PRESETS.presets[item.preset] ? {preset: item.preset} : {}),
       ...(typeof item?.styleStrength === "number" && item.styleStrength >= 0 && item.styleStrength <= 100 ? {styleStrength: item.styleStrength} : {}),
     })).filter((item) => item.prompt) : [];
-    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 3, widgetVersion: MANIFEST.version.split("+")[0], presets: PRESETS, creativeRecipes: creativeRecipesForClient(), defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
+    return toolResult({ok: true, kind: "photo-refiner-settings", schemaVersion: 3, widgetVersion: MANIFEST.version.split("+")[0], presets: PRESETS, promptModifiers: PROMPT_MODIFIERS, creativeRecipes: creativeRecipesForClient(), defaults, promptLibrary: promptLibrary(preferences), recommendation: typeof args.recommendation === "string" ? args.recommendation.trim().slice(0, 500) : "", creativeDirections}, true);
   }
   if (name === "submit_photo_refiner_settings") {
     if (args.userConfirmed !== true) throw new Error("Explicit user confirmation is required");
@@ -665,6 +684,8 @@ function callTool(name, args) {
         summary: prompt.summary,
         prompt: prompt.prompt,
         avoid: prompt.avoid,
+        promptModifierIds: prompt.modifierIds || [],
+        promptModifierLabels: prompt.modifierLabels || [],
         defaultStrength: typeof prompt.defaultStrength === "number" ? prompt.defaultStrength : config.styleStrength,
         presetVersion: PRESETS.version,
       },
