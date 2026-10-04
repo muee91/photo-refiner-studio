@@ -254,6 +254,15 @@
     .quality-check strong{display:block;font-size:12px;color:var(--ink);margin-bottom:2px}
     .quality-check span{display:block;color:var(--faint);font-size:11.5px;line-height:1.35}
     .quality-recovery{border-top:1px solid var(--line-soft);margin-top:9px;padding-top:8px;color:var(--faint);font-size:12px;line-height:1.45}
+    .submitted-state{padding:22px 20px;background:linear-gradient(180deg,rgba(var(--teal-rgb),.14),transparent),var(--glass)}
+    .submitted-state[hidden]{display:none}
+    .submitted-state h2{margin:0;font-size:18px;font-weight:700}
+    .submitted-state p{margin:7px 0 14px;color:var(--muted);font-size:13.5px;line-height:1.6;max-width:68ch}
+    .submitted-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .submitted-step{border:1px solid var(--line-soft);border-radius:10px;padding:9px 10px;background:var(--surface)}
+    .submitted-step strong{display:block;color:var(--teal-strong);font-size:12px;margin-bottom:2px}
+    .submitted-step span{display:block;color:var(--faint);font-size:12px;line-height:1.4}
+    body.submitted .proposal,body.submitted .pro-drawer{display:none}
     @media(max-width:720px){
       .sheet{padding:16px 12px calc(126px + env(safe-area-inset-bottom))}
       select,input[type=text],input[type=number],textarea{font-size:16px}
@@ -265,6 +274,7 @@
       .row-sum{max-width:100%;order:3}
       .row-btn{margin-left:auto}
       .quality-grid{grid-template-columns:1fr 1fr}
+      .submitted-steps{grid-template-columns:1fr}
       .actions{border-radius:16px;align-items:flex-end}
       #status{min-width:0;max-width:42%;flex-basis:42%}
       .plan-chip{font-size:11px;line-height:1.35;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
@@ -287,6 +297,16 @@
 <div class="darkroom" aria-hidden="true"></div>
 <main class="sheet">
   <header class="brand-row"><span class="brand-mark" aria-hidden="true">PR</span><div><h1 class="brand-name">Photo Refiner Studio</h1><small id="panelVersion">精修 × 创意 × 高清</small></div></header>
+
+  <section class="submitted-state glass" id="submittedState" hidden tabindex="-1" aria-labelledby="submittedTitle" aria-live="polite">
+    <h2 id="submittedTitle">设置已提交</h2>
+    <p id="submittedMessage">Photo Refiner 正在接手本次任务。生成主图后会先停下来让你审看，通过后才继续高清细节恢复。</p>
+    <div class="submitted-steps" role="list" aria-label="后续流程">
+      <div class="submitted-step" role="listitem"><strong>01 · 生成</strong><span>按已冻结的设置生成主图</span></div>
+      <div class="submitted-step" role="listitem"><strong>02 · 审看</strong><span>重点检查人脸、结构和补丁边缘</span></div>
+      <div class="submitted-step" role="listitem"><strong>03 · 交付</strong><span>确认后再继续高清恢复与导出</span></div>
+    </div>
+  </section>
 
   <div class="recommendation" id="recommendation" hidden><h2>根据照片的建议</h2><span id="recommendationText"></span><div class="direction-list" id="directionList" role="group" aria-label="创作方向"></div></div>
 
@@ -565,7 +585,7 @@ function executionPlan(){const steps=[];const recipe=selectedCreativeRecipe();co
   function fromHost(event){return event.source===window.parent}
   window.addEventListener('message',event=>{if(!fromHost(event))return;const m=event.data;if(!m||m.jsonrpc!=='2.0')return;if(m.id&&state.pending.has(m.id)){const entry=state.pending.get(m.id);state.pending.delete(m.id);clearTimeout(entry.timer);m.error?entry.reject(new Error(m.error.message)):entry.resolve(m.result);return}if(m.method==='ui/notifications/tool-result'){const p=m.params?.structuredContent||m.params?.result?.structuredContent||m.params?.toolResult;if(p&&typeof p==='object'&&p.defaults&&p.presets?.presets)load(p)}}); function request(method,params){if(method==='tools/call'&&window.openai?.callTool){/* Try the host bridge first; if that broker rejects the params, retry over the JSON-RPC postMessage bridge before surfacing the failure. */return window.openai.callTool({name:params.name,arguments:params.arguments}).then(direct=>{if(direct)return direct;return bridgeRequest(method,params)},()=>bridgeRequest(method,params))}return bridgeRequest(method,params)}
   function bridgeRequest(method,params){const id=++state.requestId;window.parent.postMessage({jsonrpc:'2.0',id,method,params},'*');return new Promise((resolve,reject)=>{const entry={resolve,reject};entry.timer=setTimeout(()=>{if(state.pending.delete(id))reject(new Error('宿主未在 20 秒内应答，请重试确认'))},20000);state.pending.set(id,entry)})}
-  async function submit(){const button=document.getElementById('submit');if(!state.ready||!state.config){setInteractive(false,'未收到初始设置，无法确认；请重新打开面板。');return}if(button.dataset.submitted==='true')return;button.disabled=true;setStatus('正在校验并冻结设置…');try{const result=await request('tools/call',{name:'submit_photo_refiner_settings',arguments:{userConfirmed:true,config:state.config}});const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(!payload.ok||!payload.confirmationPath)throw new Error(payload.error||'确认结果缺少 confirmationPath');setStatus('已确认 · 正在交给 Photo Refiner');const message=`PHOTO_REFINER_PANEL_SUBMITTED\nconfirmationPath: ${payload.confirmationPath}\nconfirmationId: ${payload.confirmationId}\n\n这是面板已经提交的设置，不是新的问题。请直接使用该 confirmationPath 继续 Photo Refiner 流程：不要再次打开设置面板、不要再次询问是否确认、不要要求用户重复描述设置。若 deliveryMode 为 preview-first，继续生成效果图并等待审看。生成或交付时请给出质量审看卡：身份（脸型/五官/视线）、结构（手指/下巴/发饰/服装连接）、补丁（无矩形框/重影/色温跳变）、整体（光线/色彩/构图）。任一项失败都不要在坏图上继续叠加，改从最近的干净版本重做对应阶段。`;if(window.openai?.sendFollowUpMessage)await window.openai.sendFollowUpMessage({prompt:message});else await request('ui/message',{role:'user',content:[{type:'text',text:message}]});button.dataset.submitted='true';button.textContent='已确认'}catch(error){setStatus(`提交失败：${error.message}`);button.disabled=false;button.focus()}} document.getElementById('submit').addEventListener('click',submit);
+  async function submit(){const button=document.getElementById('submit');if(!state.ready||!state.config){setInteractive(false,'未收到初始设置，无法确认；请重新打开面板。');return}if(button.dataset.submitted==='true')return;button.disabled=true;setStatus('正在校验并冻结设置…');try{const result=await request('tools/call',{name:'submit_photo_refiner_settings',arguments:{userConfirmed:true,config:state.config}});const payload=result?.structuredContent||JSON.parse(result?.content?.[0]?.text||'{}');if(!payload.ok||!payload.confirmationPath)throw new Error(payload.error||'确认结果缺少 confirmationPath');setStatus('已确认 · 正在交给 Photo Refiner');const message=`PHOTO_REFINER_PANEL_SUBMITTED\nconfirmationPath: ${payload.confirmationPath}\nconfirmationId: ${payload.confirmationId}\n\n这是面板已经提交的设置，不是新的问题。请直接使用该 confirmationPath 继续 Photo Refiner 流程：不要再次打开设置面板、不要再次询问是否确认、不要要求用户重复描述设置。若 deliveryMode 为 preview-first，继续生成效果图并等待审看。生成或交付时请给出质量审看卡：身份（脸型/五官/视线）、结构（手指/下巴/发饰/服装连接）、补丁（无矩形框/重影/色温跳变）、整体（光线/色彩/构图）。任一项失败都不要在坏图上继续叠加，改从最近的干净版本重做对应阶段。`;if(window.openai?.sendFollowUpMessage)await window.openai.sendFollowUpMessage({prompt:message});else await request('ui/message',{role:'user',content:[{type:'text',text:message}]});button.dataset.submitted='true';button.textContent='已确认';document.body.classList.add('submitted');const submittedState=document.getElementById('submittedState');if(submittedState){submittedState.hidden=false;document.documentElement.scrollTop=0;document.body.scrollTop=0;window.scrollTo({top:0,left:0,behavior:'auto'});submittedState.focus({preventScroll:true})}}catch(error){setStatus(`提交失败：${error.message}`);button.disabled=false;button.focus()}} document.getElementById('submit').addEventListener('click',submit);
   // proposal-row pickers: accordion, one open at a time
   // creative recipe filters
   document.querySelectorAll('#recipeFilters .chip').forEach(chip=>chip.addEventListener('click',()=>{document.querySelectorAll('#recipeFilters .chip').forEach(c=>{const on=c===chip;c.classList.toggle('on',on);c.setAttribute('aria-pressed',String(on))});state.recipeFilter=chip.dataset.filter;syncRecipeCards()}));

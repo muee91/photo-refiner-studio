@@ -18,6 +18,9 @@ assert.match(script, /payload\.widgetVersion/, "Studio version must come from th
 assert.match(html, /id="lightbox"[^>]*role="dialog"/, "recipe preview needs dialog semantics");
 assert.match(html, /id="lightbox"[^>]*aria-modal="true"/, "recipe preview must be modal");
 assert.match(html, /id="status"[^>]*role="status"/, "Studio status line must be a live region");
+assert.match(html, /id="submittedState"[^>]*aria-live="polite"/, "submitted state must remain visible after confirmation");
+assert.match(script, /document\.body\.classList\.add\(['"]submitted['"]\)/, "confirmation must switch the widget into its submitted state");
+assert.match(script, /window\.scrollTo\(\{top:0/, "confirmation must return the widget to its summary instead of leaving a blank scrolled viewport");
 assert.match(html, /aria-pressed=/, "toggle selection must be exposed to assistive technology");
 assert.match(script, /setAttribute\(['"]aria-pressed['"]/, "Studio must update aria-pressed dynamically");
 assert.match(script, /setAttribute\(['"]aria-expanded['"]/, "Studio must expose disclosure state");
