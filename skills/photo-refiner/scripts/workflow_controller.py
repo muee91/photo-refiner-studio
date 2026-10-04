@@ -33,7 +33,7 @@ def sha256_file(path: Path) -> str:
 
 
 def result(phase, next_action, visible_status, *, action_type="local", user_input_required=False,
-           internal_reason="", script=None, requires=None, command_hint=None):
+           internal_reason="", script=None, requires=None, command_hint=None, **extra):
     value = {
         "phase": phase,
         "next_action": next_action,
@@ -47,6 +47,7 @@ def result(phase, next_action, visible_status, *, action_type="local", user_inpu
         value["script"] = script
     if command_hint:
         value["command_hint"] = command_hint
+    value.update(extra)
     return value
 
 
@@ -137,29 +138,40 @@ def tile_execution_complete(job: dict, plan_path: Path, plan: dict) -> bool:
 
 
 def review_action(kind: str, event: str) -> dict:
+    labels = {
+        "base": ("base_review", "主效果", "base_preview", "--approve-base-preview"),
+        "creative": ("creative_review", "创意定稿", "creative_preview", "--approve-creative-preview"),
+        "batch-master": ("batch_master_review", "批量风格主图", "batch_master", "--approve-master"),
+    }
+    phase, label, artifact, flag = labels[kind]
     if event in {"approve", "continue"}:
-        flag = "--approve-creative-preview" if kind == "creative" else "--approve-base-preview"
-        artifact = "creative_preview" if kind == "creative" else "base_preview"
+        if kind == "batch-master":
+            hint = "update_job.py <job.json> --approve-master --master-frame <approved-image>"
+            action = "record_batch_master_approval"
+        else:
+            hint = f"update_job.py <job.json> {flag} --artifact {artifact}=<approved-image>"
+            action = f"record_{kind}_approval"
         return result(
-            f"{kind}_review", f"record_{kind}_approval", "确认当前效果并继续",
+            phase, action, f"确认{label}并继续",
             action_type="state", script="update_job.py", requires=["approved-image-path"],
             internal_reason="Bind the exact displayed bitmap before continuing.",
-            command_hint=f"update_job.py <job.json> {flag} --artifact {artifact}=<approved-image>",
+            command_hint=hint,
         )
     if event == "redo":
         return result(
-            f"{kind}_review", f"regenerate_{kind}", "重新生成当前版本",
+            phase, f"regenerate_{kind.replace('-', '_')}", f"重新生成{label}",
             action_type="provider", internal_reason="Restart from the last clean authority.",
         )
     if event == "adjust":
         return result(
-            f"{kind}_review", "reopen_studio", "调整设置",
+            phase, "reopen_studio", "调整设置",
             action_type="user", internal_reason="Change the frozen edit brief before regenerating.",
         )
     return result(
-        f"{kind}_review", f"await_{kind}_review", "请确认当前效果",
+        phase, f"await_{kind.replace('-', '_')}_review", f"请确认{label}",
         action_type="user", user_input_required=True, requires=["approve", "redo", "adjust"],
         internal_reason="A configured review checkpoint is required.",
+        review_checkpoint=kind,
     )
 
 
@@ -177,9 +189,97 @@ def delivery_action(job: dict, *, from_status: str) -> dict:
     )
 
 
+def batch_parent_decide(job: dict, job_dir: Path, event: str) -> dict | None:
+    if job.get("workflow") != "batch" or job.get("execution_mode") == "creative-translation":
+        return None
+    status = job.get("status")
+    if status in {"initialized", "prepared"}:
+        return None
+    if status == "completed":
+        return result("completed", "done", "批量任务已完成", action_type="state")
+    if status == "failed":
+        return result("failed", "stop", "批量任务已失败", action_type="state")
+    if status != "base_generated":
+        return result(
+            "batch", "inspect_batch_parent", "正在检查批量任务",
+            internal_reason=f"Unexpected batch parent status={status!r}.",
+        )
+
+    batch = job.get("batch") or {}
+    if not batch.get("master_frame_approved"):
+        return review_action("batch-master", event)
+    if not isinstance(batch.get("style_authority"), dict):
+        return result(
+            "batch_style", "bind_batch_style_authority", "正在锁定整组风格",
+            script="bind_batch_master.py",
+            internal_reason="The approved master may share appearance only; bind it before creating child frame jobs.",
+            command_hint="bind_batch_master.py <parent-job.json>",
+        )
+
+    frames = batch.get("frames") if isinstance(batch.get("frames"), list) else []
+    if not frames:
+        return result(
+            "batch_materialize", "materialize_batch_frames", "正在准备逐张独立处理",
+            script="batch_frames.py",
+            internal_reason="Create one single-image child job per source so photographic facts never cross frames.",
+            command_hint="batch_frames.py <parent-job.json> --materialize",
+        )
+
+    ordered = sorted(frames, key=lambda item: int(item.get("index", 0)))
+    for frame in ordered:
+        child_path = Path(str(frame.get("child_job") or "")).expanduser().resolve()
+        child = read_json(child_path)
+        index = int(frame.get("index", 0))
+        if child is None:
+            return result(
+                "batch_frame", "repair_batch_frame", f"第 {index + 1}/{len(ordered)} 张任务文件缺失",
+                action_type="state", user_input_required=True, requires=["redo", "adjust"],
+                internal_reason="The child job manifest is missing; retry this frame instead of borrowing state from another image.",
+                frame_index=index, frame_count=len(ordered), child_job=str(child_path),
+            )
+        if child.get("status") == "failed":
+            if event == "redo":
+                return result(
+                    "batch_frame", "retry_batch_frame", f"重新处理第 {index + 1}/{len(ordered)} 张",
+                    script="batch_frames.py", action_type="state",
+                    command_hint=f"batch_frames.py <parent-job.json> --retry-index {index}",
+                    frame_index=index, frame_count=len(ordered), child_job=str(child_path),
+                )
+            return result(
+                "batch_frame", "await_batch_frame_retry", f"第 {index + 1}/{len(ordered)} 张需要重新处理",
+                action_type="user", user_input_required=True, requires=["redo", "adjust"],
+                internal_reason="A failed frame remains isolated; do not continue from another frame's artifacts.",
+                frame_index=index, frame_count=len(ordered), child_job=str(child_path),
+            )
+        if child.get("status") != "completed":
+            child_decision = decide(child, child_path.parent, "inspect")
+            return result(
+                "batch_frame", "process_batch_frame",
+                f"正在处理第 {index + 1}/{len(ordered)} 张 · {child_decision.get('visible_status', '')}",
+                action_type="delegated",
+                internal_reason="Each frame owns its own SOURCE/LOOK/PATCH/delivery evidence while inheriting appearance-only style authority.",
+                frame_index=index,
+                frame_count=len(ordered),
+                child_job=str(child_path),
+                child_decision=child_decision,
+            )
+
+    return result(
+        "batch_finalize", "finalize_batch", "正在汇总批量成片",
+        script="batch_frames.py", action_type="state",
+        command_hint="batch_frames.py <parent-job.json> --finalize",
+        internal_reason="Every independent child frame is completed and delivery-gated.",
+        frame_count=len(ordered),
+    )
+
+
 def decide(job: dict, job_dir: Path, event: str = "inspect") -> dict:
     if event not in EVENTS:
         raise ValueError(f"Unsupported workflow event: {event}")
+
+    batch_decision = batch_parent_decide(job, job_dir, event)
+    if batch_decision is not None:
+        return batch_decision
 
     status = job.get("status")
     if status == "failed":
@@ -193,10 +293,17 @@ def decide(job: dict, job_dir: Path, event: str = "inspect") -> dict:
             command_hint="prepare inputs/prompt, then update_job.py <job.json> --status prepared",
         )
     if status == "prepared":
+        reason = "Generate the complete base/creative effect with ChatGPT Images."
+        batch_frame = job.get("batch_frame") or {}
+        if batch_frame:
+            reason = (
+                "Generate this frame from its own SOURCE MASTER. The parent batch style master owns appearance only; "
+                "never copy identity, pose, geometry, garment facts, or texture from another frame."
+            )
         return result(
             "base_generation", "generate_base", "正在生成主效果",
-            action_type="provider",
-            internal_reason="Generate the complete base/creative effect with ChatGPT Images.",
+            action_type="provider", internal_reason=reason,
+            shared_style_authority=batch_frame.get("shared_style_authority") if batch_frame else None,
         )
 
     if status == "base_generated":
@@ -212,8 +319,6 @@ def decide(job: dict, job_dir: Path, event: str = "inspect") -> dict:
                 internal_reason="No HD working-canvas route has been recorded yet.",
             )
 
-        # Recovery disabled means no planner/patch stage. This is common for
-        # base-only one-click jobs and recipe-controlled creative assemblies.
         detail_mode = (job.get("detail") or {}).get("mode")
         if detail_mode in {"base-only", "not-applicable"}:
             return delivery_action(job, from_status="base_generated/no-local-recovery")
@@ -328,7 +433,7 @@ def main() -> None:
     if normalize_contract(data):
         atomic_write_json(job_path, data)
     decision = decide(data, job_path.parent, args.event)
-    decision.update({"event": args.event, "job": str(job_path), "controller_version": 1})
+    decision.update({"event": args.event, "job": str(job_path), "controller_version": 2})
     print(json.dumps(decision, indent=2, ensure_ascii=False))
 
 
