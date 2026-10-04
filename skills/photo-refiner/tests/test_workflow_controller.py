@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "workflow_controller.py"
+SCRIPTS = ROOT / "scripts"
+SCRIPT = SCRIPTS / "workflow_controller.py"
+sys.path.insert(0, str(SCRIPTS))
 spec = importlib.util.spec_from_file_location("workflow_controller", SCRIPT)
 workflow_controller = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
