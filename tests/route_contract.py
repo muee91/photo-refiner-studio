@@ -2,7 +2,6 @@
 """Cross-layer regression checks for the user-facing HD workflow contract."""
 
 from pathlib import Path
-import re
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = (ROOT / "skills" / "photo-refiner" / "SKILL.md").read_text(encoding="utf-8")
@@ -22,19 +21,27 @@ for route in ROUTES:
         if route not in content:
             raise SystemExit(f"{label} is missing canonical HD route {route}")
 
-# Ordinary source-width photography must explicitly suppress raw tiling consent.
-for label, content in (("SKILL", SKILL), ("schema", SCHEMA)):
-    if "source-backed" not in content.lower():
-        raise SystemExit(f"{label} does not describe source-backed delivery")
-    if not re.search(r"(must not|never|不得|不应|不能).{0,120}(tile|tiling|分块)", content, flags=re.I | re.S):
-        raise SystemExit(f"{label} does not explicitly hide ordinary source-backed tiling decisions from users")
+# Ordinary source-width photography must suppress raw tiling consent as a data
+# contract, not merely contain a particular English/Chinese sentence shape.
+if "source-backed" not in SKILL.lower() or "source-backed" not in SCHEMA.lower():
+    raise SystemExit("source-backed original-resolution delivery is missing from the documented contract")
+if "consent_prompt" not in SKILL or "must never be quoted to the user" not in SKILL:
+    raise SystemExit("SKILL no longer suppresses raw source-backed consent prompts")
+if "user_confirmation_required: false" not in SCHEMA:
+    raise SystemExit("schema no longer records source-backed tiling as non-interactive")
+if "estimated_generation_calls: 0" not in SCHEMA:
+    raise SystemExit("schema no longer normalizes source-backed full-frame generation pressure")
+if "not a user decision" not in SCHEMA.lower() and "not user choices" not in SCHEMA.lower():
+    raise SystemExit("schema no longer states that raw patch/tile economics stay internal")
 
-# Controller must own semantic review events rather than inventing approval.
+# Controller owns semantic review events rather than inventing approval.
 for event in ("approve", "continue", "redo", "adjust"):
     if f'"{event}"' not in CONTROLLER:
         raise SystemExit(f"workflow controller is missing semantic event {event}")
 
 if "user_facing_policy" not in CONTROLLER or "hide-internal-route-and-patch-economics" not in CONTROLLER:
     raise SystemExit("workflow controller no longer normalizes the hidden-engineering policy")
+if "apply_source_backing" not in CONTROLLER:
+    raise SystemExit("workflow controller no longer normalizes source-backed raw plans before execution")
 
 print("HD route contract OK")
