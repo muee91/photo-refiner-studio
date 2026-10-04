@@ -1,235 +1,289 @@
-# Photo Refiner Studio architecture — 2026
+# Photo Refiner Studio architecture
 
-This document records the intended architecture for the ChatGPT-native Photo Refiner project after the 2026 ChatGPT platform changes.
+This repository is one **portable Agent Plugin**, not a Skill plus a separate plugin glued together.
 
-The core principle is unchanged:
+The architecture follows one rule:
 
-> ChatGPT Images owns image generation/editing. Photo Refiner owns intent, planning, evidence, quality gates, deterministic local operations, and review checkpoints.
+> ChatGPT provides the general agent surfaces and image renderer. Photo Refiner adds photographic authority, HD honesty, spatial safety, evidence, and review discipline.
 
-Do not rebuild capabilities the ChatGPT client already provides well.
+## 1. Product boundary
 
-## 1. Product surfaces
+One installed product: **Photo Refiner Studio**.
 
-Photo Refiner is one workflow exposed through multiple ChatGPT surfaces, not separate products.
+Supported surfaces are entry points, not separate implementations:
 
-- **Chat** — fastest interactive photo conversation, single-image review, iterative feedback.
-- **Work** — longer multi-step jobs, local-file access on desktop, browser/app work, batch/research-heavy workflows, finished deliverables.
-- **Codex** — repository maintenance, tests, scripts, plugin packaging, local developer workflows.
-- **Voice** — optional control surface for opening the workflow, reviewing checkpoints, changing settings, and directing Work/Codex; never a separate image pipeline.
+- **Chat** — single-image iteration and fast review.
+- **Work** — long-running multi-file work, browser/reference gathering, connected apps, finished deliverables.
+- **Voice** — control surface for the same plugin actions and review checkpoints.
+- **Codex** — repository/runtime maintenance, local scripts, testing, packaging.
 
-Surface selection must not change the image-authority model or quality contract.
+Do not fork the photo pipeline by surface.
 
-## 2. Universal plugin package
-
-Target package shape:
+## 2. Portable plugin layout
 
 ```text
 photo-refiner-studio/
-├─ plugin.json                  # target Agent Plugins manifest
+├─ plugin.json
+├─ mcp.json
+├─ .codex-plugin/plugin.json
 ├─ skills/
-│  └─ photo-refiner/            # reusable workflow instructions/resources
-├─ mcp.json                     # Studio/settings tools when MCP is needed
-├─ plugin/                      # current compatibility package/UI/server
-├─ skill/                       # current source-of-truth skill during migration
-├─ hooks/                       # optional runtime hooks only when genuinely useful
+│  ├─ photo-refiner/
+│  └─ photo-refiner-creative/
+├─ mcp/
+├─ assets/
+├─ config/
+├─ scripts/
+├─ tests/
 └─ distribution/
 ```
 
-The current `.codex-plugin/plugin.json` remains a compatibility path. Do not remove it until the target root manifest has been validated in the actual ChatGPT/Codex environments used by the project.
+### Canonical identity
 
-A plugin is the product identity. Skills and MCP are implementation capabilities inside that plugin, not competing architectures.
+`plugin.json` is the Agent Plugins 1.0.0 portable identity.
 
-## 3. Orchestration layer
+### OpenAI presentation overlay
 
-The Skill is the workflow router. It decides:
+`.codex-plugin/plugin.json` is intentionally retained as the supported OpenAI-specific presentation overlay. It is not a second product and does not declare alternate Skill/MCP component paths. Root identity and root portable component discovery remain canonical.
 
-1. whether the user is asking for editing or only asking about the tool;
-2. source/subject routing;
-3. Studio confirmation and frozen configuration;
-4. normal vs creative translation;
-5. preview/review checkpoints;
-6. HD working-canvas route;
-7. detail/tile generation plan;
-8. quality/retry/delivery state.
+### MCP
 
-The Skill should remain declarative where possible. Stable numeric and file-integrity rules belong in scripts, not prose.
+`mcp.json` is the portable MCP configuration. The bundled Studio server uses stdio and plugin-scoped `${PLUGIN_ROOT}` / `${PLUGIN_DATA}` semantics.
 
-## 4. Generation provider layer
+No legacy `.mcp.json` exists.
 
-**ChatGPT Images is the default rendering provider.**
+## 3. Skill split
 
-Photo Refiner must not assume API image limits are the ChatGPT client's limits. Runtime observations remain the authority for returned patch dimensions.
+### `photo-refiner`
 
-The provider owns:
+Owns:
 
-- complete base image edits;
+- edit intent gate;
+- Studio confirmation;
+- SOURCE / LOOK / DETAIL authority;
+- base quality checkpoint;
+- honest HD working canvas;
+- empirical patch-cap calibration;
+- Pixel Budget;
+- optional relative-depth prior;
+- detail/tile plans;
+- actual returned-patch observations;
+- registration / blending receipts;
+- delivery gate;
+- batch consistency and retry state.
+
+This is the primary skill for ordinary photographic work.
+
+### `photo-refiner-creative`
+
+Owns:
+
+- Starryear recipe resources;
+- direct-effect vs original-assembly semantics;
+- recipe source-count rules;
+- creative preview checkpoint;
+- creative authority model;
+- direction-only / look-master / hd-master creative stages.
+
+It is loaded only after the user explicitly selects a creative recipe. This keeps the core skill small and prevents creative catalog growth from bloating ordinary photo refinement.
+
+## 4. Generation provider
+
+**ChatGPT Images is the default renderer.**
+
+Photo Refiner does not call an image-generation API simply to recreate ChatGPT's built-in image path.
+
+The renderer owns:
+
+- complete base edits;
 - localized patch/tile generation;
 - creative translations;
-- image-model fidelity improvements that arrive in ChatGPT over time.
+- future built-in fidelity improvements.
 
-The project owns:
+Photo Refiner owns:
 
-- prompt authority separation (SOURCE / LOOK / DETAIL);
-- crop occupancy and Pixel Budget;
-- returned-image observation;
-- registration and deterministic blending;
-- delivery proof.
+- what each generated image is allowed to change;
+- which image is the current authority;
+- whether generation is needed at all;
+- whether the returned bitmap contains enough useful detail for delivery.
 
-As the built-in image model improves, prefer **fewer broader edits plus quality checkpoints** rather than increasing patch count.
+## 5. Deterministic local core
 
-## 5. Optional perception priors
+The deterministic layer remains local/file-aware because it must inspect the real source and returned files:
 
-Perception signals are adapters, not authorities.
+- source normalization;
+- job/confirmation contract;
+- HD working-canvas routing;
+- 4X-UltraSharp integrity and information boundary;
+- Pixel Budget;
+- depth-plan annotation;
+- detail/tile planning;
+- actual patch observation;
+- registration;
+- multiband blending;
+- delivery gate;
+- SHA256 execution receipts.
+
+This layer belongs under the core skill's `scripts/`, not behind a second image service.
+
+## 6. Evidence ledger
+
+`job.json` is the execution source of truth.
+
+It must answer:
+
+- what the user confirmed;
+- which source files and hashes were used;
+- which bitmap became LOOK / CREATIVE LOOK / HD authority;
+- the actual dimensions returned by the ChatGPT client;
+- which plan/hash each patch or tile belongs to;
+- whether each region passed its Pixel Budget;
+- how patches were registered and blended;
+- which exact composite became the delivered master;
+- which review checkpoints were approved.
+
+A plan is not execution evidence. Requested resolution is not returned resolution. File size is not proof of new information.
+
+## 7. Review-first quality model
+
+As ChatGPT Images improves, Photo Refiner should generate **fewer** local patches, not more.
+
+The preferred loop is:
+
+```text
+full base edit
+-> quality checkpoint
+-> approve or regenerate base
+-> HD route
+-> only necessary high-value patches/tiles
+-> delivery proof
+```
+
+Do not repair a globally failed base by stacking local patches onto it.
+
+## 8. Perception adapters
+
+Perception signals are advisory adapters, not authorities.
 
 ### Vision regions
 
-Required only when planning needs subject/face/hand/prop structure.
+Used only when subject-aware planning needs face/head/hand/garment/prop/architecture structure.
 
 ### Relative depth prior
 
-Optional and auto-triggered only for occlusion, depth-of-field, atmospheric perspective, overlapping subjects, or creative spatial reconstruction.
+Default implementation is coarse `vision-relative` depth from the active multimodal model. Enable only for occlusion, DOF, atmospheric perspective, overlapping subjects, or spatial creative reconstruction.
 
-Default implementation is a coarse `vision-relative` prior from the active multimodal model. A future dense-depth backend can emit the same stable contract.
+Depth may protect ordering and prevent unsafe broad merges. It may not:
 
-Depth never:
+- invent metric distance;
+- override SOURCE MASTER;
+- increase generation quota by itself;
+- become a mandatory dense-depth dependency.
 
-- becomes metric truth;
-- increases patch quota by itself;
-- overrides SOURCE MASTER;
-- creates a mandatory heavy-model dependency.
+A future dense-depth backend must emit the same stable JSON contract so the planner does not care which perception provider produced it.
 
-### Facial landmarks
+### Landmarks
 
 Optional strict identity gate when reliable landmarks are already available.
 
-These priors should converge into stable JSON contracts before the deterministic planner/gates consume them.
+## 9. Studio / MCP boundary
 
-## 6. Deterministic execution layer
+Studio is a small decision and confirmation surface.
 
-Keep deterministic scripts for tasks where evidence and repeatability matter:
-
-- job/confirmation contract;
-- HD working-canvas routing;
-- Pixel Budget;
-- detail/tile planning;
-- returned patch observation;
-- depth-plan annotation;
-- registration;
-- multiband blend;
-- delivery gate;
-- file/hash receipts.
-
-This layer should not call an image-generation API merely to duplicate ChatGPT's built-in generator.
-
-## 7. Evidence ledger
-
-`job.json` remains the source of execution truth.
-
-It should answer:
-
-- what the user confirmed;
-- which image became SOURCE / LOOK / CREATIVE LOOK authority;
-- which generated bitmap was actually returned;
-- which plan/hash a patch belongs to;
-- whether each patch/tile passed its budget;
-- how it was registered/blended;
-- which exact composite became the delivered master.
-
-A plan is not execution evidence. A requested resolution is not returned resolution. A large file is not proof of recovered information.
-
-## 8. Studio UI
-
-Studio should remain a **small decision surface**, not expose every backend capability.
-
-Keep visible:
+Visible controls should remain limited to choices a photographer actually intends to make:
 
 - look/preset and strength;
 - creative recipe when wanted;
-- preview vs one-click where safe;
+- preview/review mode;
 - delivery target;
-- professional controls only on demand.
+- professional controls on demand.
 
-Keep hidden/automatic:
+Keep automatic:
 
-- depth prior;
-- patch count selection;
-- observed client patch cap;
+- patch count;
+- empirical patch cap;
 - Pixel Budget math;
-- HD route selection;
+- HD route;
+- depth prior;
 - registration model;
 - blend receipts;
-- retry mechanics.
+- retry bookkeeping.
 
-Review checkpoints are more valuable than adding more tuning controls.
+The MCP server owns structured settings, confirmation, prompt library, recipe preview UI, and plugin-scoped preferences. It does not own the image-generation engine.
 
-## 9. MCP and hosting boundary
+## 10. Persistent state
 
-MCP is useful for the Studio/settings interaction and external actions. It should not become the sole runtime for local image files.
+Portable hosts provide `${PLUGIN_DATA}`. `mcp.json` maps the Studio process' `HOME` into that persistent plugin-scoped directory so the existing settings server stores preferences, confirmations, and user preview overrides outside the immutable plugin package.
 
-A hosted MCP/plugin can expose UI, configuration, catalogs, or cloud-safe tools. Local photo processing still requires a runtime with access to the source files and deterministic scripts.
+New architecture does not install state into the repository or depend on the user's old `~/.codex/photo-refiner` tree.
 
-Therefore keep an explicit split:
+## 11. Work, Voice, and new ChatGPT capabilities
 
-```text
-cloud-safe plugin capability
-  settings / catalogs / lightweight tools
+### Work
 
-local runtime capability
-  source files / crops / upscaler / registration / blend / evidence
-```
+Use Work for long multi-step execution, many photos, reference research, browser/app work, and finished delivery. Do not create a custom background-task system for things Work already does.
 
-Do not assume installing a web-hosted plugin deploys local scripts.
+### Voice
 
-## 10. Work and Cloud Browser
+Voice can invoke plugins and can control the same semantic actions: open Studio, approve, redo, change look, retry, or continue. Do not build a separate voice stack.
 
-Use Work when a task benefits from long-running multi-step execution, local desktop files, or browser/app operations. Do not move the core edit pipeline into browser automation.
+### Cloud Browser / computer use
 
-Cloud Browser is useful for reference/research/asset retrieval or supported signed-in web workflows; it is not a replacement for the local evidence pipeline.
+Useful for reference retrieval, customer briefs, assets, or web workflows. Not a replacement for source-file registration/blending/evidence.
 
-## 11. Hooks and events
+### Plugin extensions
 
-Lifecycle hooks are appropriate only for deterministic developer/runtime setup, such as dependency checks or validation in an execution environment that actually has the scripts.
+Sidebar apps, conversation panels, plugin settings, file viewers/editors, deep links, and richer forms are future UI opportunities. Adopt them only when they reduce workflow friction; do not move deterministic photo logic into UI components.
 
-MCP event subscriptions are not currently core to photo refinement. Reconsider only for future watched folders, review queues, remote batch jobs, or asynchronous asset pipelines.
+## 12. Cloud boundary
 
-## 12. Migration priorities
+Current product remains local-file-first.
 
-### P0 — keep now
+Cloud-safe capabilities:
 
-- ChatGPT Images as renderer.
-- Skill as orchestrator.
-- Studio plugin as confirmation UI.
-- deterministic HD/patch/evidence pipeline.
-- review checkpoints from the latest main branch.
-- optional depth prior as a hidden spatial guard.
+- settings UI;
+- preset/recipe catalogs;
+- lightweight metadata;
+- future hosted catalog/update services.
 
-### P1 — architecture update
+Local/file-aware capabilities:
 
-- add/validate a root Agent Plugins `plugin.json` while retaining `.codex-plugin/plugin.json` compatibility;
-- package Skill + MCP under one universal plugin identity;
-- formalize capability discovery so Chat, Work and Codex can choose the same workflow without surface-specific forks;
-- keep local vs cloud runtime capabilities explicit.
+- original photos;
+- crops;
+- upscaler;
+- registration;
+- blending;
+- evidence ledger;
+- final delivery files.
 
-### P2 — only when evidence justifies it
+A future hosted MCP may complement the local stdio server, but must not silently replace local evidence with remote assumptions.
 
-- dense depth backend;
-- plugin lifecycle hooks;
-- hosted MCP/Sites deployment;
-- MCP events / watched-folder automation;
-- specialized segmentation backends.
+## 13. Versioning
 
-None of P2 should become a mandatory dependency for ordinary single-image refinement.
+Two independent version axes:
 
-## 13. Anti-duplication rules
+- **Plugin package version** — root `plugin.json` / OpenAI overlay, starting at `1.0.0` for the portable redesign.
+- **Photo-processing contract version** — `skills/photo-refiner/scripts/job_contract.py`, currently `2.4`.
+
+Do not force a plugin UI/package release to renumber the image-processing contract, and do not duplicate the Skill contract version in marketing copy.
+
+## 14. Distribution
+
+The repository root is directly installable as a plugin source.
+
+`distribution/build_plugin.py` validates the portable layout and produces one installable runtime bundle. It excludes developer tests and repository-only maintenance files from the ZIP.
+
+There is no separate Skill installer and no two-directory deployment.
+
+## 15. Anti-duplication rules
 
 Do not build:
 
-- an in-project browser;
-- a separate voice stack;
-- a second image-generation service by default;
-- a custom task scheduler for ChatGPT Work jobs;
-- a custom selection editor merely because ChatGPT Images already offers region editing;
-- a dense-depth model in the default path without measured quality benefit;
-- a second settings product beside the plugin UI.
+- a second image-generation backend by default;
+- a custom browser;
+- a custom voice system;
+- a custom task scheduler for Work jobs;
+- a second settings product beside Studio;
+- a dense-depth model in the default path without measured benefit;
+- a custom selection editor just because ChatGPT Images already supports iterative edits.
 
-The project should specialize in what ChatGPT does **not** provide automatically: photographic authority, high-resolution honesty, patch economics, spatial safety, reproducible evidence, and review/retry discipline.
+The product differentiates on photographic authority, high-resolution honesty, spatial safety, patch economics, auditable execution, and review/retry discipline.

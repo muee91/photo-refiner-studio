@@ -1,31 +1,90 @@
 # Photo Refiner Studio
 
-Private source repository for the Photo Refiner ChatGPT/Codex skill and its interactive MCP settings plugin.
+Photo Refiner Studio is one **portable Agent Plugin** for ChatGPT and Codex.
 
-## Layout
+The repository root is the plugin root. There is no separate Skill install and no nested plugin product.
 
-- `skill/` — reusable `photo-refiner` skill, references, deterministic scripts, and tests.
-- `plugin/` — `photo-refiner-studio` plugin, settings panel, MCP server, presets, and smoke test.
-- `ARCHITECTURE.md` — current ChatGPT-native architecture, local/cloud boundary, and plugin migration priorities.
+```text
+photo-refiner-studio/
+├─ plugin.json
+├─ mcp.json
+├─ .codex-plugin/plugin.json
+├─ skills/
+│  ├─ photo-refiner/
+│  └─ photo-refiner-creative/
+├─ mcp/
+├─ assets/
+├─ config/
+├─ catalog/          # developer preview sources; excluded from runtime package
+├─ scripts/          # catalog/preset maintenance; excluded from runtime package
+├─ tests/            # plugin/cross-skill contracts
+└─ distribution/
+```
 
-The current pipeline treats ChatGPT Images as the rendering provider and keeps photographic authority, HD honesty, Pixel Budget, returned-patch observation, registration/blending, review checkpoints, and delivery evidence inside Photo Refiner.
+## Responsibilities
 
-Optional perception helpers such as relative depth remain hidden/advisory. See `skill/references/depth-prior.md`; depth must not increase the default patch quota by itself.
+- `skills/photo-refiner/` — photographic refinement, review checkpoints, honest HD recovery, optional depth guards, patch/tile evidence, delivery gates.
+- `skills/photo-refiner-creative/` — Starryear recipe interpretation and creative-stage authority. Loaded only after explicit recipe selection.
+- `mcp/` + `assets/` — Photo Refiner Studio settings/confirmation UI.
+- `config/` — compiled Studio preset and creative catalogs.
+- `catalog/` — developer-only original recipe preview sources used to rebuild `config/`; not installed in the runtime plugin.
+
+ChatGPT Images is the renderer. Photo Refiner owns what each generation is allowed to change and whether its returned pixels honestly support delivery.
+
+## Plugin format
+
+- root `plugin.json` — Agent Plugins 1.0.0 portable identity;
+- root `mcp.json` — portable stdio Studio server;
+- root `skills/` — auto-discovered plugin skills;
+- `.codex-plugin/plugin.json` — OpenAI-specific listing/presentation overlay only. It does not define a second component graph.
+
+The host provides `${PLUGIN_ROOT}` and `${PLUGIN_DATA}`. `mcp.json` scopes the Studio process' HOME to `${PLUGIN_DATA}`, so preferences, confirmations, and user preview overrides live in plugin-owned persistent state rather than the user's legacy install location.
+
+## Versioning
+
+Two independent axes:
+
+- **Plugin package**: `1.0.0` — packaging/UI/MCP architecture.
+- **Photo-processing contract**: `2.4` — `skills/photo-refiner/scripts/job_contract.py`.
+
+Do not renumber the photo contract merely because the plugin package changes.
 
 ## Validation
 
-版本号的唯一来源是 `skill/scripts/job_contract.py` 里的 `SKILL_VERSION`；
-`plugin/.codex-plugin/plugin.json` 只保留不带构建戳的基版本，`+codex.<时间戳>` 由打包脚本写入。
+Run from repository root:
 
 ```bash
-python3 distribution/build_bundle.py --dry-run   # 校验各处版本是否一致
-python3 distribution/build_bundle.py --zip       # 产出 dist/ 下的可安装包
-python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skill
-python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugin
-python3 -m unittest discover -s skill/tests
-HOME="$(mktemp -d)" node plugin/tests/plugin_smoke.cjs
+python3 -m unittest discover -s skills/photo-refiner/tests
+python3 tests/creative_contract.py
+node tests/plugin_contract.cjs
+node tests/widget_contract.cjs
+python3 tests/portable_layout.py
+python3 distribution/build_plugin.py --check
 ```
 
-`python3 -m unittest discover -s skill/tests` now includes the optional depth-prior contract tests as well as the existing HD/tile/delivery regressions.
+Optional OpenAI validators, when installed:
 
-The repository intentionally excludes user preferences, confirmation records, generated jobs, outputs, caches, dense depth maps, and source photographs.
+```bash
+python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/photo-refiner
+python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/photo-refiner-creative
+python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
+```
+
+## Catalog maintenance
+
+```bash
+python3 scripts/sync_presets.py
+python3 scripts/sync_creative_recipes.py
+```
+
+`sync_creative_recipes.py` reads recipe rules from `photo-refiner-creative` and original preview sources from `catalog/starryear/previews/`, then compiles the compact/runtime preview catalogs under `config/`.
+
+## Build
+
+```bash
+python3 distribution/build_plugin.py --zip
+```
+
+Output is one portable plugin directory and one optional ZIP. Developer tests, raw preview sources, and repository-maintenance scripts are excluded from the installable runtime.
+
+For a clean upgrade from the old two-directory layout, read `distribution/INSTALL.md`. See `ARCHITECTURE.md` for the design contract.

@@ -1,0 +1,9 @@
+interface:
+  display_name: "Photo Refiner Creative"
+  short_description: "Selected-recipe creative translation"
+  default_prompt: "Continue the current Photo Refiner job with the creative recipe that is already frozen in its confirmation."
+policy:
+  products:
+    - CHAT
+    - CODEX
+  allow_implicit_invocation: false

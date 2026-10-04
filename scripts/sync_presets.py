@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
+"""Compile Studio presets from the canonical core-skill YAML."""
+
+from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path
 
 import yaml
 
-
-DEFAULT_SKILL_PRESETS = Path.home() / ".codex" / "skills" / "photo-refiner" / "references" / "presets.yaml"
-DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "config" / "presets.json"
+REPO = Path(__file__).resolve().parents[1]
+DEFAULT_SOURCE = REPO / "skills" / "photo-refiner" / "references" / "presets.yaml"
+DEFAULT_OUTPUT = REPO / "config" / "presets.json"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate the Photo Refiner Studio preset catalog from the core skill.")
-    parser.add_argument("--source", type=Path, default=DEFAULT_SKILL_PRESETS)
+    parser = argparse.ArgumentParser(description="Compile Photo Refiner Studio presets")
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 

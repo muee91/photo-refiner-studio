@@ -1,45 +1,79 @@
-# Photo Refiner 一次性安装
+# Clean reinstall — Photo Refiner Studio 1.x
 
-发行包由 `python3 distribution/build_bundle.py` 从仓库生成（`--zip` 可一并产出可拖入聊天
-的 ZIP，`--dry-run` 只校验版本一致性）。不要手工复制目录：脚本会核对 `SKILL_VERSION`、
-`SKILL.md` 标题与 `config-schema.md` 是否一致，并写入带构建戳的插件版本。
+Photo Refiner Studio 1.x is a breaking packaging redesign. Do **not** install it on top of the old two-directory `photo-refiner` + `photo-refiner-studio` layout.
 
-这个发行包包含两部分：
+## 1. Remove the old installation
 
-- `photo-refiner/`：Photo Refiner v2.4 Skill，包含 15 个原版 Starryear 创意转译工作流与选择器缩略图；
-- `photo-refiner-studio/`：负责弹出设置面板和保存确认结果的 MCP 插件。
+Uninstall the existing Photo Refiner / Photo Refiner Studio plugin from the ChatGPT/Codex Plugin Directory or remove the old local marketplace entry you previously used.
 
-## 拖入聊天框后的单行指令
+If you manually copied old folders, remove those old copies before reinstalling. The new package is one plugin root.
 
-将本 ZIP 直接拖入 Codex 聊天框，然后发送下面这句话即可：
+Old preference/confirmation state under `~/.codex/photo-refiner` is not part of the 1.x runtime. New Studio state is host-scoped under `${PLUGIN_DATA}`.
 
-> 安装我刚上传的 Photo Refiner 压缩包：自动解压并运行包内 `install_photo_refiner.py`，永久删除旧版 Photo Refiner Skill、插件和缓存，再安装新版并完成依赖、Skill 和 MCP smoke test；不要只给我安装步骤，直接执行并报告结果。
+## 2. Validate the new repository
 
-## 用 Codex 安装
-
-把 ZIP 解压后，将解压目录作为工作目录交给 Codex，并让 Codex 执行：
+From the repository root:
 
 ```bash
-python3 install_photo_refiner.py
+python3 -m unittest discover -s skills/photo-refiner/tests
+python3 tests/creative_contract.py
+node tests/plugin_contract.cjs
+node tests/widget_contract.cjs
+python3 tests/portable_layout.py
+python3 distribution/build_plugin.py --check
 ```
 
-也可以先检查安装目标，不写入任何文件：
+Optional OpenAI validators, when installed:
 
 ```bash
-python3 install_photo_refiner.py --dry-run
+python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/photo-refiner
+python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/photo-refiner-creative
+python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
 ```
 
-安装器会：
+## 3. Build one portable package
 
-1. 永久删除旧版 Photo Refiner Skill、插件源和插件缓存；
-2. 安装新版 Skill 到 `~/.codex/skills/photo-refiner/`；
-3. 安装插件源到 `~/plugins/photo-refiner-studio/`；
-4. 写入新版插件缓存并更新 `~/.agents/plugins/marketplace.json`；
-5. 调用 codex plugin add photo-refiner-studio@personal，把插件标记为已安装并启用；
-6. 检查 Pillow/ImageCms、NumPy、PyYAML、OpenCV 和 SIFT 支持。
-旧版不会保留备份，也无法通过安装器恢复。安装结束后完全退出 Codex，再重新打开并新建任务。
+```bash
+python3 distribution/build_plugin.py --zip
+```
 
-## 手动安装
+Output:
 
-不建议手动拆开安装。若必须手动操作，至少要同时保留 `photo-refiner/` 和
-`photo-refiner-studio/`，否则 Skill 能被发现但设置面板无法打开。
+```text
+dist/
+├─ photo-refiner-studio-1.0.0/
+└─ photo-refiner-studio-1.0.0.zip
+```
+
+The ZIP contains one plugin root with `plugin.json`, `mcp.json`, both skills, Studio MCP/UI, presets, and compiled creative catalogs. Repository tests, raw preview sources, and maintenance scripts are intentionally excluded.
+
+## 4. Install
+
+Install the repository root or generated ZIP through the Plugin Directory / local plugin source used by your ChatGPT or Codex environment.
+
+The root `plugin.json` is the portable identity. The bundled `mcp.json` declares the local stdio Studio server. No separate Skill installation is required.
+
+After installing or updating, start a **new chat/session** so the host reloads skills, MCP tools, UI resources, and versioned widget metadata.
+
+## 5. First functional test
+
+Use a normal source photo and ask:
+
+> 用 Photo Refiner 修这张照片
+
+Expected behavior:
+
+1. Photo Refiner Studio opens;
+2. Studio submission returns a schema-4 confirmation;
+3. normal jobs route through the `photo-refiner` skill;
+4. creative recipes remain opt-in;
+5. selecting a recipe activates the companion `photo-refiner-creative` skill;
+6. HD recovery uses actual client-returned patch observations and fail-closed delivery evidence;
+7. depth remains an automatic advisory spatial guard, not a mandatory heavy-model stage.
+
+## Upgrade rule going forward
+
+- bump root/overlay **Plugin version** for package/UI/MCP changes;
+- bump **Photo-processing contract version** only when deterministic image-processing rules change;
+- never reintroduce separate `skill/` and `plugin/` install roots;
+- keep creative recipe growth isolated from the ordinary core skill.

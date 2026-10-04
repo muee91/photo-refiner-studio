@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "photoRefinerStudio": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/mcp/server.cjs",
+        "--stdio"
+      ],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "HOME": "${PLUGIN_DATA}"
+      }
+    }
+  }
+}

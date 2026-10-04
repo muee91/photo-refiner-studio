@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "photo-refiner-studio",
+  "version": "1.0.0",
+  "description": "Review-first photographic refinement for ChatGPT and Codex with honest high-resolution recovery, spatial guards, creative translation, and auditable delivery.",
+  "author": {
+    "name": "muee"
+  },
+  "repository": "https://github.com/muee91/photo-refiner-studio",
+  "license": "Proprietary",
+  "keywords": [
+    "photo",
+    "retouching",
+    "image-editing",
+    "portrait",
+    "landscape",
+    "creative"
+  ]
+}
