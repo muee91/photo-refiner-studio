@@ -1,11 +1,16 @@
 # Photo Refiner Studio
 
-Private source repository for the Photo Refiner Codex skill and its interactive MCP settings plugin.
+Private source repository for the Photo Refiner ChatGPT/Codex skill and its interactive MCP settings plugin.
 
 ## Layout
 
-- `skill/` — reusable `photo-refiner` skill, references, scripts, and tests.
+- `skill/` — reusable `photo-refiner` skill, references, deterministic scripts, and tests.
 - `plugin/` — `photo-refiner-studio` plugin, settings panel, MCP server, presets, and smoke test.
+- `ARCHITECTURE.md` — current ChatGPT-native architecture, local/cloud boundary, and plugin migration priorities.
+
+The current pipeline treats ChatGPT Images as the rendering provider and keeps photographic authority, HD honesty, Pixel Budget, returned-patch observation, registration/blending, review checkpoints, and delivery evidence inside Photo Refiner.
+
+Optional perception helpers such as relative depth remain hidden/advisory. See `skill/references/depth-prior.md`; depth must not increase the default patch quota by itself.
 
 ## Validation
 
@@ -21,4 +26,6 @@ python3 -m unittest discover -s skill/tests
 HOME="$(mktemp -d)" node plugin/tests/plugin_smoke.cjs
 ```
 
-The repository intentionally excludes user preferences, confirmation records, generated jobs, outputs, caches, and source photographs.
+`python3 -m unittest discover -s skill/tests` now includes the optional depth-prior contract tests as well as the existing HD/tile/delivery regressions.
+
+The repository intentionally excludes user preferences, confirmation records, generated jobs, outputs, caches, dense depth maps, and source photographs.
