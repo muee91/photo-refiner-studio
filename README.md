@@ -23,13 +23,14 @@ photo-refiner-studio/
 
 ## Responsibilities
 
-- `skills/photo-refiner/` — photographic refinement, deterministic workflow control, review checkpoints, source-backed original-resolution delivery, optional depth guards, patch/tile evidence, delivery gates.
+- `skills/photo-refiner/` — photographic refinement, deterministic workflow control, source-backed original-resolution delivery, optional depth guards, per-frame batch authority, patch/tile evidence, delivery gates.
 - `skills/photo-refiner-creative/` — Starryear recipe interpretation and creative-stage authority. Loaded only after explicit recipe selection.
-- `mcp/` + `assets/` — Photo Refiner Studio settings/confirmation UI.
+- `mcp/server.cjs` + `assets/settings.html` — Studio settings and frozen confirmation.
+- `mcp/workflow.cjs` + review/recent-job widgets — button-based review, durable recent jobs and resume.
 - `config/` — compiled Studio preset and creative catalogs.
 - `catalog/` — developer-only original recipe preview sources used to rebuild `config/`; not installed in the runtime plugin.
 
-ChatGPT Images is the renderer. Photo Refiner owns what each generation is allowed to change, what the next deterministic workflow action is, and whether returned pixels honestly support delivery.
+ChatGPT Images is the renderer. Photo Refiner owns what each generation may change, what the next deterministic workflow action is, how batch frames remain isolated, and whether returned pixels honestly support delivery.
 
 ## Workflow model
 
@@ -39,24 +40,43 @@ The language model does not infer the pipeline from prose after every turn. Afte
 python3 skills/photo-refiner/scripts/workflow_controller.py <job.json>
 ```
 
-It returns one semantic `next_action` and a user-safe `visible_status`. Review events are `approve`, `continue`, `redo`, and `adjust`; approval still binds the exact displayed bitmap through `update_job.py`.
+It returns one semantic `next_action` and a user-safe `visible_status`.
+
+Normal visual review is **button-based**. When the controller reaches a review checkpoint, the exact displayed bitmap is passed to `open_photo_refiner_review`; the user chooses continue / redo / adjust through the Review Widget. Approval binds that exact bitmap through `update_job.py` before the controller proceeds.
+
+Recent jobs are durable. Register a newly initialized parent job with `register_photo_refiner_job`. When the user asks to continue/reopen work, `open_photo_refiner_recent_jobs` reads the persistent job index and `resume_photo_refiner_job` re-inspects the live `job.json`; completed stages are not regenerated just because the conversation changed.
 
 Ordinary single-source + original-framing + `source-width` photography uses SOURCE MASTER-backed original-resolution delivery by default. Raw patch/tile economics are internal diagnostics and are not shown as user choices.
+
+## Batch model
+
+Ordinary batches use a parent + child-frame architecture:
+
+```text
+Batch parent
+├─ shared frozen settings
+├─ approved style master (appearance only)
+├─ Frame 01 child → own SOURCE / LOOK / patches / delivery gate
+├─ Frame 02 child → own SOURCE / LOOK / patches / delivery gate
+└─ ...
+```
+
+The batch style master may share color, light, tone, atmosphere, retouch character and grain. It may **not** share identity, pose, anatomy, factual geometry, garment construction or frame-specific texture. A failed frame is retried as a new child attempt without borrowing artifacts from another photograph.
 
 ## Plugin format
 
 - root `plugin.json` — Agent Plugins 1.0.0 portable identity;
-- root `mcp.json` — portable stdio Studio server;
+- root `mcp.json` — portable stdio servers for settings and durable workflow UX;
 - root `skills/` — auto-discovered plugin skills;
 - `.codex-plugin/plugin.json` — OpenAI-specific listing/presentation overlay only. It does not define a second component graph.
 
-The host provides `${PLUGIN_ROOT}` and `${PLUGIN_DATA}`. `mcp.json` scopes the Studio process' HOME to `${PLUGIN_DATA}`, so preferences, confirmations, and user preview overrides live in plugin-owned persistent state rather than a legacy install location.
+The host provides `${PLUGIN_ROOT}` and `${PLUGIN_DATA}`. Both MCP processes scope HOME to `${PLUGIN_DATA}`, so settings, confirmations, preview overrides and the recent-job index live in plugin-owned persistent state.
 
 ## Versioning
 
 Two independent axes:
 
-- **Plugin package**: `1.2.0` — deterministic workflow controller + current Studio/MCP package.
+- **Plugin package**: `1.3.0` — button review + resume/recent jobs + per-frame batch authority.
 - **Photo-processing contract**: `2.4` — `skills/photo-refiner/scripts/job_contract.py`.
 
 Do not renumber the photo contract merely because the plugin package changes.
@@ -70,6 +90,7 @@ python3 -m unittest discover -s skills/photo-refiner/tests
 python3 tests/creative_contract.py
 python3 tests/route_contract.py
 node tests/plugin_contract.cjs
+node tests/workflow_plugin_contract.cjs
 node tests/widget_contract.cjs
 python3 tests/portable_layout.py
 python3 distribution/build_plugin.py --check
