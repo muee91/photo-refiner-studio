@@ -91,7 +91,8 @@ def main() -> int:
     controller_text = controller.read_text(encoding="utf-8")
     for event in ("approve", "continue", "redo", "adjust"):
         require(f'"{event}"' in controller_text, f"workflow controller is missing semantic event {event}")
-    for action in ("await_batch_master_review", "materialize_batch_frames", "process_batch_frame", "finalize_batch"):
+    require('"batch-master"' in controller_text, "workflow controller is missing the batch-master review checkpoint")
+    for action in ("materialize_batch_frames", "process_batch_frame", "finalize_batch"):
         require(action in controller_text, f"workflow controller is missing batch action {action}")
 
     require((core / "scripts" / "batch_frames.py").is_file(), "per-frame batch materializer is missing")
