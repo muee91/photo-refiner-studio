@@ -79,6 +79,18 @@ def main() -> int:
     require(not (core / "references" / "starryear" / "recipes").exists(), "creative recipe payload leaked back into core skill")
     require((creative / "references" / "starryear" / "recipes").is_dir(), "creative recipe payload is missing")
 
+    controller = core / "scripts" / "workflow_controller.py"
+    require(controller.is_file(), "deterministic workflow controller is missing from runtime skill")
+    controller_text = controller.read_text(encoding="utf-8")
+    for event in ("approve", "continue", "redo", "adjust"):
+        require(f'"{event}"' in controller_text, f"workflow controller is missing semantic event {event}")
+
+    ci = ROOT / ".github" / "workflows" / "ci.yml"
+    require(ci.is_file(), "main validation CI is missing")
+    ci_text = ci.read_text(encoding="utf-8")
+    require("upload-artifact" not in ci_text, "CI must not upload artifacts")
+    require("tests/route_contract.py" in ci_text, "CI must run the HD route contract")
+
     contract = (core / "scripts" / "job_contract.py").read_text(encoding="utf-8")
     match = re.search(r'^SKILL_VERSION = "([^"]+)"', contract, re.M)
     require(bool(match), "core job contract has no SKILL_VERSION")
