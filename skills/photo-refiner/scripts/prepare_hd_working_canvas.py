@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Prepare the honest high-resolution working canvas for Photo Refiner.
+"""Prepare the high-resolution working canvas for Photo Refiner.
 
-This stage is shared by ordinary refinement, creative-safe recovery, and the
-photographic first stage of hd-master creative jobs.
+Photography has a real high-resolution SOURCE MASTER. It is therefore different
+from a fully synthetic/creative canvas: source-width delivery does not require
+regenerating the whole frame merely because the approved LOOK MASTER returned at
+a smaller bitmap size.
 
 Routes:
 - native-detail: approved master already supports the delivery canvas.
-- ultrasharp-detail: raise the working canvas with the information-adding 4X model,
-  then run normal local recovery on that raised canvas.
-- full-canvas-tile-redraw: the requested delivery exceeds the model's honest
-  information span (or no information-adding engine is installed). Build a
-  delivery-size scaffold, then redraw the full canvas with observed-size tiles.
+- source-backed-detail: ordinary, original-framing source-width photography uses
+  SOURCE MASTER micro-detail under the approved LOOK MASTER and only regenerates
+  valuable local regions.
+- ultrasharp-detail: raise a non-source-backed working canvas with the information-
+  adding 4X model, then run local recovery.
+- full-canvas-tile-redraw: reserved for canvases whose pixels cannot be backed by
+  SOURCE MASTER (notably transformed creative work) and that exceed the honest
+  information span.
 """
 
 from __future__ import annotations
@@ -24,13 +29,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageFilter
 
 from job_contract import MAX_HONEST_UPSCALE, atomic_write_json
 from upscale_image import engine_status
 
 
 MODEL_NATIVE_SCALE = 4
+SOURCE_DETAIL_RADIUS = 1.25
+SOURCE_DETAIL_STRENGTH = 0.55
 
 
 def parse_size(value: str) -> tuple[int, int]:
@@ -68,8 +76,6 @@ def delivery_canvas(job: dict, input_size: tuple[int, int], override: tuple[int,
     if resolution == "preview":
         return input_size
     if resolution == "4k":
-        # Photography-oriented 4K: 4096 pixels on the long edge, preserving the
-        # already-approved master's aspect. Framing/crop/outpaint happened earlier.
         width, height = input_size
         if width >= height:
             return 4096, max(1, round(4096 * height / width))
@@ -86,8 +92,6 @@ def delivery_canvas(job: dict, input_size: tuple[int, int], override: tuple[int,
     source_size = image_size(source)
     if str(job.get("aspect_ratio") or "original") == "original":
         return source_size
-    # A changed framing owns its new aspect ratio. Keep the original photograph's
-    # width as the requested width and derive height from the approved master.
     return source_size[0], max(1, round(source_size[0] * input_size[1] / input_size[0]))
 
 
@@ -95,9 +99,6 @@ def ultrasharp_allowed(job: dict) -> bool:
     creative = job.get("creative_output")
     if not isinstance(creative, dict):
         return True
-    # hd-master's first stage is an ordinary photographic HD master; its separate
-    # creativeUpscale toggle is intentionally disabled because the final artwork
-    # is tiled later, but the photographic master may still use the common router.
     if creative.get("upstream_binding") == "hd-master":
         return True
     upscale = creative.get("upscale")
@@ -106,16 +107,52 @@ def ultrasharp_allowed(job: dict) -> bool:
     return True
 
 
+def source_backed_eligible(job: dict, target: tuple[int, int]) -> tuple[bool, Path | None]:
+    """Whether SOURCE MASTER may honestly carry high-frequency source-width detail.
+
+    Keep this deliberately narrow. It is only automatic for ordinary photographic
+    refinement with original framing and exact source-width delivery. Creative
+    translation, outpaint/reframing and synthetic regions must use their own HD
+    route instead of borrowing unrelated source pixels.
+    """
+    if job.get("creative_recipe") is not None:
+        return False, None
+    if str(job.get("resolution") or "").lower() != "source-width":
+        return False, None
+    if str(job.get("aspect_ratio") or "original") != "original":
+        return False, None
+    sources = job.get("sources") or []
+    if len(sources) != 1:
+        return False, None
+    source = Path(str(sources[0])).expanduser().resolve()
+    if not source.is_file() or image_size(source) != target:
+        return False, None
+    return True, source
+
+
 def choose_route(
     input_size: tuple[int, int],
     target: tuple[int, int],
     informative_engine_ready: bool,
     honest_tail: float = MAX_HONEST_UPSCALE,
+    *,
+    source_backed: bool = False,
 ) -> dict:
     required = max(target[0] / input_size[0], target[1] / input_size[1])
     if required <= honest_tail:
         return {
             "route": "native-detail",
+            "required_scale": required,
+            "model_scale": 1,
+            "requires_full_canvas_redraw": False,
+        }
+
+    # SOURCE MASTER already contains the real source-resolution high frequencies.
+    # Do not rebuild the whole photograph with generated tiles simply because the
+    # style/look preview was returned smaller.
+    if source_backed:
+        return {
+            "route": "source-backed-detail",
             "required_scale": required,
             "model_scale": 1,
             "requires_full_canvas_redraw": False,
@@ -172,8 +209,47 @@ def resize_scaffold(source: Path, output: Path, target: tuple[int, int]) -> None
         resized.save(output, "PNG")
 
 
+def lift_source_detail(source_master: Path, look_master: Path, output: Path, target: tuple[int, int]) -> dict:
+    """Lift only fine luminance detail from SOURCE MASTER into the approved look.
+
+    LOOK MASTER still owns low/mid-frequency appearance. SOURCE MASTER contributes
+    a conservative luminance high-pass so real texture is retained at source-width
+    without reintroducing the source palette. Important generated subject edits are
+    still handled by the normal planned patch chain afterwards.
+    """
+    with Image.open(source_master) as raw_source, Image.open(look_master) as raw_look:
+        source = raw_source.convert("RGB")
+        look = raw_look.convert("RGB").resize(target, Image.Resampling.LANCZOS)
+        if source.size != target:
+            source = source.resize(target, Image.Resampling.LANCZOS)
+
+        source_arr = np.asarray(source, dtype=np.float32)
+        look_arr = np.asarray(look, dtype=np.float32)
+        source_luma = (
+            source_arr[..., 0] * 0.2126
+            + source_arr[..., 1] * 0.7152
+            + source_arr[..., 2] * 0.0722
+        )
+        luma_image = Image.fromarray(np.clip(source_luma, 0, 255).astype(np.uint8), mode="L")
+        low_luma = np.asarray(luma_image.filter(ImageFilter.GaussianBlur(SOURCE_DETAIL_RADIUS)), dtype=np.float32)
+        high_luma = source_luma - low_luma
+        lifted = np.clip(look_arr + high_luma[..., None] * SOURCE_DETAIL_STRENGTH, 0, 255).astype(np.uint8)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(lifted, mode="RGB").save(output, "PNG")
+
+    return {
+        "method": "source-luminance-highpass",
+        "radius": SOURCE_DETAIL_RADIUS,
+        "strength": SOURCE_DETAIL_STRENGTH,
+        "source_master": str(source_master),
+        "source_master_sha256": sha256_file(source_master),
+        "look_master": str(look_master),
+        "look_master_sha256": sha256_file(look_master),
+    }
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Prepare an honest HD working canvas and choose local-patch vs full-tile recovery.")
+    parser = argparse.ArgumentParser(description="Prepare an HD working canvas and choose source-backed/local-patch vs full-tile recovery.")
     parser.add_argument("job", type=Path, help="Path to job.json")
     parser.add_argument("--input", required=True, type=Path, help="Exact approved LOOK MASTER / CREATIVE LOOK MASTER")
     parser.add_argument("--output", type=Path, help="Prepared working canvas; defaults to intermediates/hd-working.png")
@@ -199,22 +275,24 @@ def main() -> None:
     data = json.loads(job_path.read_text(encoding="utf-8"))
     start_size = image_size(source)
     target = delivery_canvas(data, start_size, args.delivery_size)
+    source_backed, source_master = source_backed_eligible(data, target)
     status = engine_status()
     allowed_by_job = ultrasharp_allowed(data)
     informative_ready = bool(status.get("ultrasharp_ready")) and allowed_by_job
-    decision = choose_route(start_size, target, informative_ready)
+    decision = choose_route(start_size, target, informative_ready, source_backed=source_backed)
 
     upscale_result = None
+    source_detail_result = None
     scaffold_interpolation = False
     output.parent.mkdir(parents=True, exist_ok=True)
 
     if decision["route"] == "native-detail":
         shutil.copy2(source, output)
+    elif decision["route"] == "source-backed-detail":
+        source_detail_result = lift_source_detail(source_master, source, output, target)
     elif decision["route"] == "ultrasharp-detail":
         upscale_result = run_upscaler(job_path, source, output, decision["model_scale"])
         if not upscale_result.get("adds_information"):
-            # Engine readiness changed between probe and execution. Never silently
-            # downgrade an HD route to Lanczos; use the auditable full-canvas path.
             decision = {
                 **decision,
                 "route": "full-canvas-tile-redraw",
@@ -236,7 +314,7 @@ def main() -> None:
 
     output_size = image_size(output)
     record = {
-        "schema_version": 1,
+        "schema_version": 2,
         "policy": "automatic-hd-working-canvas",
         "input": str(source),
         "input_size": list(start_size),
@@ -248,6 +326,8 @@ def main() -> None:
         "model_scale_used": int(decision["model_scale"]),
         "ultrasharp_allowed_by_job": allowed_by_job,
         "informative_engine_ready": informative_ready,
+        "source_backed": decision["route"] == "source-backed-detail",
+        "source_detail_result": source_detail_result,
         "output": str(output),
         "output_size": list(output_size),
         "output_sha256": sha256_file(output),
@@ -255,13 +335,16 @@ def main() -> None:
         "scaffold_interpolation": scaffold_interpolation,
         "upscale_result": upscale_result,
         "next_step": (
-            "For adaptive/face/explicit recovery, first run plan_detail_tiles.py on this exact "
-            "delivery-size scaffold with the observed client patch size. Then run plan_tile_redraw.py "
-            "with BOTH --detail-plan <that-plan> and --full-canvas --sliver-margin 0 so high-value "
-            "face/head/hand regions keep their stricter Pixel Budget while generic tiles fill the rest. "
-            "Execute every tile and pass --tile-plan to delivery_gate.py."
-            if decision["requires_full_canvas_redraw"]
-            else "Run plan_detail_tiles.py on this exact output using delivery_canvas, then execute its selected regions."
+            "Run normal subject-aware detail planning. SOURCE MASTER already backs source-resolution micro-detail; "
+            "do not request full-canvas redraw merely to prove the file dimensions. Generate only valuable planned regions."
+            if decision["route"] == "source-backed-detail"
+            else (
+                "For adaptive/face/explicit recovery, first run plan_detail_tiles.py on this exact "
+                "delivery-size scaffold with the observed client patch size. Then run plan_tile_redraw.py "
+                "with BOTH --detail-plan <that-plan> and --full-canvas --sliver-margin 0. Execute every tile."
+                if decision["requires_full_canvas_redraw"]
+                else "Run plan_detail_tiles.py on this exact output using delivery_canvas, then execute its selected regions."
+            )
         ),
     }
     data["hd_working_canvas"] = record
