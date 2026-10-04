@@ -32,6 +32,14 @@ def skill_runtime_files(root: Path):
         yield path
 
 
+def validate_stdio_server(server: dict, script: str, label: str) -> None:
+    require(server.get("type") == "stdio", f"{label} MCP must use portable stdio")
+    require(server.get("command") == "node", f"{label} MCP command must be one executable token")
+    require(server.get("args") == [f"${{PLUGIN_ROOT}}/mcp/{script}", "--stdio"], f"{label} args must be PLUGIN_ROOT-relative")
+    require(server.get("cwd") == "${PLUGIN_ROOT}", f"{label} cwd must be PLUGIN_ROOT")
+    require((server.get("env") or {}).get("HOME") == "${PLUGIN_DATA}", f"{label} persistent state must be scoped to PLUGIN_DATA")
+
+
 def main() -> int:
     manifest = load(ROOT / "plugin.json")
     overlay = load(ROOT / ".codex-plugin" / "plugin.json")
@@ -47,13 +55,12 @@ def main() -> int:
 
     require(mcp.get("$schema") == MCP_SCHEMA, "root mcp.json must use portable Agent Plugins schema")
     servers = mcp.get("mcpServers")
-    require(isinstance(servers, dict) and set(servers) == {"photoRefinerStudio"}, "portable MCP graph drifted")
-    server = servers["photoRefinerStudio"]
-    require(server.get("type") == "stdio", "Studio MCP must use portable stdio")
-    require(server.get("command") == "node", "Studio MCP command must be one executable token")
-    require(server.get("args") == ["${PLUGIN_ROOT}/mcp/server.cjs", "--stdio"], "Studio args must be PLUGIN_ROOT-relative")
-    require(server.get("cwd") == "${PLUGIN_ROOT}", "Studio cwd must be PLUGIN_ROOT")
-    require((server.get("env") or {}).get("HOME") == "${PLUGIN_DATA}", "Studio persistent state must be scoped to PLUGIN_DATA")
+    require(
+        isinstance(servers, dict) and set(servers) == {"photoRefinerStudio", "photoRefinerWorkflow"},
+        "portable MCP graph must contain settings + workflow servers",
+    )
+    validate_stdio_server(servers["photoRefinerStudio"], "server.cjs", "Studio")
+    validate_stdio_server(servers["photoRefinerWorkflow"], "workflow.cjs", "Workflow")
 
     require(not (ROOT / "skill").exists(), "legacy root skill/ must not return")
     require(not (ROOT / "plugin").exists(), "legacy nested plugin/ must not return")
@@ -84,12 +91,21 @@ def main() -> int:
     controller_text = controller.read_text(encoding="utf-8")
     for event in ("approve", "continue", "redo", "adjust"):
         require(f'"{event}"' in controller_text, f"workflow controller is missing semantic event {event}")
+    for action in ("await_batch_master_review", "materialize_batch_frames", "process_batch_frame", "finalize_batch"):
+        require(action in controller_text, f"workflow controller is missing batch action {action}")
+
+    require((core / "scripts" / "batch_frames.py").is_file(), "per-frame batch materializer is missing")
+    require((core / "scripts" / "bind_batch_master.py").is_file(), "batch style-authority binder is missing")
+    require((ROOT / "mcp" / "workflow.cjs").is_file(), "workflow MCP server is missing")
+    require((ROOT / "assets" / "review.html").is_file(), "button review widget is missing")
+    require((ROOT / "assets" / "recent-jobs.html").is_file(), "recent jobs resume widget is missing")
 
     ci = ROOT / ".github" / "workflows" / "ci.yml"
     require(ci.is_file(), "main validation CI is missing")
     ci_text = ci.read_text(encoding="utf-8")
     require("upload-artifact" not in ci_text, "CI must not upload artifacts")
     require("tests/route_contract.py" in ci_text, "CI must run the HD route contract")
+    require("tests/workflow_plugin_contract.cjs" in ci_text, "CI must run the workflow MCP contract")
 
     contract = (core / "scripts" / "job_contract.py").read_text(encoding="utf-8")
     match = re.search(r'^SKILL_VERSION = "([^"]+)"', contract, re.M)
