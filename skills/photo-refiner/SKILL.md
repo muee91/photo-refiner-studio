@@ -152,6 +152,13 @@ Current internal routes:
 - `ultrasharp-detail` — non-source-backed canvas fits the pinned information-adding upscaler span.
 - `full-canvas-tile-redraw` — genuine synthetic/transformed canvas whose final pixels cannot be backed by SOURCE MASTER.
 
+The 4X information-adding model is never applied to a subject-aware task's
+full canvas. If the job includes face, head, hand, garment, or adaptive subject
+detail, the router marks the subject as protected and uses registered local or
+tile generation instead. 4X is only valid for a non-subject canvas with no
+subject recovery contract; it must not be used as a shortcut for face
+upscaling.
+
 These route names are implementation details. User-facing wording should be **原图尺寸智能恢复 / 正在恢复关键细节 / 正在完成成片**.
 
 ### Source-backed invariant

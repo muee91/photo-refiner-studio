@@ -107,6 +107,27 @@ def ultrasharp_allowed(job: dict) -> bool:
     return True
 
 
+def subject_protection_required(job: dict) -> bool:
+    """Return whether an AI upscaler must be kept off photographic subjects.
+
+    The 4X model is an information-adding image model, not a neutral resize. It
+    must never be allowed to invent or reshape a face, head, hands, or clothing
+    merely because the delivery canvas is larger. Jobs with a subject-aware
+    detail manifest therefore fall back to the registered local/tile recovery
+    route, where each generated region has its own authority and mask.
+    """
+    detail = job.get("detail")
+    if not isinstance(detail, dict):
+        return False
+    if detail.get("patch_scope") in {"none", "background-only"}:
+        return False
+    return bool(
+        detail.get("head_patch")
+        or detail.get("patch_scope") in {"face-only", "head-and-face", "custom"}
+        or detail.get("mode") in {"face", "adaptive", "explicit"}
+    )
+
+
 def source_backed_eligible(job: dict, target: tuple[int, int]) -> tuple[bool, Path | None]:
     """Whether SOURCE MASTER may honestly carry high-frequency source-width detail.
 
@@ -137,6 +158,7 @@ def choose_route(
     honest_tail: float = MAX_HONEST_UPSCALE,
     *,
     source_backed: bool = False,
+    subject_protected: bool = False,
 ) -> dict:
     required = max(target[0] / input_size[0], target[1] / input_size[1])
     if required <= honest_tail:
@@ -159,7 +181,10 @@ def choose_route(
         }
 
     model_scale = min(MODEL_NATIVE_SCALE, max(2, math.ceil(required / honest_tail)))
-    if informative_engine_ready and required <= MODEL_NATIVE_SCALE * honest_tail:
+    # 4X-UltraSharp changes pixels and has no semantic subject mask. Never run
+    # it over a task whose detail contract includes face/head/hand/garment
+    # recovery; the generated local/tile route is the only auditable option.
+    if informative_engine_ready and not subject_protected and required <= MODEL_NATIVE_SCALE * honest_tail:
         return {
             "route": "ultrasharp-detail",
             "required_scale": required,
@@ -278,8 +303,16 @@ def main() -> None:
     source_backed, source_master = source_backed_eligible(data, target)
     status = engine_status()
     allowed_by_job = ultrasharp_allowed(data)
-    informative_ready = bool(status.get("ultrasharp_ready")) and allowed_by_job
-    decision = choose_route(start_size, target, informative_ready, source_backed=source_backed)
+    subject_protected = subject_protection_required(data)
+    upscaler_allowed = allowed_by_job and not subject_protected
+    informative_ready = bool(status.get("ultrasharp_ready")) and upscaler_allowed
+    decision = choose_route(
+        start_size,
+        target,
+        informative_ready,
+        source_backed=source_backed,
+        subject_protected=subject_protected,
+    )
 
     upscale_result = None
     source_detail_result = None
@@ -324,7 +357,9 @@ def main() -> None:
         "required_scale": round(float(decision["required_scale"]), 6),
         "model_native_scale": MODEL_NATIVE_SCALE,
         "model_scale_used": int(decision["model_scale"]),
-        "ultrasharp_allowed_by_job": allowed_by_job,
+        "ultrasharp_allowed_by_job": upscaler_allowed,
+        "ultrasharp_configured_by_job": allowed_by_job,
+        "subject_protected_from_upscaler": subject_protected,
         "informative_engine_ready": informative_ready,
         "source_backed": decision["route"] == "source-backed-detail",
         "source_detail_result": source_detail_result,

@@ -54,6 +54,25 @@ class SourceBackedRoutingTests(unittest.TestCase):
         self.assertEqual(route["route"], "full-canvas-tile-redraw")
         self.assertTrue(route["requires_full_canvas_redraw"])
 
+    def test_subject_protection_disables_full_canvas_4x_route(self):
+        route = self.router.choose_route(
+            (1024, 1536),
+            (3072, 4608),
+            informative_engine_ready=True,
+            source_backed=False,
+            subject_protected=True,
+        )
+        self.assertEqual(route["route"], "full-canvas-tile-redraw")
+        self.assertTrue(route["requires_full_canvas_redraw"])
+
+    def test_subject_manifest_is_protected_from_upscaler(self):
+        self.assertTrue(self.router.subject_protection_required({
+            "detail": {"mode": "adaptive", "patch_scope": "head-and-face", "head_patch": True}
+        }))
+        self.assertFalse(self.router.subject_protection_required({
+            "detail": {"mode": "base-only", "patch_scope": "none", "head_patch": False}
+        }))
+
 
 class SourceBackedPlanNormalizationTests(unittest.TestCase):
     @classmethod
