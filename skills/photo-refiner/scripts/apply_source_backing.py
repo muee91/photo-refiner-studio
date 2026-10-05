@@ -98,6 +98,15 @@ def main() -> None:
         raise SystemExit("SOURCE MASTER evidence for source-backed delivery is missing or stale")
 
     dropped = plan.get("regions_dropped_for_budget") or []
+    # Source backing only resolves regions that were dropped because their
+    # generated patch would underfeed the delivery canvas. Keep every selected
+    # face/head/hand/prop region intact so the controller still executes the
+    # auditable local recovery patches.
+    selected_regions = plan.get("regions")
+    if not isinstance(selected_regions, list):
+        selected_regions = []
+    plan["regions"] = selected_regions
+    plan["region_count"] = len(selected_regions)
     original_feasibility = plan.get("delivery_feasibility") or {}
     source_backed_regions = []
     for item in dropped:
@@ -131,7 +140,14 @@ def main() -> None:
         "verdict": "source-backed",
         "requested_delivery_width": delivery[0],
         "max_honest_delivery_width": delivery[0],
-        "binding_regions": [],
+        "binding_regions": [
+            {
+                "region_type": item.get("region_type"),
+                "region_role": item.get("region_role"),
+                "crop": item.get("crop"),
+            }
+            for item in selected_regions
+        ],
         "source_backed_regions": [
             {
                 "region_type": item.get("region_type"),

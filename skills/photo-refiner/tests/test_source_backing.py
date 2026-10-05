@@ -192,6 +192,9 @@ class SourceBackedPlanNormalizationTests(unittest.TestCase):
         self.assertFalse(normalized["tiling_requirement"]["user_confirmation_required"])
         self.assertEqual(normalized["tiling_requirement"]["estimated_generation_calls"], 0)
         self.assertEqual(normalized["source_backing"]["source_backed_region_count"], 1)
+        self.assertEqual(normalized["region_count"], 1)
+        self.assertEqual(normalized["regions"][0]["region_type"], "face")
+        self.assertEqual(normalized["delivery_feasibility"]["binding_regions"][0]["region_type"], "face")
         self.assertEqual(
             normalized["source_backing"]["source_backed_regions"][0]["action"],
             "retain-source-master-detail",
